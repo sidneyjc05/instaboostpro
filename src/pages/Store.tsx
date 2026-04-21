@@ -55,20 +55,21 @@ export default function Store() {
     }
   };
 
-  const simulatePayment = async () => {
-    if (!paymentData) return;
-    try {
-      await fetch('/api/webhook/mercadopago', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ payment_id: paymentData.id })
-      });
-      showNotification.success('Pagamento simulado via webhook!');
-    } catch {}
-  };
+  const packages = [
+    { c: 5, price: 'R$ 0,50', time: '1 minuto' },
+    { c: 10, price: 'R$ 1,00', time: '2 minutos' },
+    { c: 25, price: 'R$ 2,00', time: '5 minutos' },
+    { c: 55, price: 'R$ 5,00', time: '11 minutos' },
+    { c: 125, price: 'R$ 10,00', time: '25 minutos' },
+    { c: 285, price: 'R$ 20,00', time: '57 minutos' },
+    { c: 640, price: 'R$ 50,00', time: '2h 8m', pop: true },
+    { c: 1430, price: 'R$ 100,00', time: '4h 46m' },
+    { c: 3210, price: 'R$ 200,00', time: '10h 42m' },
+    { c: 7200, price: 'R$ 250,00', time: '24 horas', pop: true }
+  ];
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-6 pb-20">
       <div>
         <h2 className="text-2xl font-bold flex items-center gap-2">
           <Zap className="text-yellow-500" /> Loja de Créditos
@@ -77,20 +78,14 @@ export default function Store() {
       </div>
 
       {!paymentData ? (
-        <div className="grid grid-cols-2 gap-4">
-          {[
-            { c: 100, price: 'R$ 10,00', pop: false },
-            { c: 500, price: 'R$ 40,00', pop: true, save: '20%' },
-            { c: 1000, price: 'R$ 70,00', pop: false, save: '30%' },
-            { c: 2000, price: 'R$ 120,00', pop: false, save: '40%' },
-          ].map(pkg => (
-            <div key={pkg.c} className={`relative bg-card border rounded-3xl p-5 flex flex-col items-center gap-3 ${pkg.pop ? 'bg-gradient-to-br from-primary/20 to-blue-900/20 border-primary/30 ring-2 ring-primary/20 scale-105 z-10' : 'border-border'}`}>
-              {pkg.pop && <span className="absolute -top-3 bg-primary text-white text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-wider">Mais Popular</span>}
-              {pkg.save && <span className="absolute top-3 right-3 text-[10px] font-bold text-green-500 bg-green-500/10 px-2 py-0.5 rounded-full">Economize {pkg.save}</span>}
-              <div className="text-3xl mt-4 border-b border-border/50 pb-4 w-full text-center">
-                <span className="font-bold">{pkg.c}</span> <span className="text-xl">💰</span>
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+          {packages.map(pkg => (
+            <div key={pkg.c} className={`relative bg-card border rounded-3xl p-5 flex flex-col items-center gap-2 ${pkg.pop ? 'bg-gradient-to-br from-primary/20 to-blue-900/20 border-primary/30 ring-2 ring-primary/20 shadow-md z-10' : 'border-border'}`}>
+              <div className="text-2xl mt-2 border-b border-border/50 pb-2 w-full text-center">
+                <span className="font-bold">{pkg.c.toLocaleString('pt-BR')}</span> <span className="text-lg">💰</span>
               </div>
-              <div className="font-bold text-lg">{pkg.price}</div>
+              <div className="text-xs text-muted-foreground text-center">Destaque por <br/> <strong className="text-white">{pkg.time}</strong></div>
+              <div className="font-bold text-lg mt-1">{pkg.price}</div>
               <Button className="w-full mt-2" variant={pkg.pop ? 'primary' : 'secondary'} onClick={() => handleBuy(pkg.c)}>
                 Comprar
               </Button>
@@ -110,19 +105,25 @@ export default function Store() {
             <p className="text-sm text-muted-foreground mt-1">Aprovação em segundos. Escaneie pelo app do seu banco para pagar via PIX.</p>
           </div>
           
-          <div className="p-2 bg-white rounded-xl">
-            <img src={paymentData.qrCode} alt="PIX QR Code" className="w-48 h-48" />
-          </div>
+          {paymentData.qrCode ? (
+            <div className="p-2 bg-white rounded-xl">
+              <img src={paymentData.qrCode} alt="PIX QR Code" className="w-48 h-48" />
+            </div>
+          ) : (
+            <div className="p-2 bg-white rounded-xl w-48 h-48 flex items-center justify-center text-xs text-black/50 text-center font-medium">
+              QR Code apenas via app MercadoPago
+            </div>
+          )}
 
           <div className="w-full flex gap-2">
-            <div className="flex-1 bg-secondary rounded-xl px-3 py-2 text-xs truncate border border-border flex items-center">
-              {paymentData.pixCode.substring(0, 30)}...
+            <div className="flex-1 bg-secondary rounded-xl px-3 py-2 text-xs truncate border border-border flex items-center text-left">
+              {paymentData.pixCode?.substring(0, 30)}...
             </div>
             <Button 
                variant="outline"
                onClick={() => {
                  navigator.clipboard.writeText(paymentData.pixCode);
-                 showNotification.success('Código copiado!');
+                 showNotification.success('Código PIX copiado!');
                }}
             >
               <Copy size={16} /> Copiar
@@ -130,13 +131,12 @@ export default function Store() {
           </div>
 
           <div className="flex items-center gap-2 text-sm text-primary animate-pulse">
-            <Loader2 className="animate-spin" size={16} /> Aguardando pagamento...
+            <Loader2 className="animate-spin" size={16} /> Aguardando pagamento do PIX...
           </div>
-
-          {/* SIMULATION BUTTON FOR DEV  */}
-          <button onClick={simulatePayment} className="text-[10px] text-muted-foreground underline mt-4">
-             [DEV] Simular Pagamento Aprovado
-          </button>
+          
+          <Button variant="secondary" className="mt-4" onClick={() => setPaymentData(null)}>
+            Cancelar Operação
+          </Button>
         </motion.div>
       )}
     </div>

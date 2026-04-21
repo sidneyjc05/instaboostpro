@@ -20,13 +20,7 @@ export default function Create() {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
-  const getCost = () => {
-    switch(duration) {
-      case 24: return 20;
-      case 72: return 50;
-      default: return 10;
-    }
-  };
+  const getCost = () => duration * 5;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,7 +33,7 @@ export default function Create() {
       const res = await fetch('/api/promotions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, durationHours: duration })
+        body: JSON.stringify({ url, durationMinutes: duration })
       });
       const data = await res.json();
       
@@ -92,24 +86,31 @@ export default function Create() {
           <label className="text-sm font-medium ml-1 flex items-center gap-2">
             <Clock size={16} /> Tempo de Destaque
           </label>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             {[
-              { h: 1, label: '1 Hora', c: 10 },
-              { h: 24, label: '24 Horas', c: 20 },
-              { h: 72, label: '72 Horas', c: 50 },
+              { m: 1, label: '1 Min', c: 5 },
+              { m: 5, label: '5 Min', c: 25 },
+              { m: 15, label: '15 Min', c: 75 },
+              { m: 30, label: '30 Min', c: 150 },
+              { m: 60, label: '1 Hora', c: 300 },
+              { m: 120, label: '2 Horas', c: 600 },
+              { m: 240, label: '4 Horas', c: 1200 },
+              { m: 480, label: '8 Horas', c: 2400 },
+              { m: 720, label: '12 Horas', c: 3600 },
+              { m: 1440, label: '24 Horas', c: 7200 },
             ].map(opt => (
               <button
-                key={opt.h}
+                key={opt.m}
                 type="button"
-                onClick={() => setDuration(opt.h)}
-                className={`flex flex-col items-center gap-1 p-3 rounded-xl border transition-all ${
-                  duration === opt.h 
+                onClick={() => setDuration(opt.m)}
+                className={`flex flex-col items-center gap-1 p-2 rounded-xl border transition-all ${
+                  duration === opt.m 
                     ? 'bg-primary/10 border-primary text-primary' 
                     : 'bg-background border-border text-muted-foreground hover:bg-secondary'
                 }`}
               >
-                <span className="font-semibold">{opt.label}</span>
-                <span className="text-xs opacity-80">{opt.c} moedas</span>
+                <span className="font-semibold text-sm">{opt.label}</span>
+                <span className="text-[10px] opacity-80">{opt.c.toLocaleString('pt-BR')} moedas</span>
               </button>
             ))}
           </div>

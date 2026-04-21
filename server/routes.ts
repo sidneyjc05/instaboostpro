@@ -76,12 +76,10 @@ apiRouter.get('/promotions', authMiddleware, (req: any, res) => {
 });
 
 apiRouter.post('/promotions', authMiddleware, (req: any, res) => {
-  const { url, durationHours } = req.body;
-  if (!url || !durationHours) return res.status(400).json({ error: 'URL and duration required' });
+  const { url, durationMinutes } = req.body;
+  if (!url || !durationMinutes) return res.status(400).json({ error: 'URL and duration required' });
 
-  let cost = 10; // base cost
-  if (durationHours === 24) cost = 20;
-  if (durationHours === 72) cost = 50;
+  const cost = durationMinutes * 5;
 
   const tx = db.transaction(() => {
     const user = db.prepare('SELECT credits FROM users WHERE id = ?').get(req.userId) as { credits: number };
@@ -89,7 +87,8 @@ apiRouter.post('/promotions', authMiddleware, (req: any, res) => {
 
     db.prepare('UPDATE users SET credits = credits - ? WHERE id = ?').run(cost, req.userId);
     
-    const expiresAt = new Date(Date.now() + durationHours * 60 * 60 * 1000).toISOString();
+    // Convert durationMinutes to ms
+    const expiresAt = new Date(Date.now() + durationMinutes * 60 * 1000).toISOString();
     return db.prepare('INSERT INTO promotions (user_id, url, cost, expires_at) VALUES (?, ?, ?, ?)').run(req.userId, url, cost, expiresAt);
   });
 
@@ -104,7 +103,7 @@ apiRouter.post('/promotions', authMiddleware, (req: any, res) => {
 
 apiRouter.post('/promotions/:id/interact', authMiddleware, (req: any, res) => {
   const promotionId = req.params.id;
-  const reward = 5;
+  const reward = 0.2; // 0.2 credits per interact
 
   const tx = db.transaction(() => {
     const promo = db.prepare('SELECT * FROM promotions WHERE id = ?').get(promotionId) as any;
@@ -129,7 +128,6 @@ apiRouter.post('/promotions/:id/interact', authMiddleware, (req: any, res) => {
 });
 
 // --- PAYMENTS (Mercado Pago Real API) --- //
-// 1 credit = 0.1 BRL. So 100 credits = 10 BRL.
 apiRouter.post('/payments/pix', authMiddleware, async (req: any, res) => {
   const { credits } = req.body;
   if (!credits || typeof credits !== 'number') return res.status(400).json({ error: 'Invalid credits amount' });
@@ -138,7 +136,22 @@ apiRouter.post('/payments/pix', authMiddleware, async (req: any, res) => {
     return res.status(500).json({ error: 'Mercado Pago token não foi configurado (.env).' });
   }
 
-  const amount = credits * 0.1;
+  // Preços predefinidos da loja
+  const packageMap: Record<number, number> = {
+    5: 0.50,
+    10: 1.00,
+    25: 2.00,
+    55: 5.00,
+    125: 10.00,
+    285: 20.00,
+    640: 50.00,
+    1430: 100.00,
+    3210: 200.00,
+    7200: 250.00
+  };
+
+  const amount = packageMap[credits];
+  if (!amount) return res.status(400).json({ error: 'Pacote inválido' });
 
   try {
     const user = db.prepare('SELECT username FROM users WHERE id = ?').get(req.userId) as any;

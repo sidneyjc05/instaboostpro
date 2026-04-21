@@ -71,7 +71,7 @@ export default function Home() {
         </div>
         <div className="flex items-center gap-3">
           <div className="px-4 py-2 bg-yellow-500/15 border border-yellow-500/30 text-yellow-500 rounded-full font-semibold flex items-center gap-2 shadow-sm">
-             💎 {user?.credits} Créditos
+             💎 {Number((user?.credits || 0).toFixed(1))} Créditos
           </div>
           <button onClick={loadPromos} className="p-2 bg-secondary rounded-full hover:bg-muted text-muted-foreground hover:text-foreground">
             <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
