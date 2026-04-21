@@ -1,12 +1,16 @@
 import React from 'react';
 import { NavLink, Outlet } from 'react-router';
-import { Home, PlusSquare, Store, User, Sun, Moon, Volume2, VolumeX } from 'lucide-react';
+import { Home, PlusSquare, Store, User, Sun, Moon, Volume2, VolumeX, ShieldAlert } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { useAppSound } from '../context/SoundContext';
+import { useAuth } from '../context/AuthContext';
 
 export function Layout() {
   const { theme, toggleTheme } = useTheme();
   const { soundEnabled, toggleSound } = useAppSound();
+  const { user } = useAuth();
+
+  const isAdmin = user?.role === 'admin';
 
   return (
     <div className="flex flex-col min-h-screen pb-20 md:pb-0 md:pl-20 bg-background text-foreground transition-colors duration-300">
@@ -37,6 +41,7 @@ export function Layout() {
             <NavItem to="/new" icon={<PlusSquare />} label="Criar" />
             <NavItem to="/store" icon={<Store />} label="Loja" />
             <NavItem to="/profile" icon={<User />} label="Perfil" />
+            {isAdmin && <NavItem to="/admin" icon={<ShieldAlert />} label="Admin" />}
           </nav>
         </div>
         <div className="flex flex-col gap-6">
@@ -60,6 +65,7 @@ export function Layout() {
         <NavItem to="/new" icon={<PlusSquare />} label="Criar" />
         <NavItem to="/store" icon={<Store />} label="Loja" />
         <NavItem to="/profile" icon={<User />} label="Perfil" />
+        {isAdmin && <NavItem to="/admin" icon={<ShieldAlert />} label="Admin" />}
       </nav>
     </div>
   );

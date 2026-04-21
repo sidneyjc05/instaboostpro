@@ -11,10 +11,18 @@ export const authMiddleware = (req: Request, res: Response, next: NextFunction) 
   }
 
   try {
-    const payload = jwt.verify(token, JWT_SECRET) as { id: number };
+    const payload = jwt.verify(token, JWT_SECRET) as { id: number, role: string };
     (req as any).userId = payload.id;
+    (req as any).userRole = payload.role || 'user';
     next();
   } catch (error) {
     res.status(401).json({ error: 'Unauthorized, invalid token' });
   }
+};
+
+export const adminMiddleware = (req: Request, res: Response, next: NextFunction) => {
+  if ((req as any).userRole !== 'admin') {
+     return res.status(403).json({ error: 'Forbidden, admins only' });
+  }
+  next();
 };

@@ -48,28 +48,63 @@ db.exec(`
   );
 `);
 
-// Safe Migration for last_active_at
+// Safe Migration for new columns
 const userCols = db.prepare('PRAGMA table_info(users)').all() as any[];
 const hasLastActiveAt = userCols.some(c => c.name === 'last_active_at');
-if (!hasLastActiveAt) {
-  console.log('Migrating: Adding last_active_at to users table...');
-  db.exec('ALTER TABLE users ADD COLUMN last_active_at DATETIME DEFAULT CURRENT_TIMESTAMP;');
-}
+const hasEmail = userCols.some(c => c.name === 'email');
+const hasRole = userCols.some(c => c.name === 'role');
+const hasIsVerified = userCols.some(c => c.name === 'is_verified');
+const hasIsBlocked = userCols.some(c => c.name === 'is_blocked');
 
-// Garbage Collector: cleans up the database every hour
-// 1. Deletes pending payments older than 15 minutes
-// 2. Deletes interactions for promotions that no longer exist
-// 3. Deletes expired promotions older than 7 days
-// 4. Deletes inactive users (no activity for 90 days)
+if (!hasLastActiveAt) db.exec('ALTER TABLE users ADD COLUMN last_active_at DATETIME DEFAULT CURRENT_TIMESTAMP;');
+if (!hasEmail) db.exec('ALTER TABLE users ADD COLUMN email TEXT;');
+if (!hasRole) db.exec('ALTER TABLE users ADD COLUMN role TEXT DEFAULT "user";');
+if (!hasIsVerified) db.exec('ALTER TABLE users ADD COLUMN is_verified INTEGER DEFAULT 0;');
+if (!hasIsBlocked) db.exec('ALTER TABLE users ADD COLUMN is_blocked INTEGER DEFAULT 0;');
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS login_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    ip TEXT,
+    device TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS trusted_devices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    device_hash TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS verification_codes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    code TEXT NOT NULL,
+    expires_at DATETIME NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+`);
+
+// Fast Garbage Collector for Payments: every 1 minute
+setInterval(() => {
+  try {
+    // Delete payments that have been stuck in pending for > 17 minutes
+    db.prepare(`
+      DELETE FROM payments 
+      WHERE status = 'pending' AND datetime(created_at, '+17 minutes') < datetime('now')
+    `).run();
+  } catch(e) {}
+}, 60 * 1000); // 1 min
+
+// Deep Garbage Collector: cleans up the database every hour
 setInterval(() => {
   try {
     console.log('[Garbage Collector] Running DB cleanup...');
-
-    const deletePendingPayments = db.prepare(`
-      DELETE FROM payments 
-      WHERE status = 'pending' AND datetime(created_at, '+15 minutes') < datetime('now')
-    `);
-    const resPayments = deletePendingPayments.run();
 
     const deleteOldPromos = db.prepare(`
       DELETE FROM promotions 
@@ -86,8 +121,8 @@ setInterval(() => {
     `);
     const resUsers = deleteInactiveUsers.run();
 
-    if (resPayments.changes > 0 || resPromos.changes > 0 || resUsers.changes > 0) {
-      console.log(`[Garbage Collector] Cleaned up: ${resPayments.changes} pending payments, ${resPromos.changes} old promos, ${resUsers.changes} inactive users.`);
+    if (resPromos.changes > 0 || resUsers.changes > 0) {
+      console.log(`[Garbage Collector] Cleaned up: ${resPromos.changes} old promos, ${resUsers.changes} inactive users.`);
     }
 
   } catch (error) {

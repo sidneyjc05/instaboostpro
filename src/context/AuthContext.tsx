@@ -3,6 +3,10 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 export interface User {
   id: number;
   username: string;
+  email?: string;
+  role: string;
+  is_verified: boolean;
+  is_blocked: boolean;
   credits: number;
 }
 

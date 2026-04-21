@@ -2,7 +2,7 @@ import express from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { db } from './db.js';
-import { authMiddleware } from './auth.js';
+import { authMiddleware, adminMiddleware } from './auth.js';
 import crypto from 'crypto';
 import qrcode from 'qrcode';
 import { MercadoPagoConfig, Payment } from 'mercadopago';
@@ -16,14 +16,19 @@ const mpPayment = new Payment(mpClient);
 
 // --- AUTH --- //
 apiRouter.post('/auth/register', (req, res) => {
-  const { username, password } = req.body;
+  const { username, email, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
 
   try {
     const hash = bcrypt.hashSync(password, 10);
-    const result = db.prepare('INSERT INTO users (username, password) VALUES (?, ?)').run(username, hash);
     
-    const token = jwt.sign({ id: result.lastInsertRowid }, JWT_SECRET, { expiresIn: '7d' });
+    // Check if this is the first user
+    const { count } = db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number };
+    const initialRole = count === 0 ? 'admin' : 'user';
+
+    const result = db.prepare('INSERT INTO users (username, email, password, role) VALUES (?, ?, ?, ?)').run(username, email || null, hash, initialRole);
+    
+    const token = jwt.sign({ id: result.lastInsertRowid, role: initialRole }, JWT_SECRET, { expiresIn: '7d' });
     res.cookie('token', token, { 
       httpOnly: true, 
       secure: true, 
@@ -36,16 +41,55 @@ apiRouter.post('/auth/register', (req, res) => {
 });
 
 apiRouter.post('/auth/login', (req, res) => {
-  const { username, password } = req.body;
-  const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username) as any;
+  const { username, password, verificationCode } = req.body;
+  const user = db.prepare('SELECT * FROM users WHERE username = ? OR email = ?').get(username, username) as any;
   
   if (!user || !bcrypt.compareSync(password, user.password)) {
     return res.status(401).json({ error: 'Invalid credentials' });
   }
 
+  if (user.is_blocked) {
+    return res.status(403).json({ error: 'Your account has been blocked by an administrator.' });
+  }
+
+  // Get IP and Device
+  const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown') as string;
+  const device = req.headers['user-agent'] || 'unknown';
+  const deviceHash = crypto.createHash('md5').update(`${ip}-${device}`).digest('hex');
+
+  db.prepare('INSERT INTO login_logs (user_id, ip, device) VALUES (?, ?, ?)').run(user.id, ip, device);
+
+  // Suspicious Login Detection (New device check)
+  const isTrusted = db.prepare('SELECT id FROM trusted_devices WHERE user_id = ? AND device_hash = ?').get(user.id, deviceHash);
+  
+  if (!isTrusted && user.email) {
+     if (!verificationCode) {
+         // Create a new code if no code provided
+         const code = Math.floor(100000 + Math.random() * 900000).toString();
+         db.prepare('INSERT INTO verification_codes (user_id, code, expires_at) VALUES (?, ?, datetime("now", "+15 minutes"))').run(user.id, code);
+         
+         // In a real scenario, Nodemailer sends email here.
+         console.log(`[SECURITY] Suspicious login for ${user.email}. Verification Code: ${code}`);
+
+         return res.status(403).json({ requiresVerification: true, error: 'Acesso de novo dispositivo! Código de segurança enviado para seu email.' });
+     } else {
+         const validCode = db.prepare('SELECT id FROM verification_codes WHERE user_id = ? AND code = ? AND expires_at > datetime("now")').get(user.id, verificationCode);
+         if (!validCode) {
+             return res.status(401).json({ error: 'Código de verificação inválido ou expirado.' });
+         }
+         // Code is valid, clean up and trust device
+         db.prepare('DELETE FROM verification_codes WHERE user_id = ?').run(user.id);
+         db.prepare('INSERT INTO trusted_devices (user_id, device_hash) VALUES (?, ?)').run(user.id, deviceHash);
+         db.prepare('UPDATE users SET is_verified = 1 WHERE id = ?').run(user.id);
+     }
+  } else if (!isTrusted) {
+      // Legacy user without email, just trust automatically to not lock them out
+      db.prepare('INSERT INTO trusted_devices (user_id, device_hash) VALUES (?, ?)').run(user.id, deviceHash);
+  }
+
   db.prepare('UPDATE users SET last_active_at = CURRENT_TIMESTAMP WHERE id = ?').run(user.id);
 
-  const token = jwt.sign({ id: user.id }, JWT_SECRET, { expiresIn: '7d' });
+  const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
   res.cookie('token', token, { 
     httpOnly: true, 
     secure: true, 
@@ -57,9 +101,42 @@ apiRouter.post('/auth/logout', (req, res) => {
   res.clearCookie('token', { sameSite: 'none', secure: true }).json({ success: true });
 });
 
+// --- ADMIN ROUTES --- //
+apiRouter.get('/admin/users', authMiddleware, adminMiddleware, (req, res) => {
+   const users = db.prepare(`
+      SELECT id, username, email, role, credits, is_blocked, last_active_at, created_at 
+      FROM users 
+      ORDER BY created_at DESC
+   `).all();
+   res.json(users);
+});
+
+apiRouter.get('/admin/logs', authMiddleware, adminMiddleware, (req, res) => {
+   const logs = db.prepare(`
+      SELECT l.id, u.username, l.ip, l.device, l.created_at
+      FROM login_logs l
+      JOIN users u ON l.user_id = u.id
+      ORDER BY l.created_at DESC LIMIT 100
+   `).all();
+   res.json(logs);
+});
+
+apiRouter.post('/admin/users/:id/block', authMiddleware, adminMiddleware, (req, res) => {
+   const { blocked } = req.body;
+   db.prepare('UPDATE users SET is_blocked = ? WHERE id = ?').run(blocked ? 1 : 0, req.params.id);
+   res.json({ success: true });
+});
+
+apiRouter.post('/admin/users/:id/role', authMiddleware, adminMiddleware, (req, res) => {
+   const { role } = req.body; // 'admin' or 'user'
+   db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, req.params.id);
+   res.json({ success: true });
+});
+
 apiRouter.get('/me', authMiddleware, (req: any, res) => {
   db.prepare('UPDATE users SET last_active_at = CURRENT_TIMESTAMP WHERE id = ?').run(req.userId);
-  const user = db.prepare('SELECT id, username, credits, created_at FROM users WHERE id = ?').get(req.userId);
+  const user = db.prepare('SELECT id, username, email, role, is_verified, credits, created_at FROM users WHERE id = ? AND is_blocked = 0').get(req.userId);
+  if (!user) return res.status(401).json({ error: 'User blocked or not found' });
   res.json(user);
 });
 
