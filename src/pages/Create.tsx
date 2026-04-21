@@ -60,9 +60,12 @@ export default function Create() {
         <p className="text-muted-foreground text-sm mt-1">Crie sua divulgação e ganhe visibilidade</p>
       </div>
 
-      <div className="p-4 bg-secondary/50 rounded-2xl border border-primary/20 flex gap-3 text-sm items-start">
-        <Info className="text-primary shrink-0 mt-0.5" size={18} />
-        <p>Outros usuários poderão ver seu link, curtir ou te seguir para ganhar créditos. Certifique-se que o perfil é público.</p>
+      <div className="p-4 bg-orange-500/10 rounded-2xl border border-orange-500/20 flex gap-3 text-sm items-start">
+        <Info className="text-orange-600 dark:text-orange-400 shrink-0 mt-0.5" size={20} />
+        <div className="flex flex-col gap-1 text-orange-900/90 dark:text-orange-200/90">
+          <p className="font-semibold text-orange-700 dark:text-orange-400">Atenção: Necessário Perfil Público</p>
+          <p className="text-orange-800 dark:text-orange-200">Para impulsionar a sua conta (seja feed, reels ou perfil), primeiro <strong>certifique-se de não estar bloqueado ou com a conta privada</strong>. Perfis privados não exibem o visualizador e perdem o engajamento na plataforma.</p>
+        </div>
       </div>
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-6 bg-card border border-border p-5 rounded-3xl shadow-sm">

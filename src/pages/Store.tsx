@@ -84,7 +84,7 @@ export default function Store() {
               <div className="text-2xl mt-2 border-b border-border/50 pb-2 w-full text-center">
                 <span className="font-bold">{pkg.c.toLocaleString('pt-BR')}</span> <span className="text-lg">💰</span>
               </div>
-              <div className="text-xs text-muted-foreground text-center">Destaque por <br/> <strong className="text-white">{pkg.time}</strong></div>
+              <div className="text-xs text-muted-foreground text-center">Destaque por <br/> <strong className="text-foreground">{pkg.time}</strong></div>
               <div className="font-bold text-lg mt-1">{pkg.price}</div>
               <Button className="w-full mt-2" variant={pkg.pop ? 'primary' : 'secondary'} onClick={() => handleBuy(pkg.c)}>
                 Comprar
