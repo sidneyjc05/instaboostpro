@@ -150,7 +150,8 @@ apiRouter.post('/payments/pix', authMiddleware, async (req: any, res) => {
         payment_method_id: 'pix',
         payer: {
           email: `${user.username.replace(/[^a-zA-Z0-9]/g, '')}@instaboost.com.br`
-        }
+        },
+        notification_url: 'https://instaboostpro-production.up.railway.app/api/webhook/mercadopago'
       }
     });
 
