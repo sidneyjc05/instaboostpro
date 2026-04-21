@@ -19,11 +19,23 @@ apiRouter.post('/auth/register', (req, res) => {
   const { username, email, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
 
+  // Check unique email if provided
+  if (email) {
+    const existingEmail = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+    if (existingEmail) {
+      return res.status(400).json({ error: 'E-mail já está em uso por outra conta' });
+    }
+  }
+
   try {
     const hash = bcrypt.hashSync(password, 10);
     
     // Check if this is the first user
     const { count } = db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number };
+    if (count === 0 && !email) {
+      return res.status(400).json({ error: 'O primeiro usuário (Admin) precisa informar um e-mail' });
+    }
+
     const initialRole = count === 0 ? 'admin' : 'user';
 
     const result = db.prepare('INSERT INTO users (username, email, password, role) VALUES (?, ?, ?, ?)').run(username, email || null, hash, initialRole);
@@ -38,6 +50,46 @@ apiRouter.post('/auth/register', (req, res) => {
     if (err.code === 'SQLITE_CONSTRAINT_UNIQUE') return res.status(400).json({ error: 'Username already taken' });
     res.status(500).json({ error: 'Internal server error' });
   }
+});
+
+// PASSWORD RECOVERY
+apiRouter.post('/auth/recover/send', (req, res) => {
+   const { email } = req.body;
+   if (!email) return res.status(400).json({ error: 'Email requerido' });
+
+   const user = db.prepare('SELECT id FROM users WHERE email = ?').get(email) as any;
+   if (!user) {
+      // Return success even if not found to prevent email enumeration, or just return success
+      return res.json({ success: true }); 
+   }
+
+   // Generate code
+   const code = Math.floor(100000 + Math.random() * 900000).toString();
+   db.prepare('DELETE FROM verification_codes WHERE user_id = ?').run(user.id);
+   db.prepare('INSERT INTO verification_codes (user_id, code, expires_at) VALUES (?, ?, datetime("now", "+15 minutes"))').run(user.id, code);
+
+   console.log(`[RECOVERY] Envio de recuperação para ${email}. Código: ${code}`);
+   res.json({ success: true });
+});
+
+apiRouter.post('/auth/recover/reset', (req, res) => {
+   const { email, code, newPassword } = req.body;
+   if (!email || !code || !newPassword) return res.status(400).json({ error: 'Preencha todos os campos' });
+
+   const user = db.prepare('SELECT id FROM users WHERE email = ?').get(email) as any;
+   if (!user) return res.status(400).json({ error: 'Código inválido' });
+
+   const validCode = db.prepare('SELECT id FROM verification_codes WHERE user_id = ? AND code = ? AND expires_at > datetime("now")').get(user.id, code);
+   
+   if (!validCode) {
+      return res.status(400).json({ error: 'Código inválido ou expirado' });
+   }
+
+   const hash = bcrypt.hashSync(newPassword, 10);
+   db.prepare('UPDATE users SET password = ? WHERE id = ?').run(hash, user.id);
+   db.prepare('DELETE FROM verification_codes WHERE user_id = ?').run(user.id);
+
+   res.json({ success: true });
 });
 
 apiRouter.post('/auth/login', (req, res) => {
@@ -138,6 +190,45 @@ apiRouter.get('/me', authMiddleware, (req: any, res) => {
   const user = db.prepare('SELECT id, username, email, role, is_verified, credits, created_at FROM users WHERE id = ? AND is_blocked = 0').get(req.userId);
   if (!user) return res.status(401).json({ error: 'User blocked or not found' });
   res.json(user);
+});
+
+apiRouter.post('/me/email', authMiddleware, (req: any, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: 'Email requerido' });
+
+  const existingEmail = db.prepare('SELECT id FROM users WHERE email = ? AND id != ?').get(email, req.userId);
+  if (existingEmail) return res.status(400).json({ error: 'E-mail já está em uso por outra conta' });
+
+  db.prepare('UPDATE users SET email = ?, is_verified = 0 WHERE id = ?').run(email, req.userId);
+  res.json({ success: true });
+});
+
+apiRouter.post('/me/email/verify/send', authMiddleware, (req: any, res) => {
+  const user = db.prepare('SELECT email FROM users WHERE id = ?').get(req.userId) as any;
+  if (!user || !user.email) return res.status(400).json({ error: 'Nenhum e-mail vinculado' });
+
+  const code = Math.floor(100000 + Math.random() * 900000).toString();
+  db.prepare('DELETE FROM verification_codes WHERE user_id = ?').run(req.userId);
+  db.prepare('INSERT INTO verification_codes (user_id, code, expires_at) VALUES (?, ?, datetime("now", "+15 minutes"))').run(req.userId, code);
+
+  console.log(`[VERIFY] Código de verificação para ${user.email}. Código: ${code}`);
+  res.json({ success: true });
+});
+
+apiRouter.post('/me/email/verify', authMiddleware, (req: any, res) => {
+  const { code } = req.body;
+  if (!code) return res.status(400).json({ error: 'Código requerido' });
+
+  const validCode = db.prepare('SELECT id FROM verification_codes WHERE user_id = ? AND code = ? AND expires_at > datetime("now")').get(req.userId, code);
+  
+  if (!validCode) {
+     return res.status(400).json({ error: 'Código inválido ou expirado' });
+  }
+
+  db.prepare('UPDATE users SET is_verified = 1 WHERE id = ?').run(req.userId);
+  db.prepare('DELETE FROM verification_codes WHERE user_id = ?').run(req.userId);
+
+  res.json({ success: true });
 });
 
 apiRouter.get('/users/me/promotions', authMiddleware, (req: any, res) => {

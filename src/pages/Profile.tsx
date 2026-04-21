@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/Button';
+import { Input } from '../components/ui/Input';
 import { showNotification } from '../context/NotificationContext';
 import { LogOut, Rocket, Clock, History, AlertTriangle, RefreshCw, Eye, QrCode, Copy, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -16,6 +17,13 @@ export default function Profile() {
   const [activeQrModal, setActiveQrModal] = useState<any>(null); // { qrCode, pixCode, etc }
   const navigate = useNavigate();
 
+  const [emailInput, setEmailInput] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
+  const [codeInput, setCodeInput] = useState('');
+  const [showEmailVerify, setShowEmailVerify] = useState(false);
+  const [showPasswordChange, setShowPasswordChange] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
+
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
@@ -23,6 +31,115 @@ export default function Profile() {
     const interval = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(interval);
   }, []);
+
+  const handleLinkEmail = async () => {
+     if (!emailInput) return showNotification.error('Digite um e-mail válido');
+     setActionLoading(true);
+     try {
+        const res = await fetch('/api/me/email', {
+           method: 'POST',
+           headers: { 'Content-Type': 'application/json' },
+           body: JSON.stringify({ email: emailInput })
+        });
+        const data = await res.json();
+        if (res.ok) {
+           showNotification.success('Email adicionado! Enviaremos um código.');
+           await refreshUser();
+           handleSendVerifyCode();
+        } else {
+           showNotification.error(data.error);
+        }
+     } catch {
+        showNotification.error('Erro de rede');
+     }
+     setActionLoading(false);
+  };
+
+  const handleSendVerifyCode = async () => {
+     setActionLoading(true);
+     try {
+        const res = await fetch('/api/me/email/verify/send', { method: 'POST' });
+        const data = await res.json();
+        if (res.ok) {
+           showNotification.success('Código enviado para seu e-mail!');
+           setShowEmailVerify(true);
+        } else {
+           showNotification.error(data.error);
+        }
+     } catch {
+        showNotification.error('Erro ao enviar código');
+     }
+     setActionLoading(false);
+  };
+
+  const handleVerifyEmail = async () => {
+     if (!codeInput) return;
+     setActionLoading(true);
+     try {
+        const res = await fetch('/api/me/email/verify', {
+           method: 'POST',
+           headers: { 'Content-Type': 'application/json' },
+           body: JSON.stringify({ code: codeInput })
+        });
+        const data = await res.json();
+        if (res.ok) {
+           showNotification.success('Email verificado com sucesso!');
+           setShowEmailVerify(false);
+           setCodeInput('');
+           await refreshUser();
+        } else {
+           showNotification.error(data.error);
+        }
+     } catch {
+        showNotification.error('Erro ao verificar código');
+     }
+     setActionLoading(false);
+  };
+
+  const handleChangePassword = async () => {
+     setActionLoading(true);
+     try {
+        const res = await fetch('/api/auth/recover/send', {
+           method: 'POST',
+           headers: { 'Content-Type': 'application/json' },
+           body: JSON.stringify({ email: user?.email })
+        });
+        const data = await res.json();
+        if (res.ok) {
+           showNotification.success('Código de segurança enviado para seu email!');
+           setShowPasswordChange(true);
+        } else {
+           showNotification.error(data.error);
+        }
+     } catch {
+        showNotification.error('Erro ao enviar código');
+     }
+     setActionLoading(false);
+  };
+
+  const handleUpdatePassword = async () => {
+     if (!codeInput || !passwordInput) return showNotification.error('Preencha os campos');
+     setActionLoading(true);
+     try {
+        const res = await fetch('/api/auth/recover/reset', {
+           method: 'POST',
+           headers: { 'Content-Type': 'application/json' },
+           body: JSON.stringify({ email: user?.email, code: codeInput, newPassword: passwordInput })
+        });
+        const data = await res.json();
+        if (res.ok) {
+           showNotification.success('Senha atualizada com sucesso!');
+           setShowPasswordChange(false);
+           setCodeInput('');
+           setPasswordInput('');
+        } else {
+           showNotification.error(data.error);
+        }
+     } catch {
+        showNotification.error('Erro ao verificar código');
+     }
+     setActionLoading(false);
+  };
 
   // Sync payments automatically while the QR modal is open
   useEffect(() => {
@@ -288,6 +405,71 @@ export default function Profile() {
               })}
            </div>
         )}
+      </div>
+
+      <div className="bg-card border border-border rounded-3xl p-5 md:p-6 flex flex-col gap-4">
+        <h3 className="font-bold border-b border-border pb-3 flex items-center gap-2">
+           Segurança e Recuperação
+        </h3>
+        
+        <div className="flex flex-col gap-3">
+           <div className="p-4 bg-secondary/30 rounded-2xl flex flex-col gap-3">
+              <div className="flex flex-col gap-1">
+                 <span className="text-sm text-muted-foreground">E-mail Cadastrado</span>
+                 <span className="font-bold">{user.email ? user.email : 'Nenhum e-mail vinculado'}</span>
+                 {!user.is_verified && user.email && (
+                    <span className="text-xs text-orange-500 font-bold mb-2">E-mail pendente de verificação</span>
+                 )}
+                 {user.is_verified && (
+                    <span className="text-xs text-green-500 font-bold">Verificado ✓</span>
+                 )}
+              </div>
+
+              {!user.is_verified && (
+                 <div className="flex flex-col gap-2 mt-2 pt-3 border-t border-border/50">
+                    {!user.email && (
+                       <div className="flex gap-2">
+                          <Input 
+                             placeholder="Seu melhor e-mail" 
+                             value={emailInput} 
+                             onChange={(e) => setEmailInput(e.target.value)} 
+                          />
+                          <Button variant="primary" onClick={handleLinkEmail} isLoading={actionLoading}>
+                             Vincular
+                          </Button>
+                       </div>
+                    )}
+                    
+                    {user.email && !showEmailVerify && (
+                       <Button variant="outline" onClick={handleSendVerifyCode} isLoading={actionLoading}>
+                          Enviar Código de Verificação
+                       </Button>
+                    )}
+
+                    {showEmailVerify && (
+                       <div className="flex flex-col gap-2 p-3 bg-card border border-border shadow-sm rounded-xl">
+                          <p className="text-xs font-bold text-center">Digite o código recebido (6 dígitos)</p>
+                          <div className="flex gap-2">
+                             <Input 
+                                placeholder="000000" 
+                                maxLength={6}
+                                value={codeInput} 
+                                onChange={(e) => setCodeInput(e.target.value)} 
+                                className="text-center font-mono tracking-widest text-lg"
+                             />
+                             <Button variant="primary" onClick={handleVerifyEmail} isLoading={actionLoading}>
+                                Validar
+                             </Button>
+                          </div>
+                          <button onClick={() => setShowEmailVerify(false)} className="text-xs text-muted-foreground mt-1 hover:underline">
+                             Cancelar
+                          </button>
+                       </div>
+                    )}
+                 </div>
+              )}
+           </div>
+        </div>
       </div>
 
       <div className="bg-card border border-border rounded-3xl p-5 md:p-6 flex flex-col gap-4">
