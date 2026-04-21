@@ -85,15 +85,14 @@ apiRouter.get('/users/me/payments', authMiddleware, (req: any, res) => {
 
 apiRouter.post('/promotions/:id/reboost', authMiddleware, (req: any, res) => {
   const promoId = req.params.id;
-  const { durationMinutes } = req.body;
-  
-  if (!durationMinutes) return res.status(400).json({ error: 'Duration required' });
-  const cost = durationMinutes * 5;
 
   const tx = db.transaction(() => {
-    const promo = db.prepare('SELECT user_id, expires_at FROM promotions WHERE id = ?').get(promoId) as any;
+    const promo = db.prepare('SELECT user_id, expires_at, cost FROM promotions WHERE id = ?').get(promoId) as any;
     if (!promo) throw new Error('NOT_FOUND');
     if (promo.user_id !== req.userId) throw new Error('UNAUTHORIZED');
+
+    const cost = promo.cost;
+    const durationMinutes = cost / 5;
 
     const user = db.prepare('SELECT credits FROM users WHERE id = ?').get(req.userId) as any;
     if (user.credits < cost) throw new Error('INSUFFICIENT_CREDITS');
@@ -120,7 +119,7 @@ apiRouter.post('/promotions/:id/reboost', authMiddleware, (req: any, res) => {
     tx();
     res.json({ success: true });
   } catch (err: any) {
-    if (err.message === 'TOO_SOON') return res.status(400).json({ error: 'Ainda restam mais de 1 hora de destaque.' });
+    if (err.message === 'TOO_SOON') return res.status(400).json({ error: 'Ainda resta muito tempo de destaque.' });
     if (err.message === 'INSUFFICIENT_CREDITS') return res.status(400).json({ error: 'Not enough credits' });
     res.status(500).json({ error: err.message });
   }
@@ -262,9 +261,22 @@ apiRouter.post('/payments/pix', authMiddleware, async (req: any, res) => {
   }
 });
 
-apiRouter.get('/payments/:id', authMiddleware, (req: any, res) => {
-  const payment = db.prepare('SELECT id, status, credits FROM payments WHERE id = ? AND user_id = ?').get(req.params.id, req.userId);
-  res.json(payment || { error: 'Not found' });
+apiRouter.get('/payments/:id', authMiddleware, async (req: any, res) => {
+  const payment = db.prepare('SELECT id, status, credits FROM payments WHERE id = ? AND user_id = ?').get(req.params.id, req.userId) as any;
+  if (!payment) return res.status(404).json({ error: 'Not found' });
+
+  if (payment.status === 'pending') {
+    try {
+      const mpPayInfo = await mpPayment.get({ id: payment.id });
+      const rawBase64 = mpPayInfo.point_of_interaction?.transaction_data?.qr_code_base64;
+      payment.qrCode = rawBase64 ? `data:image/png;base64,${rawBase64}` : null;
+      payment.pixCode = mpPayInfo.point_of_interaction?.transaction_data?.qr_code;
+    } catch (err) {
+      console.error('Failed to get QR from MP', err);
+    }
+  }
+
+  res.json(payment);
 });
 
 // Simulates a webhook hitting our endpoint from Mercado Pago

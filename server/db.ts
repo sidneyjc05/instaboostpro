@@ -49,12 +49,11 @@ db.exec(`
 `);
 
 // Safe Migration for last_active_at
-try {
+const userCols = db.prepare('PRAGMA table_info(users)').all() as any[];
+const hasLastActiveAt = userCols.some(c => c.name === 'last_active_at');
+if (!hasLastActiveAt) {
+  console.log('Migrating: Adding last_active_at to users table...');
   db.exec('ALTER TABLE users ADD COLUMN last_active_at DATETIME DEFAULT CURRENT_TIMESTAMP;');
-} catch (error: any) {
-  if (!error.message.includes('duplicate column name')) {
-    console.error('Migration error:', error);
-  }
 }
 
 // Garbage Collector: cleans up the database every hour

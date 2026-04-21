@@ -2,8 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/Button';
 import { showNotification } from '../context/NotificationContext';
-import { LogOut, Rocket, Clock, History, AlertTriangle, RefreshCw, Eye } from 'lucide-react';
-import { motion } from 'motion/react';
+import { LogOut, Rocket, Clock, History, AlertTriangle, RefreshCw, Eye, QrCode, Copy, X } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate } from 'react-router';
 
 export default function Profile() {
@@ -12,6 +12,8 @@ export default function Profile() {
   const [payments, setPayments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [reboostLoading, setReboostLoading] = useState<number | null>(null);
+  const [checkingPayment, setCheckingPayment] = useState<string | null>(null);
+  const [activeQrModal, setActiveQrModal] = useState<any>(null); // { qrCode, pixCode, etc }
   const navigate = useNavigate();
 
   const [now, setNow] = useState(Date.now());
@@ -21,6 +23,28 @@ export default function Profile() {
     const interval = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(interval);
   }, []);
+
+  // Sync payments automatically while the QR modal is open
+  useEffect(() => {
+    let interval: any;
+    if (activeQrModal?.id) {
+       interval = setInterval(async () => {
+          try {
+             const res = await fetch(`/api/payments/${activeQrModal.id}`);
+             if (res.ok) {
+                const data = await res.json();
+                if (data.status === 'approved') {
+                   setActiveQrModal(null);
+                   showNotification.success('Pagamento Aprovado!');
+                   fetchData();
+                   refreshUser();
+                }
+             }
+          } catch(e) {}
+       }, 5000);
+    }
+    return () => clearInterval(interval);
+  }, [activeQrModal]);
 
   const fetchData = async () => {
     try {
@@ -37,15 +61,12 @@ export default function Profile() {
   const handleReboost = async (id: number) => {
     setReboostLoading(id);
     try {
-      // Simplest interaction: reboost by 1 hour (60 minutes) which costs 300 credits
       const res = await fetch(`/api/promotions/${id}/reboost`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ durationMinutes: 60 })
+        method: 'POST'
       });
       const data = await res.json();
       if (res.ok) {
-        showNotification.success('Divulgação reaplicada por +1 hora!');
+        showNotification.success('Divulgação reaplicada com sucesso!');
         fetchData();
         refreshUser();
       } else {
@@ -57,8 +78,28 @@ export default function Profile() {
     setReboostLoading(null);
   };
 
+  const handleViewPix = async (payId: string) => {
+     setCheckingPayment(payId);
+     try {
+       const res = await fetch(`/api/payments/${payId}`);
+       const data = await res.json();
+       if (res.ok && data.qrCode) {
+          setActiveQrModal(data);
+       } else if (data.status === 'approved') {
+          showNotification.success('Esse pagamento já foi aprovado!');
+          fetchData();
+       } else {
+          showNotification.error('Não foi possível carregar o código PIX.');
+       }
+     } catch {
+       showNotification.error('Erro ao conectar ao servidor.');
+     }
+     setCheckingPayment(null);
+  };
+
   const calculateTimeLeft = (expiresAt: string) => {
-    const diff = new Date(expiresAt).getTime() - now;
+    const safeDateStr = expiresAt.includes('Z') ? expiresAt : expiresAt.replace(' ', 'T') + 'Z';
+    const diff = new Date(safeDateStr).getTime() - now;
     if (diff <= 0) return 'Expirado';
     const hours = Math.floor(diff / (1000 * 60 * 60));
     const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
@@ -68,17 +109,80 @@ export default function Profile() {
 
   const calculatePaymentTimeLeft = (createdAt: string) => {
     // 15 mins total
-    const diff = (new Date(createdAt).getTime() + 15 * 60 * 1000) - now;
+    const safeDateStr = createdAt.includes('Z') ? createdAt : createdAt.replace(' ', 'T') + 'Z';
+    const diff = (new Date(safeDateStr).getTime() + 15 * 60 * 1000) - now;
     if (diff <= 0) return 'Cancelado (Expirado)';
     const minutes = Math.floor((diff / 1000) / 60);
     const seconds = Math.floor((diff / 1000) % 60);
     return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
   };
 
+  const formatDuration = (cost: number) => {
+     const mins = cost / 5;
+     if (mins >= 60) {
+        const h = Math.floor(mins / 60);
+        const m = Math.floor(mins % 60);
+        return m > 0 ? `${h}h ${m}m` : `${h}h`;
+     }
+     return `${mins}m`;
+  };
+
   if (!user) return null;
 
   return (
     <div className="flex flex-col gap-8 pb-20">
+      
+      <AnimatePresence>
+         {activeQrModal && (
+            <motion.div 
+               initial={{ opacity: 0 }} 
+               animate={{ opacity: 1 }} 
+               exit={{ opacity: 0 }}
+               className="fixed inset-0 z-50 bg-background/80 backdrop-blur-md flex items-center justify-center p-4"
+            >
+               <motion.div 
+                  initial={{ scale: 0.9, y: 20 }}
+                  animate={{ scale: 1, y: 0 }}
+                  className="bg-card w-full max-w-sm border border-border shadow-2xl rounded-3xl p-6 flex flex-col items-center gap-6 relative"
+               >
+                  <button onClick={() => setActiveQrModal(null)} className="absolute top-4 right-4 p-2 bg-secondary rounded-full hover:bg-secondary/80">
+                     <X size={20} />
+                  </button>
+                  <div className="w-16 h-16 bg-green-500/10 text-green-500 rounded-full flex items-center justify-center">
+                    <QrCode size={32} />
+                  </div>
+                  <div className="text-center">
+                    <h3 className="text-xl font-bold">Pagar via PIX</h3>
+                    <p className="text-sm text-muted-foreground mt-1">Escaneie o código para aprovação imediata.</p>
+                  </div>
+                  
+                  <div className="p-2 bg-white rounded-xl">
+                    <img src={activeQrModal.qrCode} alt="PIX QR Code" className="w-48 h-48" />
+                  </div>
+                  
+                  <div className="w-full flex gap-2">
+                    <div className="flex-1 bg-secondary rounded-xl px-3 py-2 text-xs truncate border border-border flex items-center text-left">
+                      {activeQrModal.pixCode?.substring(0, 30)}...
+                    </div>
+                    <Button 
+                       variant="outline"
+                       onClick={() => {
+                         navigator.clipboard.writeText(activeQrModal.pixCode);
+                         showNotification.success('Código PIX copiado!');
+                       }}
+                    >
+                      <Copy size={16} /> Copiar
+                    </Button>
+                  </div>
+
+                  <div className="text-sm text-primary font-mono animate-pulse">
+                     Aguardando confirmação...
+                  </div>
+               </motion.div>
+            </motion.div>
+         )}
+      </AnimatePresence>
+
       <div className="flex flex-col items-center text-center">
         <div className="w-24 h-24 rounded-full bg-gradient-to-tr from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold text-3xl shadow-lg mb-4">
           {user.username.substring(0, 2).toUpperCase()}
@@ -96,21 +200,35 @@ export default function Profile() {
             <Clock size={18} className="text-orange-500" /> Pagamentos PIX Pendentes
           </h3>
           <div className="flex flex-col gap-3">
-            {payments.map(pay => (
-              <div key={pay.id} className="bg-secondary/40 p-4 rounded-2xl flex justify-between items-center border border-border">
-                 <div className="flex flex-col">
-                   <span className="font-bold">{pay.credits} Moedas</span>
-                   <span className="text-xs text-muted-foreground mr-1 mt-1">Status: Aguardando Pagamento</span>
-                 </div>
-                 <div className="flex flex-col items-end">
-                   <span className="font-mono text-destructive font-bold">{calculatePaymentTimeLeft(pay.created_at)}</span>
-                   <span className="text-[10px] text-muted-foreground">Expira em breve</span>
-                 </div>
-              </div>
-            ))}
-            <Button variant="outline" className="w-full text-xs h-9 mt-1" onClick={() => navigate('/store')}>
-              Ir para a Loja
-            </Button>
+            {payments.map(pay => {
+              const timeLeft = calculatePaymentTimeLeft(pay.created_at);
+              const isExpired = timeLeft.includes('Cancelado');
+
+              return (
+                <div key={pay.id} className="bg-secondary/40 p-4 rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center border border-border gap-3">
+                   <div className="flex flex-col w-full">
+                     <span className="font-bold">{pay.credits} Moedas</span>
+                     <div className="flex justify-between w-full mt-1">
+                       <span className="text-xs text-muted-foreground mr-1">Status: Aguardando Pagamento</span>
+                       <div className="flex flex-col items-end">
+                         <span className={`font-mono font-bold ${isExpired ? 'text-muted-foreground' : 'text-destructive'}`}>{timeLeft}</span>
+                       </div>
+                     </div>
+                     {!isExpired && (
+                        <Button 
+                          variant="primary" 
+                          size="sm" 
+                          className="mt-3 w-full"
+                          isLoading={checkingPayment === pay.id}
+                          onClick={() => handleViewPix(pay.id)}
+                        >
+                          <QrCode size={16} className="mr-2" /> Pagar Agora
+                        </Button>
+                     )}
+                   </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -132,9 +250,11 @@ export default function Profile() {
               {promotions.map(promo => {
                 const timeLeft = calculateTimeLeft(promo.expires_at);
                 const isExpired = timeLeft === 'Expirado';
-                const msLeft = new Date(promo.expires_at).getTime() - now;
+                const safeDateStr = promo.expires_at.includes('Z') ? promo.expires_at : promo.expires_at.replace(' ', 'T') + 'Z';
+                const msLeft = new Date(safeDateStr).getTime() - now;
                 // Allow reboost if expired or expiring within 1 hour
                 const canReboost = isExpired || msLeft < 60 * 60 * 1000;
+                const durText = formatDuration(promo.cost);
                 
                 return (
                   <div key={promo.id} className={`p-4 rounded-2xl border flex flex-col gap-3 ${isExpired ? 'bg-secondary/20 border-border opacity-70' : 'bg-primary/5 border-primary/20'}`}>
@@ -160,7 +280,7 @@ export default function Profile() {
                          onClick={() => handleReboost(promo.id)}
                        >
                          {reboostLoading === promo.id ? <RefreshCw className="animate-spin" size={14} /> : <Rocket size={14} />}
-                         Reaplicar 1 Hora (300 💰)
+                         Reaplicar {durText} ({promo.cost} 💰)
                        </Button>
                     )}
                   </div>
