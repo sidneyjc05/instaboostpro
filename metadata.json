@@ -1,0 +1,8 @@
+{
+  "name": "InstaBoost - Social Exchange",
+  "description": "Plataforma de divulgação para Instagram. Ganhe créditos interagindo e impulsione seus próprios posts e perfil com opções premium via PIX.",
+  "requestFramePermissions": [
+    "clipboard-write"
+  ],
+  "majorCapabilities": []
+}
