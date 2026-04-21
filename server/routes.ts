@@ -43,6 +43,8 @@ apiRouter.post('/auth/login', (req, res) => {
     return res.status(401).json({ error: 'Invalid credentials' });
   }
 
+  db.prepare('UPDATE users SET last_active_at = CURRENT_TIMESTAMP WHERE id = ?').run(user.id);
+
   const token = jwt.sign({ id: user.id }, JWT_SECRET, { expiresIn: '7d' });
   res.cookie('token', token, { 
     httpOnly: true, 
@@ -56,8 +58,72 @@ apiRouter.post('/auth/logout', (req, res) => {
 });
 
 apiRouter.get('/me', authMiddleware, (req: any, res) => {
+  db.prepare('UPDATE users SET last_active_at = CURRENT_TIMESTAMP WHERE id = ?').run(req.userId);
   const user = db.prepare('SELECT id, username, credits, created_at FROM users WHERE id = ?').get(req.userId);
   res.json(user);
+});
+
+apiRouter.get('/users/me/promotions', authMiddleware, (req: any, res) => {
+  const promos = db.prepare(`
+    SELECT id, url, expires_at, created_at, cost 
+    FROM promotions 
+    WHERE user_id = ? 
+    ORDER BY created_at DESC
+  `).all(req.userId);
+  res.json(promos);
+});
+
+apiRouter.get('/users/me/payments', authMiddleware, (req: any, res) => {
+  const payments = db.prepare(`
+    SELECT id, amount, credits, status, created_at 
+    FROM payments 
+    WHERE user_id = ? AND status = 'pending'
+    ORDER BY created_at DESC
+  `).all(req.userId);
+  res.json(payments);
+});
+
+apiRouter.post('/promotions/:id/reboost', authMiddleware, (req: any, res) => {
+  const promoId = req.params.id;
+  const { durationMinutes } = req.body;
+  
+  if (!durationMinutes) return res.status(400).json({ error: 'Duration required' });
+  const cost = durationMinutes * 5;
+
+  const tx = db.transaction(() => {
+    const promo = db.prepare('SELECT user_id, expires_at FROM promotions WHERE id = ?').get(promoId) as any;
+    if (!promo) throw new Error('NOT_FOUND');
+    if (promo.user_id !== req.userId) throw new Error('UNAUTHORIZED');
+
+    const user = db.prepare('SELECT credits FROM users WHERE id = ?').get(req.userId) as any;
+    if (user.credits < cost) throw new Error('INSUFFICIENT_CREDITS');
+
+    db.prepare('UPDATE users SET credits = credits - ? WHERE id = ?').run(cost, req.userId);
+    
+    // Check if expired or active
+    const now = Date.now();
+    const expiresAtMs = new Date(promo.expires_at).getTime();
+    
+    // If it expires in > 1 hour, block reboost (so they don't stack up infinitely)
+    if (expiresAtMs > now + 60 * 60 * 1000) {
+       throw new Error('TOO_SOON');
+    }
+
+    // New expiration base is either now (if expired) or the current expiration (if active)
+    const baseTime = expiresAtMs < now ? now : expiresAtMs;
+    const newExpiresAt = new Date(baseTime + durationMinutes * 60 * 1000).toISOString();
+    
+    db.prepare('UPDATE promotions SET expires_at = ? WHERE id = ?').run(newExpiresAt, promoId);
+  });
+
+  try {
+    tx();
+    res.json({ success: true });
+  } catch (err: any) {
+    if (err.message === 'TOO_SOON') return res.status(400).json({ error: 'Ainda restam mais de 1 hora de destaque.' });
+    if (err.message === 'INSUFFICIENT_CREDITS') return res.status(400).json({ error: 'Not enough credits' });
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // --- PROMOTIONS --- //
@@ -156,11 +222,18 @@ apiRouter.post('/payments/pix', authMiddleware, async (req: any, res) => {
   try {
     const user = db.prepare('SELECT username FROM users WHERE id = ?').get(req.userId) as any;
 
+    // Build ISO string of 15 mins from now with correct timezone offset (MP expects ISO 8601 extended format)
+    const expiresAtDate = new Date(Date.now() + 15 * 60 * 1000);
+    // Convert to ISO string explicitly handling milliseconds as per 'date_of_expiration' requirement constraints.
+    // e.g., '2023-11-20T10:00:00.000Z'
+    const dateOfExpirationString = expiresAtDate.toISOString();
+
     const paymentResponse = await mpPayment.create({
       body: {
         transaction_amount: amount,
         description: `${credits} Créditos InstaBoost (${user.username})`,
         payment_method_id: 'pix',
+        date_of_expiration: dateOfExpirationString,
         payer: {
           email: `${user.username.replace(/[^a-zA-Z0-9]/g, '')}@instaboost.com.br`
         },
