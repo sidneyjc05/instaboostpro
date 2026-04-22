@@ -6,6 +6,7 @@ import { authMiddleware, adminMiddleware } from './auth.js';
 import crypto from 'crypto';
 import qrcode from 'qrcode';
 import { MercadoPagoConfig, Payment } from 'mercadopago';
+import { sendVerificationEmail } from './mailer.js';
 
 export const apiRouter = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecret';
@@ -53,7 +54,7 @@ apiRouter.post('/auth/register', (req, res) => {
 });
 
 // PASSWORD RECOVERY
-apiRouter.post('/auth/recover/send', (req, res) => {
+apiRouter.post('/auth/recover/send', async (req, res) => {
    const { email } = req.body;
    if (!email) return res.status(400).json({ error: 'Email requerido' });
 
@@ -69,6 +70,8 @@ apiRouter.post('/auth/recover/send', (req, res) => {
    db.prepare('INSERT INTO verification_codes (user_id, code, expires_at) VALUES (?, ?, datetime("now", "+15 minutes"))').run(user.id, code);
 
    console.log(`[RECOVERY] Envio de recuperação para ${email}. Código: ${code}`);
+   await sendVerificationEmail(email, code, 'recovery');
+   
    res.json({ success: true });
 });
 
@@ -92,7 +95,7 @@ apiRouter.post('/auth/recover/reset', (req, res) => {
    res.json({ success: true });
 });
 
-apiRouter.post('/auth/login', (req, res) => {
+apiRouter.post('/auth/login', async (req, res) => {
   const { username, password, verificationCode } = req.body;
   const user = db.prepare('SELECT * FROM users WHERE username = ? OR email = ?').get(username, username) as any;
   
@@ -120,8 +123,8 @@ apiRouter.post('/auth/login', (req, res) => {
          const code = Math.floor(100000 + Math.random() * 900000).toString();
          db.prepare('INSERT INTO verification_codes (user_id, code, expires_at) VALUES (?, ?, datetime("now", "+15 minutes"))').run(user.id, code);
          
-         // In a real scenario, Nodemailer sends email here.
          console.log(`[SECURITY] Suspicious login for ${user.email}. Verification Code: ${code}`);
+         await sendVerificationEmail(user.email, code, 'login');
 
          return res.status(403).json({ requiresVerification: true, error: 'Acesso de novo dispositivo! Código de segurança enviado para seu email.' });
      } else {
@@ -203,7 +206,7 @@ apiRouter.post('/me/email', authMiddleware, (req: any, res) => {
   res.json({ success: true });
 });
 
-apiRouter.post('/me/email/verify/send', authMiddleware, (req: any, res) => {
+apiRouter.post('/me/email/verify/send', authMiddleware, async (req: any, res) => {
   const user = db.prepare('SELECT email FROM users WHERE id = ?').get(req.userId) as any;
   if (!user || !user.email) return res.status(400).json({ error: 'Nenhum e-mail vinculado' });
 
@@ -212,6 +215,8 @@ apiRouter.post('/me/email/verify/send', authMiddleware, (req: any, res) => {
   db.prepare('INSERT INTO verification_codes (user_id, code, expires_at) VALUES (?, ?, datetime("now", "+15 minutes"))').run(req.userId, code);
 
   console.log(`[VERIFY] Código de verificação para ${user.email}. Código: ${code}`);
+  await sendVerificationEmail(user.email, code, 'verify');
+
   res.json({ success: true });
 });
 

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
+import { OTPInput } from '../components/ui/OTPInput';
 import { showNotification } from '../context/NotificationContext';
 import { LogOut, Rocket, Clock, History, AlertTriangle, RefreshCw, Eye, QrCode, Copy, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -448,19 +449,11 @@ export default function Profile() {
 
                     {showEmailVerify && (
                        <div className="flex flex-col gap-2 p-3 bg-card border border-border shadow-sm rounded-xl">
-                          <p className="text-xs font-bold text-center">Digite o código recebido (6 dígitos)</p>
-                          <div className="flex gap-2">
-                             <Input 
-                                placeholder="000000" 
-                                maxLength={6}
-                                value={codeInput} 
-                                onChange={(e) => setCodeInput(e.target.value)} 
-                                className="text-center font-mono tracking-widest text-lg"
-                             />
-                             <Button variant="primary" onClick={handleVerifyEmail} isLoading={actionLoading}>
-                                Validar
-                             </Button>
-                          </div>
+                          <p className="text-xs font-bold text-center">Digite o código recebido</p>
+                           <div className="flex flex-col gap-4 mt-2">
+                              <OTPInput value={codeInput} onChange={setCodeInput} />
+                              <Button variant="primary" onClick={handleVerifyEmail} isLoading={actionLoading} className="w-full">Validar</Button>
+                           </div>
                           <button onClick={() => setShowEmailVerify(false)} className="text-xs text-muted-foreground mt-1 hover:underline">
                              Cancelar
                           </button>
@@ -469,6 +462,31 @@ export default function Profile() {
                  </div>
               )}
            </div>
+
+           {user.email && user.is_verified && (
+               <div className="p-4 bg-secondary/30 rounded-2xl flex flex-col gap-3 mt-4">
+                  <div className="flex flex-col gap-1">
+                     <span className="text-sm text-muted-foreground">Senha</span>
+                     <span className="font-bold">********</span>
+                  </div>
+
+                  <div className="flex flex-col gap-2 mt-2 pt-3 border-t border-border/50">
+                     {!showPasswordChange ? (
+                        <Button variant="outline" onClick={handleChangePassword} isLoading={actionLoading}>
+                           Trocar Senha
+                        </Button>
+                     ) : (
+                        <div className="flex flex-col gap-4 p-4 bg-card border border-border shadow-sm rounded-xl">
+                           <p className="text-xs font-bold text-center">Enviamos um código para seu e-mail.</p>
+                           <OTPInput value={codeInput} onChange={setCodeInput} />
+                           <Input type="password" placeholder="Nova Senha" value={passwordInput} onChange={(e) => setPasswordInput(e.target.value)} />
+                           <Button variant="primary" onClick={handleUpdatePassword} isLoading={actionLoading}>Atualizar Senha</Button>
+                           <button onClick={() => setShowPasswordChange(false)} className="text-xs text-muted-foreground mt-1 hover:underline">Cancelar</button>
+                        </div>
+                     )}
+                  </div>
+               </div>
+            )}
         </div>
       </div>
 

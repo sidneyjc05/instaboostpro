@@ -6,7 +6,7 @@ import { apiRouter } from './server/routes.js';
 
 async function startServer() {
   const app = express();
-  const PORT = process.env.PORT || 3000;
+  const PORT = Number(process.env.PORT) || 3000;
 
   app.use(express.json());
   app.use(cookieParser());

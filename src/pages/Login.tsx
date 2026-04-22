@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
+import { OTPInput } from '../components/ui/OTPInput';
 import { showNotification } from '../context/NotificationContext';
 import { Instagram, ShieldAlert } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -83,7 +84,7 @@ export default function Login() {
       } else {
         if (data.requiresVerification) {
            setRequiresVerification(true);
-           showNotification.warning(data.error);
+           showNotification.error(data.error);
         } else {
            showNotification.error(data.error || 'Ocorreu um erro');
         }
@@ -145,14 +146,7 @@ export default function Login() {
                        <div className="p-3 bg-orange-500/10 border border-orange-500/20 text-orange-600 dark:text-orange-300 text-sm rounded-xl text-center">
                           Código enviado! Verifique seu E-mail.
                        </div>
-                       <Input 
-                          placeholder="Código de Verificação" 
-                          value={verificationCode}
-                          onChange={(e) => setVerificationCode(e.target.value)}
-                          maxLength={6}
-                          required
-                          className="text-center font-mono text-lg tracking-widest"
-                       />
+                       <OTPInput value={verificationCode} onChange={setVerificationCode} />
                        <Input 
                           type="password"
                           placeholder="Nova Senha" 
@@ -185,17 +179,13 @@ export default function Login() {
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <AnimatePresence mode="popLayout">
             {requiresVerification ? (
-               <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="flex flex-col gap-3">
+               <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="flex flex-col gap-5">
                   <div className="p-3 bg-orange-500/10 border border-orange-500/20 text-orange-600 dark:text-orange-300 text-sm rounded-xl text-center">
                      Detectamos um novo dispositivo. Enviamos um código para seu email de recuperação. Verifique sua caixa de entrada.
                   </div>
-                  <Input 
-                     placeholder="Código de Verificação de 6 dígitos" 
+                  <OTPInput 
                      value={verificationCode}
-                     onChange={(e) => setVerificationCode(e.target.value)}
-                     maxLength={6}
-                     required
-                     className="text-center font-mono text-lg tracking-widest"
+                     onChange={setVerificationCode}
                   />
                </motion.div>
             ) : (
