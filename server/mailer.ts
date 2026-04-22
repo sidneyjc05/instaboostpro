@@ -1,6 +1,6 @@
 const API_URL = 'https://api.mailersend.com/v1/email';
-const API_TOKEN = 'mlsn.a1dbd2a0e43a2d724c6d24098079a39875673a4a805f38d804522d6214cc6a99';
-const FROM_DOMAIN = 'test-eqvygm07v7zl0p7w.mlsender.net';
+const API_TOKEN = process.env.MAILERSEND_API_TOKEN;
+const FROM_DOMAIN = process.env.MAILERSEND_DOMAIN || 'test-eqvygm07v7zl0p7w.mlsender.net';
 
 export async function sendVerificationEmail(toEmail: string, code: string, type: 'recovery' | 'login' | 'verify') {
   let subject = '';
@@ -36,6 +36,11 @@ export async function sendVerificationEmail(toEmail: string, code: string, type:
   };
 
   try {
+    if (!API_TOKEN) {
+      console.warn('[Mailer] MAILERSEND_API_TOKEN não está configurado. Simulando envio de email no console:', payload);
+      return true;
+    }
+
     // Dynamically importing node-fetch for environments that might not natively support it seamlessly
     // or just relying on global defaults
     let response;
