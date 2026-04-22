@@ -7,9 +7,11 @@ import { showNotification } from '../context/NotificationContext';
 import { LogOut, Rocket, Clock, History, AlertTriangle, RefreshCw, Eye, QrCode, Copy, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate } from 'react-router';
+import { useAppSound } from '../context/SoundContext';
 
 export default function Profile() {
   const { user, logout, refreshUser } = useAuth();
+  const { playSuccess, playClick } = useAppSound();
   const [promotions, setPromotions] = useState<any[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -153,6 +155,7 @@ export default function Profile() {
                 const data = await res.json();
                 if (data.status === 'approved') {
                    setActiveQrModal(null);
+                   playSuccess();
                    showNotification.success('Pagamento Aprovado!');
                    fetchData();
                    refreshUser();
@@ -221,8 +224,11 @@ export default function Profile() {
     if (diff <= 0) return 'Expirado';
     const hours = Math.floor(diff / (1000 * 60 * 60));
     const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+    
     if (hours > 0) return `${hours}h ${minutes}m restantes`;
-    return `${minutes} minutos restantes`;
+    if (minutes > 0) return `${minutes}m ${seconds}s restantes`;
+    return `${seconds} segundos restantes`;
   };
 
   const calculatePaymentTimeLeft = (createdAt: string) => {
@@ -352,9 +358,14 @@ export default function Profile() {
       )}
 
       <div className="bg-card border border-border rounded-3xl p-5 md:p-6 flex flex-col gap-4">
-        <h3 className="font-bold border-b border-border pb-3 flex items-center gap-2 text-primary">
-          <History size={18} /> Minhas Divulgações
-        </h3>
+        <div className="border-b border-border pb-3 flex items-center justify-between">
+          <h3 className="font-bold flex items-center gap-2 text-primary">
+            <History size={18} /> Minhas Divulgações
+          </h3>
+          <span className="text-xs font-bold text-muted-foreground bg-secondary px-2 py-1 rounded-md">
+            {promotions.filter(p => calculateTimeLeft(p.expires_at) !== 'Expirado').length} / 10 Ativas
+          </span>
+        </div>
         
         {loading ? (
            <div className="text-center text-muted-foreground py-4 text-sm animate-pulse">Carregando...</div>

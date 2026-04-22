@@ -32,7 +32,7 @@ const InstaPreview = ({ url, type, username }: { url: string, type: string, user
            height="340" 
            frameBorder="0" 
            scrolling="no" 
-           allowTransparency={true}
+           allowtransparency="true"
            className="w-full bg-white"
          ></iframe>
        </div>

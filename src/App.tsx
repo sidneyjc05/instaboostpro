@@ -15,6 +15,7 @@ import Create from './pages/Create';
 import Store from './pages/Store';
 import Profile from './pages/Profile';
 import Admin from './pages/Admin';
+import Roulette from './pages/Roulette';
 import { Loader2 } from 'lucide-react';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -82,6 +83,7 @@ export default function App() {
                 >
                   <Route path="/" element={<Home />} />
                   <Route path="/new" element={<Create />} />
+                  <Route path="/roulette" element={<Roulette />} />
                   <Route path="/store" element={<Store />} />
                   <Route path="/profile" element={<Profile />} />
                   <Route path="/admin" element={<Admin />} />

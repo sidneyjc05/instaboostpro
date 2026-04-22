@@ -91,16 +91,16 @@ export default function Create() {
           </label>
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             {[
-              { m: 1, label: '1 Min', c: 5 },
-              { m: 5, label: '5 Min', c: 25 },
-              { m: 15, label: '15 Min', c: 75 },
-              { m: 30, label: '30 Min', c: 150 },
-              { m: 60, label: '1 Hora', c: 300 },
-              { m: 120, label: '2 Horas', c: 600 },
-              { m: 240, label: '4 Horas', c: 1200 },
-              { m: 480, label: '8 Horas', c: 2400 },
-              { m: 720, label: '12 Horas', c: 3600 },
-              { m: 1440, label: '24 Horas', c: 7200 },
+              { m: 1, label: '1 min', c: 5 },
+              { m: 2, label: '2 min', c: 10 },
+              { m: 5, label: '5 min', c: 25 },
+              { m: 11, label: '11 min', c: 55 },
+              { m: 25, label: '25 min', c: 125 },
+              { m: 57, label: '57 min', c: 285 },
+              { m: 128, label: '2h 8m', c: 640 },
+              { m: 286, label: '4h 46m', c: 1430 },
+              { m: 642, label: '10h 42m', c: 3210 },
+              { m: 1440, label: '24 horas', c: 7200 },
             ].map(opt => (
               <button
                 key={opt.m}

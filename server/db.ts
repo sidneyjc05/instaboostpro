@@ -55,12 +55,19 @@ const hasEmail = userCols.some(c => c.name === 'email');
 const hasRole = userCols.some(c => c.name === 'role');
 const hasIsVerified = userCols.some(c => c.name === 'is_verified');
 const hasIsBlocked = userCols.some(c => c.name === 'is_blocked');
+const hasTickets = userCols.some(c => c.name === 'tickets');
+
+const paymentCols = db.prepare('PRAGMA table_info(payments)').all() as any[];
+const hasPaymentTickets = paymentCols.some(c => c.name === 'tickets');
 
 if (!hasLastActiveAt) db.exec('ALTER TABLE users ADD COLUMN last_active_at DATETIME DEFAULT CURRENT_TIMESTAMP;');
 if (!hasEmail) db.exec('ALTER TABLE users ADD COLUMN email TEXT;');
 if (!hasRole) db.exec('ALTER TABLE users ADD COLUMN role TEXT DEFAULT "user";');
 if (!hasIsVerified) db.exec('ALTER TABLE users ADD COLUMN is_verified INTEGER DEFAULT 0;');
 if (!hasIsBlocked) db.exec('ALTER TABLE users ADD COLUMN is_blocked INTEGER DEFAULT 0;');
+if (!hasTickets) db.exec('ALTER TABLE users ADD COLUMN tickets INTEGER DEFAULT 0;');
+
+if (!hasPaymentTickets) db.exec('ALTER TABLE payments ADD COLUMN tickets INTEGER DEFAULT 0;');
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS login_logs (
@@ -86,6 +93,14 @@ db.exec(`
     code TEXT NOT NULL,
     expires_at DATETIME NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+  
+  CREATE TABLE IF NOT EXISTS free_tickets_claims (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    device_hash TEXT NOT NULL,
+    claimed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
   );
 `);

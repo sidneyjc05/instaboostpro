@@ -67,7 +67,7 @@ apiRouter.post('/auth/recover/send', async (req, res) => {
    // Generate code
    const code = Math.floor(100000 + Math.random() * 900000).toString();
    db.prepare('DELETE FROM verification_codes WHERE user_id = ?').run(user.id);
-   db.prepare('INSERT INTO verification_codes (user_id, code, expires_at) VALUES (?, ?, datetime("now", "+15 minutes"))').run(user.id, code);
+   db.prepare(`INSERT INTO verification_codes (user_id, code, expires_at) VALUES (?, ?, datetime('now', '+15 minutes'))`).run(user.id, code);
 
    console.log(`[RECOVERY] Envio de recuperação para ${email}. Código: ${code}`);
    await sendVerificationEmail(email, code, 'recovery');
@@ -82,7 +82,7 @@ apiRouter.post('/auth/recover/reset', (req, res) => {
    const user = db.prepare('SELECT id FROM users WHERE email = ?').get(email) as any;
    if (!user) return res.status(400).json({ error: 'Código inválido' });
 
-   const validCode = db.prepare('SELECT id FROM verification_codes WHERE user_id = ? AND code = ? AND expires_at > datetime("now")').get(user.id, code);
+   const validCode = db.prepare(`SELECT id FROM verification_codes WHERE user_id = ? AND code = ? AND expires_at > datetime('now')`).get(user.id, code);
    
    if (!validCode) {
       return res.status(400).json({ error: 'Código inválido ou expirado' });
@@ -121,14 +121,14 @@ apiRouter.post('/auth/login', async (req, res) => {
      if (!verificationCode) {
          // Create a new code if no code provided
          const code = Math.floor(100000 + Math.random() * 900000).toString();
-         db.prepare('INSERT INTO verification_codes (user_id, code, expires_at) VALUES (?, ?, datetime("now", "+15 minutes"))').run(user.id, code);
+         db.prepare(`INSERT INTO verification_codes (user_id, code, expires_at) VALUES (?, ?, datetime('now', '+15 minutes'))`).run(user.id, code);
          
          console.log(`[SECURITY] Suspicious login for ${user.email}. Verification Code: ${code}`);
          await sendVerificationEmail(user.email, code, 'login');
 
          return res.status(403).json({ requiresVerification: true, error: 'Acesso de novo dispositivo! Código de segurança enviado para seu email.' });
      } else {
-         const validCode = db.prepare('SELECT id FROM verification_codes WHERE user_id = ? AND code = ? AND expires_at > datetime("now")').get(user.id, verificationCode);
+         const validCode = db.prepare(`SELECT id FROM verification_codes WHERE user_id = ? AND code = ? AND expires_at > datetime('now')`).get(user.id, verificationCode);
          if (!validCode) {
              return res.status(401).json({ error: 'Código de verificação inválido ou expirado.' });
          }
@@ -190,7 +190,7 @@ apiRouter.post('/admin/users/:id/role', authMiddleware, adminMiddleware, (req, r
 
 apiRouter.get('/me', authMiddleware, (req: any, res) => {
   db.prepare('UPDATE users SET last_active_at = CURRENT_TIMESTAMP WHERE id = ?').run(req.userId);
-  const user = db.prepare('SELECT id, username, email, role, is_verified, credits, created_at FROM users WHERE id = ? AND is_blocked = 0').get(req.userId);
+  const user = db.prepare('SELECT id, username, email, role, is_verified, credits, tickets, created_at FROM users WHERE id = ? AND is_blocked = 0').get(req.userId);
   if (!user) return res.status(401).json({ error: 'User blocked or not found' });
   res.json(user);
 });
@@ -212,7 +212,7 @@ apiRouter.post('/me/email/verify/send', authMiddleware, async (req: any, res) =>
 
   const code = Math.floor(100000 + Math.random() * 900000).toString();
   db.prepare('DELETE FROM verification_codes WHERE user_id = ?').run(req.userId);
-  db.prepare('INSERT INTO verification_codes (user_id, code, expires_at) VALUES (?, ?, datetime("now", "+15 minutes"))').run(req.userId, code);
+  db.prepare(`INSERT INTO verification_codes (user_id, code, expires_at) VALUES (?, ?, datetime('now', '+15 minutes'))`).run(req.userId, code);
 
   console.log(`[VERIFY] Código de verificação para ${user.email}. Código: ${code}`);
   await sendVerificationEmail(user.email, code, 'verify');
@@ -224,7 +224,7 @@ apiRouter.post('/me/email/verify', authMiddleware, (req: any, res) => {
   const { code } = req.body;
   if (!code) return res.status(400).json({ error: 'Código requerido' });
 
-  const validCode = db.prepare('SELECT id FROM verification_codes WHERE user_id = ? AND code = ? AND expires_at > datetime("now")').get(req.userId, code);
+  const validCode = db.prepare(`SELECT id FROM verification_codes WHERE user_id = ? AND code = ? AND expires_at > datetime('now')`).get(req.userId, code);
   
   if (!validCode) {
      return res.status(400).json({ error: 'Código inválido ou expirado' });
@@ -317,6 +317,12 @@ apiRouter.post('/promotions', authMiddleware, (req: any, res) => {
   const { url, durationMinutes } = req.body;
   if (!url || !durationMinutes) return res.status(400).json({ error: 'URL and duration required' });
 
+  // Limit check: Does user have 10 active promotions already?
+  const activeCount: any = db.prepare(`SELECT count(*) as count FROM promotions WHERE user_id = ? AND datetime(expires_at) > CURRENT_TIMESTAMP`).get(req.userId);
+  if (activeCount.count >= 10) {
+     return res.status(400).json({ error: 'Limite alcançado: Você pode ter no máximo 10 publicações ativas simultaneamente.' });
+  }
+
   const cost = durationMinutes * 5;
 
   const tx = db.transaction(() => {
@@ -366,8 +372,112 @@ apiRouter.post('/promotions/:id/interact', authMiddleware, (req: any, res) => {
 });
 
 // --- PAYMENTS (Mercado Pago Real API) --- //
+
+// --- ROULETTE (Tickets & Moedas) --- //
+
+apiRouter.get('/roulette/status', authMiddleware, (req: any, res) => {
+  // Free tickets logic: 3 tickets per 24 hours per unique device hash & user
+  // Will check in /claim, for now just show if 24 hours have passed for the user
+  const latestClaim = db.prepare('SELECT claimed_at FROM free_tickets_claims WHERE user_id = ? ORDER BY claimed_at DESC LIMIT 1').get(req.userId) as any;
+  
+  let canClaim = true;
+  let nextClaimTime = null;
+
+  if (latestClaim) {
+     const claimDate = new Date(latestClaim.claimed_at);
+     const msPassed = Date.now() - claimDate.getTime();
+     const ms24h = 24 * 60 * 60 * 1000;
+     
+     if (msPassed < ms24h) {
+        canClaim = false;
+        const msLeft = ms24h - msPassed;
+        const hrs = Math.floor(msLeft / (1000 * 60 * 60));
+        const mins = Math.floor((msLeft % (1000 * 60 * 60)) / (1000 * 60));
+        nextClaimTime = `${hrs.toString().padStart(2, '0')}h ${mins.toString().padStart(2, '0')}m`;
+     }
+  }
+
+  res.json({ canClaim, nextClaimTime });
+});
+
+apiRouter.post('/roulette/claim', authMiddleware, (req: any, res) => {
+  const { deviceHash } = req.body;
+  if (!deviceHash) return res.status(400).json({ error: 'Device indisponível.' });
+
+  // Anti-abuse Check 1: Did THIS device claim in the last 24h?
+  const deviceClaim = db.prepare(`SELECT claimed_at FROM free_tickets_claims WHERE device_hash = ? AND datetime(claimed_at, '+24 hours') > datetime('now')`).get(deviceHash);
+  if (deviceClaim) {
+     return res.status(400).json({ error: 'Este dispositivo já resgatou tickets nas últimas 24h.' });
+  }
+
+  // Anti-abuse Check 2: Did THIS user claim in the last 24h?
+  const userClaim = db.prepare(`SELECT claimed_at FROM free_tickets_claims WHERE user_id = ? AND datetime(claimed_at, '+24 hours') > datetime('now')`).get(req.userId);
+  if (userClaim) {
+     return res.status(400).json({ error: 'Esta conta já resgatou tickets nas últimas 24h.' });
+  }
+
+  // Everything is fine, give 3 tickets
+  try {
+     const tx = db.transaction(() => {
+        db.prepare('INSERT INTO free_tickets_claims (user_id, device_hash) VALUES (?, ?)').run(req.userId, deviceHash);
+        db.prepare('UPDATE users SET tickets = tickets + 3 WHERE id = ?').run(req.userId);
+     });
+     tx();
+     res.json({ success: true, tickets: 3 });
+  } catch(e) {
+     res.status(500).json({ error: 'Falha ao processar.' });
+  }
+});
+
+apiRouter.post('/roulette/spin', authMiddleware, (req: any, res) => {
+   // Check if user has at least 1 ticket
+   const user = db.prepare('SELECT tickets FROM users WHERE id = ?').get(req.userId) as any;
+   if (!user || user.tickets < 1) {
+      return res.status(400).json({ error: 'Você não tem tickets suficientes.' });
+   }
+
+   // 10 prizes definitions and exact probability mapping
+   // Total must be 100
+   const prizes = [
+      { prize: 0.5, prob: 25 },
+      { prize: 1, prob: 20 },
+      { prize: 5, prob: 15 },
+      { prize: 10, prob: 12 },
+      { prize: 20, prob: 10 },
+      { prize: 50, prob: 8 },
+      { prize: 100, prob: 5 },
+      { prize: 150, prob: 3 },
+      { prize: 200, prob: 1.5 },
+      { prize: 300, prob: 0.5 }
+   ];
+
+   const rand = Math.random() * 100; // 0 to 100
+   let accumulatedProb = 0;
+   let wonPrize = 0.5;
+
+   for (const p of prizes) {
+      accumulatedProb += p.prob;
+      if (rand <= accumulatedProb) {
+         wonPrize = p.prize;
+         break;
+      }
+   }
+
+   try {
+      const tx = db.transaction(() => {
+         // Deduct 1 ticket and add the prize
+         db.prepare('UPDATE users SET tickets = tickets - 1, credits = credits + ? WHERE id = ?').run(wonPrize, req.userId);
+      });
+      tx();
+
+      res.json({ success: true, prize: wonPrize });
+   } catch(e) {
+      res.status(500).json({ error: 'Erro ao girar a roleta.' });
+   }
+});
+
 apiRouter.post('/payments/pix', authMiddleware, async (req: any, res) => {
-  const { credits } = req.body;
+  const { credits, type } = req.body;
   if (!credits || typeof credits !== 'number') return res.status(400).json({ error: 'Invalid credits amount' });
 
   if (!process.env.MERCADOPAGO_ACCESS_TOKEN) {
@@ -388,22 +498,34 @@ apiRouter.post('/payments/pix', authMiddleware, async (req: any, res) => {
     7200: 250.00
   };
 
-  const amount = packageMap[credits];
+  const ticketPackageMap: Record<number, number> = {
+    5: 1.50,
+    12: 3.00,
+    22: 5.00,
+    50: 10.00,
+    110: 20.00,
+    300: 50.00,
+    650: 100.00,
+    1050: 150.00,
+    1900: 250.00,
+    2400: 300.00
+  };
+
+  const amount = type === 'tickets' ? ticketPackageMap[credits] : packageMap[credits];
   if (!amount) return res.status(400).json({ error: 'Pacote inválido' });
 
   try {
     const user = db.prepare('SELECT username FROM users WHERE id = ?').get(req.userId) as any;
 
-    // Build ISO string of 15 mins from now with correct timezone offset (MP expects ISO 8601 extended format)
     const expiresAtDate = new Date(Date.now() + 15 * 60 * 1000);
-    // Convert to ISO string explicitly handling milliseconds as per 'date_of_expiration' requirement constraints.
-    // e.g., '2023-11-20T10:00:00.000Z'
     const dateOfExpirationString = expiresAtDate.toISOString();
+
+    const descriptionText = type === 'tickets' ? `${credits} Tickets InstaBoost` : `${credits} Créditos InstaBoost`;
 
     const paymentResponse = await mpPayment.create({
       body: {
         transaction_amount: amount,
-        description: `${credits} Créditos InstaBoost (${user.username})`,
+        description: `${descriptionText} (${user.username})`,
         payment_method_id: 'pix',
         date_of_expiration: dateOfExpirationString,
         payer: {
@@ -416,12 +538,14 @@ apiRouter.post('/payments/pix', authMiddleware, async (req: any, res) => {
     const paymentId = paymentResponse.id?.toString();
     if (!paymentId) throw new Error("ID do PIX não retornado.");
 
-    // The MP QR Code base64 string doesn't include the Data URL prefix by default.
     const rawBase64 = paymentResponse.point_of_interaction?.transaction_data?.qr_code_base64;
     const pixCode = paymentResponse.point_of_interaction?.transaction_data?.qr_code;
     
-    // Save locally
-    db.prepare('INSERT INTO payments (id, user_id, amount, credits) VALUES (?, ?, ?, ?)').run(paymentId, req.userId, amount, credits);
+    if (type === 'tickets') {
+      db.prepare('INSERT INTO payments (id, user_id, amount, credits, tickets) VALUES (?, ?, ?, 0, ?)').run(paymentId, req.userId, amount, credits);
+    } else {
+      db.prepare('INSERT INTO payments (id, user_id, amount, credits, tickets) VALUES (?, ?, ?, ?, 0)').run(paymentId, req.userId, amount, credits);
+    }
 
     res.json({ 
       id: paymentId, 
@@ -471,7 +595,11 @@ apiRouter.post('/webhook/mercadopago', async (req, res) => {
       if (payment) {
         const tx = db.transaction(() => {
           db.prepare("UPDATE payments SET status = 'approved' WHERE id = ?").run(paymentId.toString());
-          db.prepare('UPDATE users SET credits = credits + ? WHERE id = ?').run(payment.credits, payment.user_id);
+          if (payment.tickets > 0) {
+             db.prepare('UPDATE users SET tickets = tickets + ? WHERE id = ?').run(payment.tickets, payment.user_id);
+          } else {
+             db.prepare('UPDATE users SET credits = credits + ? WHERE id = ?').run(payment.credits, payment.user_id);
+          }
         });
         tx();
       }

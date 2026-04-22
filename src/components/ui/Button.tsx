@@ -12,12 +12,11 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant = 'primary', size = 'md', isLoading, children, onClick, ...props }, ref) => {
-    const { soundEnabled } = useAppSound();
+    const { soundEnabled, playClick } = useAppSound();
 
     const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
       if (soundEnabled && !isLoading && !props.disabled) {
-        // We could play a click sound here using an Audio element
-        // For simplicity, we just trigger the onClick
+         playClick();
       }
       onClick?.(e);
     };

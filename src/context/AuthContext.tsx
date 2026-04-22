@@ -8,6 +8,7 @@ export interface User {
   is_verified: boolean;
   is_blocked: boolean;
   credits: number;
+  tickets: number;
 }
 
 interface AuthContextType {

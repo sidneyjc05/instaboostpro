@@ -4,14 +4,17 @@ import { Button } from '../components/ui/Button';
 import { showNotification } from '../context/NotificationContext';
 import { QrCode, Copy, Zap, CheckCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { useAppSound } from '../context/SoundContext';
 
 export default function Store() {
   const { refreshUser } = useAuth();
+  const { playSuccess, playClick } = useAppSound();
   const [loading, setLoading] = useState(false);
   const [paymentData, setPaymentData] = useState<{ id: string, qrCode: string, pixCode: string, exactExpiry: number } | null>(null);
   const [polling, setPolling] = useState(false);
   const [timeLeft, setTimeLeft] = useState(15 * 60);
   const [paymentSuccess, setPaymentSuccess] = useState(false);
+  const [tab, setTab] = useState<'credits' | 'tickets'>('credits');
 
   // Expiration and countdown timer
   useEffect(() => {
@@ -43,6 +46,7 @@ export default function Store() {
           if (res.ok) {
             const data = await res.json();
             if (data.status === 'approved') {
+               playSuccess();
                showNotification.success('Pagamento PIX Aprovado!');
                setPolling(false);
                setPaymentSuccess(true);
@@ -55,13 +59,13 @@ export default function Store() {
     return () => clearInterval(interval);
   }, [polling, paymentData]);
 
-  const handleBuy = async (credits: number) => {
+  const handleBuy = async (credits: number, type: 'credits' | 'tickets' = 'credits') => {
     setLoading(true);
     try {
       const res = await fetch('/api/payments/pix', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ credits })
+        body: JSON.stringify({ credits, type })
       });
       const data = await res.json();
       if (res.ok) {
@@ -98,6 +102,19 @@ export default function Store() {
     { c: 7200, price: 'R$ 250,00', time: '24 horas', pop: true }
   ];
 
+  const ticketPackages = [
+    { c: 5, price: 'R$ 1,50' },
+    { c: 12, price: 'R$ 3,00' },
+    { c: 22, price: 'R$ 5,00' },
+    { c: 50, price: 'R$ 10,00' },
+    { c: 110, price: 'R$ 20,00' },
+    { c: 300, price: 'R$ 50,00' },
+    { c: 650, price: 'R$ 100,00', pop: true },
+    { c: 1050, price: 'R$ 150,00' },
+    { c: 1900, price: 'R$ 250,00' },
+    { c: 2400, price: 'R$ 300,00', pop: true }
+  ];
+
   return (
     <div className="flex flex-col gap-6 pb-20">
       <AnimatePresence mode="wait">
@@ -117,8 +134,8 @@ export default function Store() {
               <CheckCircle size={80} />
             </motion.div>
             <div>
-              <h3 className="text-3xl font-extrabold text-foreground">Pagamento Concluído!</h3>
-              <p className="text-muted-foreground mt-2">Muito obrigado por contribuir. Seus créditos já foram adicionados na sua conta.</p>
+                 <h3 className="text-3xl font-extrabold text-foreground">Pagamento Concluído!</h3>
+              <p className="text-muted-foreground mt-2">Muito obrigado por contribuir. Os itens já foram adicionados na sua conta.</p>
             </div>
             <Button size="lg" className="mt-4" onClick={() => { setPaymentSuccess(false); setPaymentData(null); }}>
               Voltar para Loja
@@ -128,25 +145,59 @@ export default function Store() {
           <motion.div key="store" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col gap-6">
             <div>
               <h2 className="text-2xl font-bold flex items-center gap-2">
-                <Zap className="text-yellow-500" /> Loja de Créditos
+                <Zap className="text-yellow-500" /> Loja
               </h2>
-              <p className="text-muted-foreground text-sm mt-1">Compre créditos via PIX para destacar seus links.</p>
+              <p className="text-muted-foreground text-sm mt-1">Compre moedas para destacar seus links, ou tickets para girar a roleta.</p>
             </div>
 
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-              {packages.map(pkg => (
-                <div key={pkg.c} className={`relative bg-card border rounded-3xl p-5 flex flex-col items-center gap-2 ${pkg.pop ? 'bg-gradient-to-br from-primary/20 to-blue-900/20 border-primary/30 ring-2 ring-primary/20 shadow-md z-10' : 'border-border'}`}>
-                  <div className="text-2xl mt-2 border-b border-border/50 pb-2 w-full text-center">
-                    <span className="font-bold">{pkg.c.toLocaleString('pt-BR')}</span> <span className="text-lg">💰</span>
-                  </div>
-                  <div className="text-xs text-muted-foreground text-center">Destaque por <br/> <strong className="text-foreground">{pkg.time}</strong></div>
-                  <div className="font-bold text-lg mt-1">{pkg.price}</div>
-                  <Button className="w-full mt-2" variant={pkg.pop ? 'primary' : 'secondary'} onClick={() => handleBuy(pkg.c)} isLoading={loading}>
-                    Comprar
-                  </Button>
-                </div>
-              ))}
+            <div className="flex gap-2 p-1 bg-secondary border border-border rounded-xl">
+               <button 
+                 className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${tab === 'credits' ? 'bg-background shadow-sm text-primary' : 'text-muted-foreground'}`}
+                 onClick={() => { playClick(); setTab('credits'); }}
+               >
+                 Moedas 💰
+               </button>
+               <button 
+                 className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${tab === 'tickets' ? 'bg-background shadow-sm text-primary' : 'text-muted-foreground'}`}
+                 onClick={() => { playClick(); setTab('tickets'); }}
+               >
+                 Tickets 🎟️
+               </button>
             </div>
+
+            {tab === 'credits' && (
+              <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+                {packages.map(pkg => (
+                  <div key={pkg.c} className={`relative bg-card border rounded-3xl p-5 flex flex-col items-center gap-2 ${pkg.pop ? 'bg-gradient-to-br from-primary/20 to-blue-900/20 border-primary/30 ring-2 ring-primary/20 shadow-md z-10' : 'border-border'}`}>
+                    <div className="text-2xl mt-2 border-b border-border/50 pb-2 w-full text-center">
+                      <span className="font-bold">{pkg.c.toLocaleString('pt-BR')}</span> <span className="text-lg">💰</span>
+                    </div>
+                    <div className="text-xs text-muted-foreground text-center">Destaque por <br/> <strong className="text-foreground">{pkg.time}</strong></div>
+                    <div className="font-bold text-lg mt-1">{pkg.price}</div>
+                    <Button className="w-full mt-2" variant={pkg.pop ? 'primary' : 'secondary'} onClick={() => handleBuy(pkg.c, 'credits')} isLoading={loading}>
+                      Comprar
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {tab === 'tickets' && (
+               <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+                  {ticketPackages.map(pkg => (
+                     <div key={pkg.c} className={`relative bg-card border rounded-3xl p-5 flex flex-col items-center gap-2 ${pkg.pop ? 'bg-gradient-to-br from-primary/20 to-blue-900/20 border-primary/30 ring-2 ring-primary/20 shadow-md z-10' : 'border-border'}`}>
+                        <div className="text-2xl mt-2 border-b border-border/50 pb-2 w-full text-center">
+                           <span className="font-bold">{pkg.c.toLocaleString('pt-BR')}</span> <span className="text-lg">🎟️</span>
+                        </div>
+                        <div className="text-xs text-muted-foreground text-center">Gire a roleta e <br/> <strong className="text-foreground">ganhe moedas</strong></div>
+                        <div className="font-bold text-lg mt-1">{pkg.price}</div>
+                        <Button className="w-full mt-2" variant={pkg.pop ? 'primary' : 'secondary'} onClick={() => handleBuy(pkg.c, 'tickets')} isLoading={loading}>
+                           Comprar
+                        </Button>
+                     </div>
+                  ))}
+               </div>
+            )}
           </motion.div>
         ) : (
           <motion.div 
