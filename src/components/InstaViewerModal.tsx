@@ -57,9 +57,6 @@ export function InstaViewerModal({ open, onClose, url, type, username, onInterac
   if (!open) return null;
 
   let embedUrl = url.split('?')[0].replace(/\/$/, "");
-  if (type === 'reel') {
-     embedUrl = embedUrl.replace('/reel/', '/p/');
-  }
 
   const profileUser = username || 'usuario';
 

@@ -10,7 +10,8 @@ import { useNavigate } from 'react-router';
 const getInstaLinkType = (link: string) => {
   if (!link) return null;
   if (!link.includes('instagram.com')) return null;
-  return /\/(p|reel|tv)\//i.test(link) ? 'post' : 'profile';
+  if (link.includes('/reel/')) return 'reel';
+  return /\/(p|tv)\//i.test(link) ? 'post' : 'profile';
 };
 
 export default function Create() {
@@ -82,6 +83,7 @@ export default function Create() {
             />
           </div>
           {getInstaLinkType(url) === 'post' && <p className="text-xs ml-1 font-medium text-green-500">✓ Tipo detectado: Divulgação de Postagem (Curtidas)</p>}
+          {getInstaLinkType(url) === 'reel' && <p className="text-xs ml-1 font-medium text-purple-500">✓ Tipo detectado: Divulgação de Reel (Visualizações)</p>}
           {getInstaLinkType(url) === 'profile' && <p className="text-xs ml-1 font-medium text-blue-500">✓ Tipo detectado: Divulgação de Perfil (Seguidores)</p>}
         </div>
 
