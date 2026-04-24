@@ -15,6 +15,52 @@ const JWT_SECRET = process.env.JWT_SECRET || 'supersecret';
 const mpClient = new MercadoPagoConfig({ accessToken: process.env.MERCADOPAGO_ACCESS_TOKEN || '' });
 const mpPayment = new Payment(mpClient);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS weekly_reward_plans (
+    user_id INTEGER,
+    week_start TEXT,
+    plan_json TEXT,
+    PRIMARY KEY (user_id, week_start)
+  );
+
+  CREATE TABLE IF NOT EXISTS daily_claims (
+    user_id INTEGER,
+    claim_date TEXT,
+    device_hash TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, claim_date)
+  );
+
+  CREATE TABLE IF NOT EXISTS device_daily_claims (
+    device_hash TEXT,
+    claim_date TEXT,
+    user_id INTEGER,
+    PRIMARY KEY (device_hash, claim_date)
+  );
+
+  CREATE TABLE IF NOT EXISTS missions_progress (
+    user_id INTEGER,
+    mission_type TEXT,
+    level INTEGER DEFAULT 1,
+    progress INTEGER DEFAULT 0,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, mission_type)
+  );
+`);
+
+function getUTCDateString(d: Date) {
+  return d.toISOString().split('T')[0];
+}
+
+function getWeekStart(d: Date) {
+  const date = new Date(d);
+  const day = date.getUTCDay();
+  const diff = date.getUTCDate() - day + (day === 0 ? -6 : 1);
+  date.setUTCDate(diff);
+  date.setUTCHours(0,0,0,0);
+  return date;
+}
+
 // --- AUTH --- //
 apiRouter.post('/auth/register', (req, res) => {
   const { username, email, password } = req.body;
@@ -41,14 +87,21 @@ apiRouter.post('/auth/register', (req, res) => {
 
     const result = db.prepare('INSERT INTO users (username, email, password, role) VALUES (?, ?, ?, ?)').run(username, email || null, hash, initialRole);
     
-    const token = jwt.sign({ id: result.lastInsertRowid, role: initialRole }, JWT_SECRET, { expiresIn: '7d' });
+    // Auto-trust the device they used to register
+    const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown') as string;
+    const device = req.headers['user-agent'] || 'unknown';
+    const deviceHash = crypto.createHash('md5').update(`${ip}-${device}`).digest('hex');
+    db.prepare('INSERT INTO trusted_devices (user_id, device_hash) VALUES (?, ?)').run(result.lastInsertRowid, deviceHash);
+    db.prepare('UPDATE users SET active_device_hash = ?, session_version = 1 WHERE id = ?').run(deviceHash, result.lastInsertRowid);
+
+    const token = jwt.sign({ id: result.lastInsertRowid, role: initialRole, session_version: 1 }, JWT_SECRET, { expiresIn: '7d' });
     res.cookie('token', token, { 
       httpOnly: true, 
       secure: true, 
       sameSite: 'none' 
     }).json({ success: true });
   } catch (err: any) {
-    if (err.code === 'SQLITE_CONSTRAINT_UNIQUE') return res.status(400).json({ error: 'Username already taken' });
+    if (err.code === 'SQLITE_CONSTRAINT_UNIQUE') return res.status(400).json({ error: 'Este nome de usuário já está sendo usado no sistema.' });
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -96,60 +149,96 @@ apiRouter.post('/auth/recover/reset', (req, res) => {
 });
 
 apiRouter.post('/auth/login', async (req, res) => {
-  const { username, password, verificationCode } = req.body;
-  const user = db.prepare('SELECT * FROM users WHERE username = ? OR email = ?').get(username, username) as any;
-  
-  if (!user || !bcrypt.compareSync(password, user.password)) {
-    return res.status(401).json({ error: 'Invalid credentials' });
+  try {
+    const { username, password, verificationCode } = req.body;
+    const user = db.prepare('SELECT * FROM users WHERE username = ? OR email = ?').get(username, username) as any;
+    
+    if (!user || !bcrypt.compareSync(password, user.password)) {
+      return res.status(401).json({ error: 'Credenciais inválidas' });
+    }
+
+    if (user.is_blocked) {
+      return res.status(403).json({ error: 'Sua conta foi suspensa pelo administrador.' });
+    }
+
+    // Get IP and Device
+    const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown') as string;
+    const device = req.headers['user-agent'] || 'unknown';
+    const deviceHash = crypto.createHash('md5').update(`${ip}-${device}`).digest('hex');
+
+    db.prepare('INSERT INTO login_logs (user_id, ip, device) VALUES (?, ?, ?)').run(user.id, ip, device);
+
+    // Suspicious Login Detection (New device check)
+    // Here we check the user limits before trusting the device
+    if (user.active_device_hash && user.active_device_hash !== deviceHash) {
+       if (user.device_change_count >= 5) {
+          // BANNED: Exceeded limit
+          db.prepare('DELETE FROM users WHERE id = ?').run(user.id);
+          return res.status(403).json({ error: 'Conta apagada: Você excedeu o limite de 5 mudanças de dispositivo na semana.' });
+       }
+    }
+
+    const isTrusted = db.prepare('SELECT id FROM trusted_devices WHERE user_id = ? AND device_hash = ?').get(user.id, deviceHash);
+    
+    if (!isTrusted && user.email) {
+       if (!verificationCode) {
+           // Limit to 3 active codes to prevent spam
+           const recentCodes = db.prepare(`SELECT count(*) as count FROM verification_codes WHERE user_id = ? AND created_at > datetime('now', '-24 hours')`).get(user.id) as {count: number};
+           
+           if (recentCodes.count >= 3) {
+              return res.status(429).json({ error: 'Você alcançou o limite de envio de códigos (3). Tente novamente em 24 horas ou procure o suporte.' });
+           }
+
+           // Create a new code if no code provided
+           // We delete OLD EXPIRED codes to save space, but leave recent ones for the count
+           db.prepare(`DELETE FROM verification_codes WHERE user_id = ? AND expires_at < datetime('now')`).run(user.id);
+           
+           const code = Math.floor(100000 + Math.random() * 900000).toString();
+           db.prepare(`INSERT INTO verification_codes (user_id, code, expires_at) VALUES (?, ?, datetime('now', '+15 minutes'))`).run(user.id, code);
+           
+           console.log(`[SECURITY] Suspicious login for ${user.email}. Verification Code: ${code}`);
+           try {
+             await sendVerificationEmail(user.email, code, 'login');
+           } catch (mailError) {
+             console.error("[Mailer Error]", mailError);
+             return res.status(500).json({ error: 'Erro ao enviar o código de segurança para o seu e-mail. Tente novamente mais tarde.' });
+           }
+
+           return res.status(403).json({ requiresVerification: true, error: 'Acesso de novo dispositivo! Código de segurança enviado para seu email (pode chegar em até 10 minutos).' });
+       } else {
+           const validCode = db.prepare(`SELECT id FROM verification_codes WHERE user_id = ? AND code = ? AND expires_at > datetime('now')`).get(user.id, verificationCode);
+           if (!validCode) {
+               return res.status(401).json({ error: 'Código de verificação inválido ou expirado.' });
+           }
+           // Code is valid, clean up and trust device
+           db.prepare('DELETE FROM verification_codes WHERE user_id = ?').run(user.id);
+           db.prepare('INSERT INTO trusted_devices (user_id, device_hash) VALUES (?, ?)').run(user.id, deviceHash);
+           db.prepare('UPDATE users SET is_verified = 1 WHERE id = ?').run(user.id);
+       }
+    } else if (!isTrusted) {
+        // Legacy user without email, just trust automatically to not lock them out
+        db.prepare('INSERT INTO trusted_devices (user_id, device_hash) VALUES (?, ?)').run(user.id, deviceHash);
+    }
+
+    // Now update the device limits if it changed
+    let newSessionVersion = user.session_version || 1;
+    if (user.active_device_hash !== deviceHash) {
+        db.prepare('UPDATE users SET device_change_count = device_change_count + 1 WHERE id = ?').run(user.id);
+        newSessionVersion++;
+    }
+
+    db.prepare('UPDATE users SET last_active_at = CURRENT_TIMESTAMP, active_device_hash = ?, session_version = ? WHERE id = ?').run(deviceHash, newSessionVersion, user.id);
+
+    const token = jwt.sign({ id: user.id, role: user.role, session_version: newSessionVersion }, JWT_SECRET, { expiresIn: '7d' });
+    res.cookie('token', token, { 
+      httpOnly: true, 
+      secure: true, 
+      sameSite: 'none' 
+    }).json({ success: true });
+  } catch (err: any) {
+    console.error("Login Error: ", err);
+    res.status(500).json({ error: 'Erro interno no servidor' });
   }
-
-  if (user.is_blocked) {
-    return res.status(403).json({ error: 'Your account has been blocked by an administrator.' });
-  }
-
-  // Get IP and Device
-  const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown') as string;
-  const device = req.headers['user-agent'] || 'unknown';
-  const deviceHash = crypto.createHash('md5').update(`${ip}-${device}`).digest('hex');
-
-  db.prepare('INSERT INTO login_logs (user_id, ip, device) VALUES (?, ?, ?)').run(user.id, ip, device);
-
-  // Suspicious Login Detection (New device check)
-  const isTrusted = db.prepare('SELECT id FROM trusted_devices WHERE user_id = ? AND device_hash = ?').get(user.id, deviceHash);
-  
-  if (!isTrusted && user.email) {
-     if (!verificationCode) {
-         // Create a new code if no code provided
-         const code = Math.floor(100000 + Math.random() * 900000).toString();
-         db.prepare(`INSERT INTO verification_codes (user_id, code, expires_at) VALUES (?, ?, datetime('now', '+15 minutes'))`).run(user.id, code);
-         
-         console.log(`[SECURITY] Suspicious login for ${user.email}. Verification Code: ${code}`);
-         await sendVerificationEmail(user.email, code, 'login');
-
-         return res.status(403).json({ requiresVerification: true, error: 'Acesso de novo dispositivo! Código de segurança enviado para seu email.' });
-     } else {
-         const validCode = db.prepare(`SELECT id FROM verification_codes WHERE user_id = ? AND code = ? AND expires_at > datetime('now')`).get(user.id, verificationCode);
-         if (!validCode) {
-             return res.status(401).json({ error: 'Código de verificação inválido ou expirado.' });
-         }
-         // Code is valid, clean up and trust device
-         db.prepare('DELETE FROM verification_codes WHERE user_id = ?').run(user.id);
-         db.prepare('INSERT INTO trusted_devices (user_id, device_hash) VALUES (?, ?)').run(user.id, deviceHash);
-         db.prepare('UPDATE users SET is_verified = 1 WHERE id = ?').run(user.id);
-     }
-  } else if (!isTrusted) {
-      // Legacy user without email, just trust automatically to not lock them out
-      db.prepare('INSERT INTO trusted_devices (user_id, device_hash) VALUES (?, ?)').run(user.id, deviceHash);
-  }
-
-  db.prepare('UPDATE users SET last_active_at = CURRENT_TIMESTAMP WHERE id = ?').run(user.id);
-
-  const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
-  res.cookie('token', token, { 
-    httpOnly: true, 
-    secure: true, 
-    sameSite: 'none' 
-  }).json({ success: true });
 });
 
 apiRouter.post('/auth/logout', (req, res) => {
@@ -376,8 +465,6 @@ apiRouter.post('/promotions/:id/interact', authMiddleware, (req: any, res) => {
 // --- ROULETTE (Tickets & Moedas) --- //
 
 apiRouter.get('/roulette/status', authMiddleware, (req: any, res) => {
-  // Free tickets logic: 3 tickets per 24 hours per unique device hash & user
-  // Will check in /claim, for now just show if 24 hours have passed for the user
   const latestClaim = db.prepare('SELECT claimed_at FROM free_tickets_claims WHERE user_id = ? ORDER BY claimed_at DESC LIMIT 1').get(req.userId) as any;
   
   let canClaim = true;
@@ -404,19 +491,16 @@ apiRouter.post('/roulette/claim', authMiddleware, (req: any, res) => {
   const { deviceHash } = req.body;
   if (!deviceHash) return res.status(400).json({ error: 'Device indisponível.' });
 
-  // Anti-abuse Check 1: Did THIS device claim in the last 24h?
   const deviceClaim = db.prepare(`SELECT claimed_at FROM free_tickets_claims WHERE device_hash = ? AND datetime(claimed_at, '+24 hours') > datetime('now')`).get(deviceHash);
   if (deviceClaim) {
-     return res.status(400).json({ error: 'Este dispositivo já resgatou tickets nas últimas 24h.' });
+     return res.status(400).json({ error: 'Este prêmio já foi resgatado nas últimas 24h em outra conta criada neste dispositivo.' });
   }
 
-  // Anti-abuse Check 2: Did THIS user claim in the last 24h?
   const userClaim = db.prepare(`SELECT claimed_at FROM free_tickets_claims WHERE user_id = ? AND datetime(claimed_at, '+24 hours') > datetime('now')`).get(req.userId);
   if (userClaim) {
      return res.status(400).json({ error: 'Esta conta já resgatou tickets nas últimas 24h.' });
   }
 
-  // Everything is fine, give 3 tickets
   try {
      const tx = db.transaction(() => {
         db.prepare('INSERT INTO free_tickets_claims (user_id, device_hash) VALUES (?, ?)').run(req.userId, deviceHash);
@@ -612,4 +696,255 @@ apiRouter.post('/webhook/mercadopago', async (req, res) => {
     console.error('MP Webhook Error:', err);
     res.status(500).json({ success: false });
   }
+});
+
+apiRouter.get('/rewards/daily', authMiddleware, (req: any, res) => {
+    const now = new Date();
+    const todayStr = getUTCDateString(now);
+    const weekStart = getWeekStart(now);
+    const weekStartStr = getUTCDateString(weekStart);
+
+    let planRecord = db.prepare('SELECT plan_json FROM weekly_reward_plans WHERE user_id = ? AND week_start = ?').get(req.userId, weekStartStr) as any;
+    
+    if (!planRecord) {
+        const user = db.prepare('SELECT created_at FROM users WHERE id = ?').get(req.userId) as any;
+        const createdAtStr = user.created_at.includes('Z') ? user.created_at : user.created_at.replace(' ', 'T') + 'Z';
+        const createdAt = new Date(createdAtStr);
+        
+        let isNewLateWeek = false;
+        if (createdAt >= weekStart) {
+            const d = createdAt.getUTCDay();
+            if (d === 5 || d === 6 || d === 0) isNewLateWeek = true;
+        }
+
+        const weekMultiplier = isNewLateWeek ? (Math.random() * 0.4 + 0.3) : (Math.random() * 1.3 + 0.7);
+
+        const baseRanges = [
+            { min: 0.2, max: 2, tChance: 0.10 },
+            { min: 0.5, max: 5, tChance: 0.15 },
+            { min: 1, max: 10, tChance: 0.20 },
+            { min: 2, max: 20, tChance: 0.10 },
+            { min: 5, max: 40, tChance: 0.15 },
+            { min: 10, max: 80, tChance: 0.10 },
+            { min: 20, max: 200, tChance: 0.30 },
+        ];
+
+        let ticketsGiven = 0;
+        const plan = baseRanges.map((range, index) => {
+            const rawCoins = (Math.random() * (range.max - range.min) + range.min) * weekMultiplier;
+            const coins = parseFloat(rawCoins.toFixed(1));
+            let tickets = 0;
+            if (ticketsGiven < 2 && Math.random() < range.tChance) {
+                 tickets = Math.floor(Math.random() * 4) + 2; 
+                 ticketsGiven++;
+            }
+            return { dayIndex: index + 1, coins, tickets };
+        });
+
+        const planJson = JSON.stringify(plan);
+        db.prepare('INSERT INTO weekly_reward_plans (user_id, week_start, plan_json) VALUES (?, ?, ?)').run(req.userId, weekStartStr, planJson);
+        planRecord = { plan_json: planJson };
+    }
+
+    const plan = JSON.parse(planRecord.plan_json);
+
+    const claims = db.prepare(`SELECT claim_date FROM daily_claims WHERE user_id = ? AND claim_date >= ?`).all(req.userId, weekStartStr) as any[];
+    const claimedDates = new Set(claims.map(c => c.claim_date));
+
+    const todayIndex = now.getUTCDay() === 0 ? 7 : now.getUTCDay(); // 1 = Mon, 7 = Sun
+    
+    const mappedPlan = plan.map((p: any) => {
+        const dateObj = new Date(weekStart);
+        dateObj.setUTCDate(dateObj.getUTCDate() + p.dayIndex - 1);
+        const dayDateStr = getUTCDateString(dateObj);
+        
+        let state = 'locked';
+        if (claimedDates.has(dayDateStr)) {
+             state = 'claimed';
+        } else if (dayDateStr === todayStr) {
+             state = 'available';
+        } else if (p.dayIndex < todayIndex) {
+             state = 'missed';
+        }
+
+        return { ...p, date: dayDateStr, state };
+    });
+
+    res.json({
+        todayStr,
+        weekStartStr,
+        plan: mappedPlan
+    });
+});
+
+apiRouter.post('/rewards/daily/claim', authMiddleware, (req: any, res) => {
+    const { deviceHash } = req.body;
+    if (!deviceHash) return res.status(400).json({ error: 'Device hash required' });
+
+    const now = new Date();
+    const todayStr = getUTCDateString(now);
+
+    const tx = db.transaction(() => {
+        const deviceClaim = db.prepare('SELECT user_id FROM device_daily_claims WHERE device_hash = ? AND claim_date = ?').get(deviceHash, todayStr);
+        if (deviceClaim) {
+            throw new Error('Este prêmio diário já foi resgatado hoje em outra conta cadastrada neste dispositivo.');
+        }
+
+        const userClaim = db.prepare('SELECT claim_date FROM daily_claims WHERE user_id = ? AND claim_date = ?').get(req.userId, todayStr);
+        if (userClaim) {
+             throw new Error('Você já resgatou o prêmio de hoje!');
+        }
+
+        const weekStart = getWeekStart(now);
+        const weekStartStr = getUTCDateString(weekStart);
+
+        const planRecord = db.prepare('SELECT plan_json FROM weekly_reward_plans WHERE user_id = ? AND week_start = ?').get(req.userId, weekStartStr) as any;
+        if (!planRecord) throw new Error('PLAN_NOT_FOUND');
+
+        const plan = JSON.parse(planRecord.plan_json);
+        const todayIndex = now.getUTCDay() === 0 ? 7 : now.getUTCDay();
+        const todayReward = plan.find((p: any) => p.dayIndex === todayIndex);
+
+        if (!todayReward) throw new Error('REWARD_NOT_FOUND');
+
+        db.prepare('UPDATE users SET credits = credits + ?, tickets = tickets + ? WHERE id = ?').run(todayReward.coins, todayReward.tickets, req.userId);
+
+        db.prepare('INSERT INTO daily_claims (user_id, claim_date, device_hash) VALUES (?, ?, ?)').run(req.userId, todayStr, deviceHash);
+        db.prepare('INSERT INTO device_daily_claims (device_hash, claim_date, user_id) VALUES (?, ?, ?)').run(deviceHash, todayStr, req.userId);
+
+        return todayReward;
+    });
+
+    try {
+        const reward = tx();
+        res.json({ success: true, reward });
+    } catch (err: any) {
+        if (err.message === 'DEVICE_ALREADY_CLAIMED') {
+             return res.status(403).json({ error: 'Este dispositivo já resgatou o prêmio de hoje em outra conta.' });
+        }
+        if (err.message === 'ALREADY_CLAIMED') {
+             return res.status(400).json({ error: 'Você já resgatou o prêmio de hoje.' });
+        }
+         if (err.message === 'PLAN_NOT_FOUND') {
+             return res.status(400).json({ error: 'Nenhum plano conf. Mude os dias e tente de novo.' });
+        }
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// --- MISSIONS --- //
+const MISSION_CONFIG = {
+  likes: {
+    goals: [10, 25, 50, 100, 200],
+    rewards: [0.2, 0.5, 1.5, 3.0, 6.0]
+  },
+  reels: {
+    goals: [3, 8, 15, 30, 60],
+    rewards: [0.3, 1.0, 3.0, 7.0, 14.0]
+  },
+  follows: {
+    goals: [5, 15, 30, 60, 120],
+    rewards: [0.3, 1.0, 2.5, 5.0, 12.0]
+  },
+  time: {
+    goals: [1, 5, 10, 20, 40], // in minutes
+    rewards: [0.5, 1.5, 3.5, 7.0, 15.0]
+  }
+};
+
+apiRouter.get('/missions', authMiddleware, (req: any, res) => {
+    // 10 minutes timeout reset (progress = 0)
+    db.prepare(`
+       UPDATE missions_progress 
+       SET progress = 0 
+       WHERE user_id = ? AND datetime(updated_at, '+10 minutes') < datetime('now')
+    `).run(req.userId);
+
+    const rows = db.prepare('SELECT mission_type, level, progress, updated_at FROM missions_progress WHERE user_id = ?').all(req.userId) as any[];
+    const state: Record<string, any> = {};
+
+    for (const key of Object.keys(MISSION_CONFIG)) {
+        const row = rows.find(r => r.mission_type === key);
+        if (row) {
+            state[key] = {
+                level: row.level,
+                progress: row.progress,
+                updated_at: row.updated_at
+            };
+        } else {
+            state[key] = { level: 1, progress: 0, updated_at: null };
+            // Initialize in DB
+            db.prepare('INSERT INTO missions_progress (user_id, mission_type, level, progress) VALUES (?, ?, 1, 0)').run(req.userId, key);
+        }
+    }
+
+    res.json(state);
+});
+
+apiRouter.post('/missions/progress', authMiddleware, (req: any, res) => {
+    const { type, amount = 1 } = req.body;
+    if (!(type in MISSION_CONFIG)) return res.status(400).json({ error: 'Invalid mission type' });
+
+    // Enforce 10-minute reset
+    db.prepare(`
+       UPDATE missions_progress 
+       SET progress = 0 
+       WHERE user_id = ? AND mission_type = ? AND datetime(updated_at, '+10 minutes') < datetime('now')
+    `).run(req.userId, type);
+
+    const config = MISSION_CONFIG[type as keyof typeof MISSION_CONFIG];
+    const row = db.prepare('SELECT level, progress FROM missions_progress WHERE user_id = ? AND mission_type = ?').get(req.userId, type) as any;
+    
+    if (!row) return res.status(404).json({ error: 'Mission state not initialized' });
+
+    let currentLevel = row.level;
+    let currentProgress = row.progress;
+
+    if (currentLevel > 5) {
+       // max level reached / repeatable level 5
+       currentLevel = 5;
+    }
+
+    const goal = config.goals[currentLevel - 1];
+
+    if (currentProgress < goal) {
+        db.prepare('UPDATE missions_progress SET progress = MIN(progress + ?, ?), updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND mission_type = ?')
+          .run(amount, goal, req.userId, type);
+    }
+
+    res.json({ success: true, newProgress: Math.min(currentProgress + amount, goal) });
+});
+
+apiRouter.post('/missions/claim', authMiddleware, (req: any, res) => {
+    const { type } = req.body;
+    if (!(type in MISSION_CONFIG)) return res.status(400).json({ error: 'Invalid mission type' });
+
+    const tx = db.transaction(() => {
+        const row = db.prepare('SELECT level, progress FROM missions_progress WHERE user_id = ? AND mission_type = ?').get(req.userId, type) as any;
+        if (!row) throw new Error('NOT_FOUND');
+
+        const config = MISSION_CONFIG[type as keyof typeof MISSION_CONFIG];
+        const realLevel = Math.min(row.level, 5);
+        const goal = config.goals[realLevel - 1];
+        const reward = config.rewards[realLevel - 1];
+
+        if (row.progress < goal) throw new Error('NOT_COMPLETED');
+
+        // Give reward
+        db.prepare('UPDATE users SET credits = credits + ? WHERE id = ?').run(reward, req.userId);
+
+        // Move to next level, reset progress
+        const nextLevel = Math.min(row.level + 1, 5);
+        db.prepare('UPDATE missions_progress SET level = ?, progress = 0, updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND mission_type = ?')
+          .run(nextLevel, req.userId, type);
+
+        return reward;
+    });
+
+    try {
+        const reward = tx();
+        res.json({ success: true, reward });
+    } catch (err: any) {
+        res.status(400).json({ error: err.message });
+    }
 });

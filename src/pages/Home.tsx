@@ -2,8 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { showNotification } from '../context/NotificationContext';
 import { Button } from '../components/ui/Button';
-import { Heart, UserPlus, RefreshCw, AlertTriangle, ShieldCheck } from 'lucide-react';
+import { Heart, UserPlus, RefreshCw, ShieldCheck, Gift, Target, Play } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { DailyRewardModal } from '../components/DailyRewardModal';
+import { MissionsTab } from '../components/MissionsTab';
+import { InstaViewerModal } from '../components/InstaViewerModal';
 
 interface Promotion {
   id: number;
@@ -18,47 +21,19 @@ const getInstaLinkType = (link: string) => {
   return /\/(p|reel|tv)\//i.test(link) ? 'post' : 'profile';
 };
 
-const InstaPreview = ({ url, type, username }: { url: string, type: string, username: string }) => {
-  const cleanUrl = url.split('?')[0].replace(/\/$/, "");
-
-  if (type === 'post') {
-     return (
-       <div className="w-full bg-white rounded-xl overflow-hidden shadow-sm border border-border mt-3 pointer-events-none relative">
-         {/* Pointer events none to prevent interacting inside the iframe without tracking */}
-         <div className="absolute inset-0 z-10"></div>
-         <iframe 
-           src={`${cleanUrl}/embed`} 
-           width="100%" 
-           height="340" 
-           frameBorder="0" 
-           scrolling="no" 
-           allowtransparency="true"
-           className="w-full bg-white"
-         ></iframe>
-       </div>
-     );
-  } else {
-    // Profile - extract username
-    const usernameMatch = cleanUrl.match(/instagram\.com\/([a-zA-Z0-9._]+)/);
-    const profileUser = usernameMatch ? usernameMatch[1] : username;
-    return (
-       <div className="w-full bg-secondary/30 rounded-xl p-6 flex flex-col items-center justify-center text-center border border-border mt-3">
-          <div className="w-20 h-20 rounded-full bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-500 p-1 mb-3">
-             <div className="w-full h-full bg-card rounded-full flex items-center justify-center text-2xl font-bold uppercase text-white">
-                {profileUser.charAt(0)}
-             </div>
-          </div>
-          <h3 className="font-bold text-lg text-foreground">@{profileUser}</h3>
-          <p className="text-sm text-muted-foreground mt-1">Conta do Instagram</p>
-       </div>
-    );
-  }
-};
-
 export default function Home() {
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [loading, setLoading] = useState(true);
   const { user, refreshUser } = useAuth();
+  
+  const [showDailyModal, setShowDailyModal] = useState(false);
+  const [hasDailyRewardAvailable, setHasDailyRewardAvailable] = useState(false);
+  
+  const [activeTab, setActiveTab] = useState<'missions' | 'feed'>('missions');
+  
+  // Viewer Modal State
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const [activePromo, setActivePromo] = useState<Promotion | null>(null);
 
   const loadPromos = async () => {
     setLoading(true);
@@ -74,18 +49,33 @@ export default function Home() {
     }
   };
 
+  const checkDailyRewards = async () => {
+    try {
+      const res = await fetch('/api/rewards/daily');
+      if (res.ok) {
+        const data = await res.json();
+        const available = data.plan?.some((p: any) => p.state === 'available');
+        setHasDailyRewardAvailable(available);
+        if (available) {
+           setShowDailyModal(true);
+        }
+      }
+    } catch {}
+  };
+
   useEffect(() => {
     loadPromos();
+    checkDailyRewards();
   }, []);
 
-  const handleInteract = async (id: number) => {
+  const handleInteract = async () => {
+    if (!activePromo) return;
     try {
-      const res = await fetch(`/api/promotions/${id}/interact`, { method: 'POST' });
+      const res = await fetch(`/api/promotions/${activePromo.id}/interact`, { method: 'POST' });
       const data = await res.json();
       if (res.ok) {
         showNotification.success(`Você ganhou ${data.reward} moedas!`);
-        // Remove from list
-        setPromotions(prev => prev.filter(p => p.id !== id));
+        setPromotions(prev => prev.filter(p => p.id !== activePromo.id));
         refreshUser();
       } else {
         if (data.error === 'CANT_INTERACT_OWN') {
@@ -96,7 +86,19 @@ export default function Home() {
       }
     } catch {
       showNotification.error('Erro ao interagir');
+    } finally {
+      setViewerOpen(false);
+      setActivePromo(null);
     }
+  };
+
+  const openViewer = (promo: Promotion) => {
+     if (user?.id === promo.user_id) {
+         showNotification.error('Você não pode interagir com a própria divulgação!');
+         return;
+     }
+     setActivePromo(promo);
+     setViewerOpen(true);
   };
 
   return (
@@ -116,89 +118,165 @@ export default function Home() {
         </div>
       </div>
 
-      <div className="bg-blue-500/10 border border-blue-500/30 rounded-2xl p-5 flex flex-col gap-3 relative overflow-hidden">
-         <div className="flex items-start gap-3 relative z-10">
-           <ShieldCheck className="text-blue-500 dark:text-blue-400 shrink-0 mt-0.5" size={24} />
-           <div className="flex flex-col gap-2">
-             <h3 className="font-bold text-blue-700 dark:text-blue-200">Termos e Boas Práticas</h3>
-             <ul className="text-sm text-blue-900 dark:text-blue-100/80 space-y-2 list-disc ml-4">
-               <li>
-                 <strong className="text-blue-950 dark:text-blue-100">Para Interagir:</strong> Recomendamos o uso de uma conta secundária ("fake") de Instagram para seguir e curtir outras pessoas. Assim, sua conta oficial fica protegida de bloqueios.
-               </li>
-               <li>
-                 <strong className="text-blue-950 dark:text-blue-100">Para Receber Interações:</strong> O perfil que você impulsionar **deve ser PÚBLICO**. Links de contas privadas ou posts fechados causarão falha na pré-visualização, e outras pessoas não conseguirão interagir.
-               </li>
-             </ul>
-           </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+         <button 
+           onClick={() => setShowDailyModal(true)}
+           className={`relative overflow-hidden w-full text-left rounded-2xl p-5 border flex items-center justify-between transition-all shadow-sm ${hasDailyRewardAvailable ? 'bg-gradient-to-r from-yellow-500/20 to-orange-500/20 border-yellow-500/40 hover:from-yellow-500/30 hover:to-orange-500/30' : 'bg-secondary/50 border-border hover:bg-secondary'}`}
+         >
+            <div className="flex items-center gap-4 relative z-10">
+               <div className={`w-12 h-12 rounded-full flex items-center justify-center ${hasDailyRewardAvailable ? 'bg-gradient-to-br from-yellow-400 to-amber-600 text-white shadow-lg' : 'bg-card text-muted-foreground border'}`}>
+                  <Gift size={24} />
+               </div>
+               <div>
+                  <h3 className={`font-bold ${hasDailyRewardAvailable ? 'text-amber-600 dark:text-amber-400' : 'text-foreground'}`}>Prêmio Diário</h3>
+                  <p className="text-sm text-muted-foreground">
+                     {hasDailyRewardAvailable ? '🎁 Resgate o prêmio de hoje!' : 'Ver calendário da semana'}
+                  </p>
+               </div>
+            </div>
+            {hasDailyRewardAvailable && (
+               <span className="relative flex h-3 w-3">
+                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75"></span>
+                 <span className="relative inline-flex rounded-full h-3 w-3 bg-yellow-500"></span>
+               </span>
+            )}
+         </button>
+
+         <div className="bg-blue-500/10 border border-blue-500/30 rounded-2xl p-4 flex flex-col gap-2 relative overflow-hidden h-full justify-center">
+            <div className="flex items-start gap-3 relative z-10">
+              <ShieldCheck className="text-blue-500 dark:text-blue-400 shrink-0 mt-0.5" size={20} />
+              <div className="flex flex-col">
+                <h3 className="font-bold text-sm text-blue-700 dark:text-blue-200">Termos e Dicas</h3>
+                <p className="text-xs text-blue-900/80 dark:text-blue-100/70 mt-1">
+                  Use "fakes" para interagir. Seus perfis devem ser <b>Públicos</b>.
+                </p>
+              </div>
+            </div>
          </div>
       </div>
 
-      <div>
-        <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
-          Divulgações Disponíveis
-        </h3>
-        <div className="grid gap-6">
-        <AnimatePresence>
-          {loading && promotions.length === 0 ? (
-            Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="h-64 bg-secondary animate-pulse rounded-2xl border border-border"></div>
-            ))
-          ) : promotions.length === 0 ? (
-            <motion.div 
-               initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-               className="text-center p-12 bg-secondary/50 rounded-3xl border border-border"
-            >
-              <p className="text-muted-foreground">Nenhuma divulgação nova no momento.</p>
-              <p className="text-xs mt-2 opacity-60">Volte mais tarde ou crie a sua!</p>
-            </motion.div>
-          ) : (
-            promotions.map((p, i) => {
-              const isPost = getInstaLinkType(p.url) === 'post';
-              
-              return (
-              <motion.div 
-                key={p.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.9 }}
-                transition={{ delay: i * 0.1 }}
-                className="p-5 bg-card rounded-2xl border border-border shadow-sm flex flex-col gap-4"
-              >
-                <div className="flex items-center gap-3 w-full">
-                  <div className={`w-10 h-10 rounded-full border-2 flex items-center flex-shrink-0 justify-center text-white font-bold text-xs ${isPost ? 'bg-zinc-800 border-blue-400' : 'bg-zinc-800 border-green-400'}`}>
-                    {p.username.substring(0, 2).toUpperCase()}
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="font-semibold text-sm">@{p.username}</span>
-                    <span className="text-xs text-muted-foreground">{isPost ? 'Divulgação de Postagem' : 'Divulgação de Perfil'}</span>
-                  </div>
-                  <span className="text-green-400 font-bold ml-auto bg-green-400/10 px-2 py-1 rounded-md text-sm">
-                    +0.2 💎
-                  </span>
-                </div>
-
-                <InstaPreview url={p.url} type={isPost ? 'post' : 'profile'} username={p.username} />
-                
-                <div className="flex gap-3 pt-2 mt-1">
-                  <Button 
-                    variant="secondary" 
-                    className={`flex-1 flex gap-2 text-white shadow-md font-bold text-base py-6 ${isPost ? 'bg-blue-500 hover:bg-blue-600' : 'bg-pink-500 hover:bg-pink-600'}`}
-                    onClick={() => {
-                      window.open(p.url, '_blank', 'noopener,noreferrer');
-                      handleInteract(p.id);
-                    }}
-                    disabled={user?.id === p.user_id}
-                  >
-                    {isPost ? <Heart size={20} /> : <UserPlus size={20} />} 
-                    {isPost ? 'Curtir' : 'Seguir'}
-                  </Button>
-                </div>
-              </motion.div>
-            )})
-          )}
-        </AnimatePresence>
-        </div>
+      <div className="bg-secondary/40 p-1 rounded-xl flex">
+        <button 
+          onClick={() => setActiveTab('missions')}
+          className={`flex-1 py-3 text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-2 ${activeTab === 'missions' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+        >
+          <Target size={18} className={activeTab === 'missions' ? 'text-primary' : ''} />
+          Missões
+        </button>
+        <button 
+          onClick={() => setActiveTab('feed')}
+          className={`flex-1 py-3 text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-2 ${activeTab === 'feed' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+        >
+          <RefreshCw size={18} className={activeTab === 'feed' ? 'text-primary' : ''} />
+          Feed Geral
+        </button>
       </div>
+
+      <AnimatePresence mode="wait">
+        {activeTab === 'missions' ? (
+           <motion.div 
+             key="missions"
+             initial={{ opacity: 0, x: -10 }}
+             animate={{ opacity: 1, x: 0 }}
+             exit={{ opacity: 0, x: -10 }}
+             transition={{ duration: 0.2 }}
+           >
+             <MissionsTab />
+           </motion.div>
+        ) : (
+           <motion.div 
+             key="feed"
+             initial={{ opacity: 0, x: 10 }}
+             animate={{ opacity: 1, x: 0 }}
+             exit={{ opacity: 0, x: 10 }}
+             transition={{ duration: 0.2 }}
+             className="flex flex-col gap-6"
+           >
+              <div>
+                <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
+                  Divulgações Disponíveis
+                </h3>
+                <div className="grid gap-6">
+                <AnimatePresence>
+                  {loading && promotions.length === 0 ? (
+                    Array.from({ length: 3 }).map((_, i) => (
+                      <div key={i} className="h-64 bg-secondary animate-pulse rounded-2xl border border-border"></div>
+                    ))
+                  ) : promotions.length === 0 ? (
+                    <motion.div 
+                       initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                       className="text-center p-12 bg-secondary/50 rounded-3xl border border-border"
+                    >
+                      <p className="text-muted-foreground">Nenhuma divulgação nova no momento.</p>
+                      <p className="text-xs mt-2 opacity-60">Volte mais tarde ou crie a sua!</p>
+                    </motion.div>
+                  ) : (
+                    promotions.map((p, i) => {
+                      const isPost = getInstaLinkType(p.url) === 'post';
+                      const promoTypeLabel = isPost ? 'Divulgação de Postagem' : 'Divulgação de Perfil';
+                      
+                      return (
+                      <motion.div 
+                        key={p.id}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.9 }}
+                        transition={{ delay: i * 0.1 }}
+                        className="p-5 bg-card rounded-2xl border border-border shadow-sm flex flex-col gap-4 overflow-hidden"
+                      >
+                        <div className="flex items-center gap-3 w-full">
+                          <div className={`w-10 h-10 rounded-full flex items-center flex-shrink-0 justify-center text-white font-bold text-xs bg-gradient-to-tr ${isPost ? 'from-purple-500 to-pink-500' : 'from-yellow-400 to-orange-500'}`}>
+                            {p.username.substring(0, 2).toUpperCase()}
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="font-semibold text-sm">@{p.username}</span>
+                            <span className="text-[10px] text-muted-foreground uppercase tracking-widest">{promoTypeLabel}</span>
+                          </div>
+                          <span className="text-primary font-bold ml-auto bg-primary/10 px-2 py-1 rounded-md text-sm border border-primary/20">
+                            +0.2 💎
+                          </span>
+                        </div>
+
+                        {/* Thumbnail View */}
+                        <div 
+                           onClick={() => openViewer(p)}
+                           className="w-full h-40 bg-zinc-900 rounded-xl mt-2 relative overflow-hidden flex items-center justify-center cursor-pointer group"
+                        >
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent"></div>
+                            <div className="w-16 h-16 rounded-full bg-white/20 backdrop-blur-sm border border-white/20 flex flex-col items-center justify-center text-white group-hover:scale-110 transition-transform">
+                               {isPost ? <Play size={28} className="ml-1" /> : <UserPlus size={24} />}
+                            </div>
+                            <span className="absolute bottom-4 text-white text-xs font-bold uppercase tracking-widest">
+                               {isPost ? 'Assistir Conteúdo' : 'Ver Perfil'}
+                            </span>
+                        </div>
+                      </motion.div>
+                    )})
+                  )}
+                </AnimatePresence>
+                </div>
+              </div>
+           </motion.div>
+        )}
+      </AnimatePresence>
+
+      <DailyRewardModal 
+         open={showDailyModal} 
+         onClose={() => setShowDailyModal(false)} 
+      />
+
+      <InstaViewerModal
+         open={viewerOpen}
+         onClose={() => {
+            setViewerOpen(false);
+            setActivePromo(null);
+         }}
+         url={activePromo?.url || ''}
+         type={activePromo ? (getInstaLinkType(activePromo.url) as any) : 'post'}
+         username={activePromo?.username || ''}
+         onInteract={handleInteract}
+         title={activePromo ? (getInstaLinkType(activePromo.url) === 'post' ? 'Divulgação de Postagem' : 'Divulgação de Perfil') : ''}
+      />
     </div>
   );
 }

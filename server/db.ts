@@ -56,6 +56,9 @@ const hasRole = userCols.some(c => c.name === 'role');
 const hasIsVerified = userCols.some(c => c.name === 'is_verified');
 const hasIsBlocked = userCols.some(c => c.name === 'is_blocked');
 const hasTickets = userCols.some(c => c.name === 'tickets');
+const hasSessionVersion = userCols.some(c => c.name === 'session_version');
+const hasDeviceChangeCount = userCols.some(c => c.name === 'device_change_count');
+const hasActiveDeviceHash = userCols.some(c => c.name === 'active_device_hash');
 
 const paymentCols = db.prepare('PRAGMA table_info(payments)').all() as any[];
 const hasPaymentTickets = paymentCols.some(c => c.name === 'tickets');
@@ -66,6 +69,9 @@ if (!hasRole) db.exec('ALTER TABLE users ADD COLUMN role TEXT DEFAULT "user";');
 if (!hasIsVerified) db.exec('ALTER TABLE users ADD COLUMN is_verified INTEGER DEFAULT 0;');
 if (!hasIsBlocked) db.exec('ALTER TABLE users ADD COLUMN is_blocked INTEGER DEFAULT 0;');
 if (!hasTickets) db.exec('ALTER TABLE users ADD COLUMN tickets INTEGER DEFAULT 0;');
+if (!hasSessionVersion) db.exec('ALTER TABLE users ADD COLUMN session_version INTEGER DEFAULT 1;');
+if (!hasDeviceChangeCount) db.exec('ALTER TABLE users ADD COLUMN device_change_count INTEGER DEFAULT 0;');
+if (!hasActiveDeviceHash) db.exec('ALTER TABLE users ADD COLUMN active_device_hash TEXT;');
 
 if (!hasPaymentTickets) db.exec('ALTER TABLE payments ADD COLUMN tickets INTEGER DEFAULT 0;');
 
@@ -113,6 +119,11 @@ setInterval(() => {
       DELETE FROM payments 
       WHERE status = 'pending' AND datetime(created_at, '+17 minutes') < datetime('now')
     `).run();
+
+    // Limpar e-mails não verificados em 7 dias (exigirá que o usuário cadastre outro e-mail na proxima sessao)
+    db.prepare(`
+      UPDATE users SET email = NULL WHERE is_verified = 0 AND email IS NOT NULL AND datetime(created_at, '+7 days') < datetime('now')
+    `).run();
   } catch(e) {}
 }, 60 * 1000); // 1 min
 
@@ -135,6 +146,12 @@ setInterval(() => {
       WHERE last_active_at < datetime('now', '-90 days')
     `);
     const resUsers = deleteInactiveUsers.run();
+
+    // Reset weekly device change count if it's Monday
+    const today = new Date();
+    if (today.getDay() === 1) { // 1 = Monday
+       db.exec(`UPDATE users SET device_change_count = 0`);
+    }
 
     if (resPromos.changes > 0 || resUsers.changes > 0) {
       console.log(`[Garbage Collector] Cleaned up: ${resPromos.changes} old promos, ${resUsers.changes} inactive users.`);

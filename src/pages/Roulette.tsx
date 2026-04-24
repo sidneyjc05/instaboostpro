@@ -27,61 +27,58 @@ export default function Roulette() {
   const [spinning, setSpinning] = useState(false);
   const [rotation, setRotation] = useState(0);
   const [prizeWin, setPrizeWin] = useState<any>(null);
-  
-  const [canClaim, setCanClaim] = useState(false);
-  const [nextClaimTime, setNextClaimTime] = useState<string | null>(null);
-  const [claiming, setClaiming] = useState(false);
 
-  useEffect(() => {
-    fetchRouletteStatus();
-  }, []);
+  const [canClaimFree, setCanClaimFree] = useState(false);
+  const [nextFreeClaim, setNextFreeClaim] = useState<string | null>(null);
 
-  const fetchRouletteStatus = async () => {
+  const [claimingFree, setClaimingFree] = useState(false);
+
+  const checkFreeStatus = async () => {
     try {
       const res = await fetch('/api/roulette/status');
       if (res.ok) {
         const data = await res.json();
-        setCanClaim(data.canClaim);
-        if (data.nextClaimTime) {
-           setNextClaimTime(data.nextClaimTime);
-        }
+        setCanClaimFree(data.canClaim);
+        setNextFreeClaim(data.nextClaimTime);
       }
     } catch {}
   };
 
-  const handleClaimFreeTickets = async () => {
-    setClaiming(true);
+  useEffect(() => {
+    checkFreeStatus();
+  }, []);
+
+  const claimFreeTickets = async () => {
+    setClaimingFree(true);
     try {
-      // Simulate reading a device fingerprint token natively or conceptually
       const deviceHash = localStorage.getItem('device_hash') || btoa(navigator.userAgent).substring(0, 32);
       if (!localStorage.getItem('device_hash')) localStorage.setItem('device_hash', deviceHash);
 
       const res = await fetch('/api/roulette/claim', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deviceHash })
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify({ deviceHash })
       });
-      
       const data = await res.json();
       if (res.ok) {
-        playSuccess();
-        showNotification.success("Você recebeu 3 Tickets Grátis!");
-        await refreshUser();
-        fetchRouletteStatus();
+         playSuccess();
+         showNotification.success('Você ganhou 3 Tickets Grátis!');
+         await refreshUser();
+         checkFreeStatus();
       } else {
-        showNotification.error(data.error || "Erro ao resgatar.");
+         showNotification.error(data.error || 'Erro ao resgatar');
       }
     } catch {
-      showNotification.error("Erro de conexão.");
+      showNotification.error('Erro de conexão ao resgatar tickets.');
     } finally {
-      setClaiming(false);
+      setClaimingFree(false);
     }
   };
 
   const spinRoulette = async () => {
     if (spinning) return;
     if (!user?.tickets || user.tickets < 1) {
-       showNotification.error("Você não tem tickets suficientes. Resgate grátis ou compre na Loja.");
+       showNotification.error("Você não tem tickets suficientes. Resgate no Prêmio Diário ou compre na Loja.");
        return;
     }
 
@@ -169,23 +166,6 @@ export default function Roulette() {
         </div>
       </div>
 
-      {canClaim && (
-         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-primary/10 border border-primary/30 p-4 rounded-2xl flex flex-col md:flex-row gap-4 items-center justify-between">
-            <div className="flex items-center gap-3">
-               <div className="w-10 h-10 bg-primary/20 text-primary rounded-full flex items-center justify-center">
-                  <Ticket size={20} />
-               </div>
-               <div>
-                  <h4 className="font-bold text-foreground">Diariamente 3 Tickets</h4>
-                  <p className="text-xs text-muted-foreground">Você possui tickets grátis disponíveis.</p>
-               </div>
-            </div>
-            <Button variant="primary" onClick={handleClaimFreeTickets} isLoading={claiming} className="w-full md:w-auto">
-               Resgatar Grátis
-            </Button>
-         </motion.div>
-      )}
-
       {/* ROULETTE UI */}
       <div className="bg-card border border-border rounded-3xl p-8 flex flex-col items-center justify-center overflow-hidden relative shadow-inner">
          <div className="relative w-64 h-64 md:w-80 md:h-80">
@@ -255,13 +235,25 @@ export default function Roulette() {
          )}
       </AnimatePresence>
 
-      {!canClaim && nextClaimTime && (
-         <div className="bg-secondary/40 border border-border p-4 rounded-2xl flex flex-col items-center gap-2 text-center mt-2">
-            <span className="text-2xl font-mono text-muted-foreground font-bold">{nextClaimTime}</span>
-            <span className="text-xs text-muted-foreground">Próximo resgate de tickets grátis disponível.</span>
-         </div>
-      )}
-      
+      <div className="mt-4">
+        {canClaimFree ? (
+           <div className="bg-gradient-to-r from-yellow-500/20 to-amber-600/20 border border-yellow-500/40 rounded-3xl p-6 flex flex-col items-center text-center shadow-lg relative overflow-hidden">
+              <div className="absolute top-0 right-0 p-4 opacity-10 blur-sm pointer-events-none">
+                 <Ticket size={100} className="text-yellow-500" />
+              </div>
+              <h3 className="text-xl font-extrabold text-amber-500 mb-2 relative z-10">Tickets Diários Grátis!</h3>
+              <p className="text-sm text-foreground/80 mb-6 relative z-10 max-w-sm">Você tem 3 tickets gratuitos aguardando para rodar a roleta. Resgate agora mesmo!</p>
+              <Button onClick={claimFreeTickets} isLoading={claimingFree} variant="primary" size="lg" className="w-full relative z-10 shadow-[0_0_15px_rgba(245,158,11,0.5)] bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 border-none font-bold">
+                 RESGATAR 3 TICKETS GRÁTIS
+              </Button>
+           </div>
+        ) : (
+           <div className="bg-secondary/40 border border-border p-6 rounded-3xl flex flex-col items-center gap-3 text-center mt-2">
+              <span className="text-2xl font-mono text-muted-foreground font-bold tracking-widest">{nextFreeClaim}</span>
+              <span className="text-sm text-muted-foreground">Próximo resgate de tickets grátis disponível no balcão de prêmios.</span>
+           </div>
+        )}
+      </div>
     </div>
   );
 }

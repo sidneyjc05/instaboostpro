@@ -4,7 +4,7 @@ import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { OTPInput } from '../components/ui/OTPInput';
 import { showNotification } from '../context/NotificationContext';
-import { Instagram, ShieldAlert } from 'lucide-react';
+import { Instagram, ShieldAlert, Eye, EyeOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 export default function Login() {
@@ -15,6 +15,7 @@ export default function Login() {
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [verificationCode, setVerificationCode] = useState('');
   const [requiresVerification, setRequiresVerification] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -182,6 +183,8 @@ export default function Login() {
                <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="flex flex-col gap-5">
                   <div className="p-3 bg-orange-500/10 border border-orange-500/20 text-orange-600 dark:text-orange-300 text-sm rounded-xl text-center">
                      Detectamos um novo dispositivo. Enviamos um código para seu email de recuperação. Verifique sua caixa de entrada.
+                     <br/><br/>
+                     <span className="font-bold">Aviso:</span> Pode demorar até 10 minutos para chegar o código. Tenha paciência e evite enviar vários códigos em sequência!
                   </div>
                   <OTPInput 
                      value={verificationCode}
@@ -209,13 +212,23 @@ export default function Login() {
                       </p>
                     </div>
                   )}
-                  <Input 
-                    type="password" 
-                    placeholder="Senha" 
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                  />
+                  <div className="relative">
+                    <Input 
+                      type={showPassword ? "text" : "password"} 
+                      placeholder="Senha" 
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      required
+                      className="pr-10"
+                    />
+                    <button 
+                       type="button" 
+                       onClick={() => setShowPassword(!showPassword)}
+                       className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground/80 focus:outline-none"
+                    >
+                       {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  </div>
                </motion.div>
             )}
           </AnimatePresence>
