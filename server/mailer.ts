@@ -1,12 +1,8 @@
-import nodemailer from 'nodemailer';
+import { MailerSend, EmailParams, Sender, Recipient } from "mailersend";
 
-const SMTP_HOST = process.env.SMTP_HOST;
-const SMTP_PORT = process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT) : 587;
-const SMTP_USER = process.env.SMTP_USER;
-const SMTP_PASS = process.env.SMTP_PASS;
-
-const API_URL = 'https://api.mailersend.com/v1/email';
-const API_TOKEN = process.env.MAILERSEND_API_TOKEN;
+// The Mailersend API token from the user - defaults to empty string so new MailerSend doesn't crash here if empty
+// although we check it later.
+const API_TOKEN = process.env.MAILERSEND_API_TOKEN || process.env.API_KEY || ''; 
 const FROM_DOMAIN = process.env.MAILERSEND_DOMAIN || 'test-eqvygm07v7zl0p7w.mlsender.net';
 const FROM_EMAIL = process.env.FROM_EMAIL || `suporte@${FROM_DOMAIN}`;
 
@@ -31,77 +27,30 @@ export async function sendVerificationEmail(toEmail: string, code: string, type:
   </div>`;
 
   try {
-    // 1. Try SMTP if configured
-    if (SMTP_HOST && SMTP_USER && SMTP_PASS) {
-        const transporter = nodemailer.createTransport({
-            host: SMTP_HOST,
-            port: SMTP_PORT,
-            secure: SMTP_PORT === 465,
-            auth: {
-                user: SMTP_USER,
-                pass: SMTP_PASS,
-            },
-        });
-
-        await transporter.sendMail({
-            from: `"InstaBoost PRO Segurança" <${FROM_EMAIL}>`,
-            to: toEmail,
-            subject: subject,
-            text: text,
-            html: html,
-        });
-
-        console.log(`[Mailer] E-mail enviado com sucesso via SMTP para ${toEmail}`);
-        return { success: true };
-    }
-
-    // 2. Try Mailersend if configured
     if (API_TOKEN) {
-        const payload = {
-            from: { email: FROM_EMAIL, name: "InstaBoost PRO Segurança" },
-            to: [{ email: toEmail }],
-            subject: subject,
-            text: text,
-            html: html
-        };
+        const mailerSend = new MailerSend({
+          apiKey: API_TOKEN,
+        });
 
-        let response;
-        if (typeof fetch === 'undefined') {
-            const nodeFetch = (await import('node-fetch')).default as any;
-            response = await nodeFetch(API_URL, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Requested-With': 'XMLHttpRequest',
-                    'Authorization': `Bearer ${API_TOKEN}`
-                },
-                body: JSON.stringify(payload)
-            });
-        } else {
-            response = await fetch(API_URL, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Requested-With': 'XMLHttpRequest',
-                    'Authorization': `Bearer ${API_TOKEN}`
-                },
-                body: JSON.stringify(payload)
-            });
-        }
+        const sentFrom = new Sender(FROM_EMAIL, "InstaBoost PRO Segurança");
+        const recipients = [new Recipient(toEmail, "Cliente")];
 
-        if (!response.ok) {
-            const respErr = await response.text();
-            console.error('[Mailer] Erro ao enviar email pela API Mailersend:', response.status, respErr);
-            return { success: false, reason: 'api_error' };
-        }
+        const emailParams = new EmailParams()
+          .setFrom(sentFrom)
+          .setTo(recipients)
+          .setSubject(subject)
+          .setHtml(html)
+          .setText(text);
+
+        await mailerSend.email.send(emailParams);
         
         console.log(`[Mailer] E-mail enviado com sucesso via API Mailersend para ${toEmail}`);
         return { success: true };
     }
 
-    // 3. Fallback: print to console and bypass
-    console.warn(`[Mailer] Nenhuma configuração de servidor de E-mail fornecida (SMTP ou MAILERSEND_API_TOKEN). Bypass ativado. O Código gerado foi: ${code}`);
-    return { success: false, reason: 'unconfigured' };
+    // Fallback: print to console and bypass if no KEY is found.
+    console.warn(`[Mailer] Nenhuma configuração de servidor de E-mail fornecida (API_KEY ou MAILERSEND_API_TOKEN). Bypass ativado. O Código gerado foi: ${code}`);
+    return { success: true, bypassed: true };
 
   } catch (err) {
     console.error('[Mailer] Erro sistêmico ao enviar email:', err);

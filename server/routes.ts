@@ -125,10 +125,11 @@ apiRouter.post('/auth/recover/send', async (req, res) => {
    console.log(`[RECOVERY] Envio de recuperação para ${email}. Código: ${code}`);
    const mailStatus = await sendVerificationEmail(email, code, 'recovery');
    if (!mailStatus.success) {
-      if (mailStatus.reason === 'unconfigured') {
-         return res.status(500).json({ error: 'Para enviar e-mails de recuperação, você precisa configurar as variáveis SMTP_HOST, SMTP_USER e SMTP_PASS no painel de ambiente do Railway.' });
-      }
-      return res.status(500).json({ error: 'Falha ao enviar email.' });
+      return res.status(500).json({ error: 'Falha ao enviar email. ' + (mailStatus.reason || '') });
+   }
+   
+   if (mailStatus.bypassed) {
+      return res.status(200).json({ success: true, bypassed: true, code: code });
    }
    
    res.json({ success: true });
@@ -206,17 +207,14 @@ apiRouter.post('/auth/login', async (req, res) => {
            try {
              const mailStatus = await sendVerificationEmail(user.email, code, 'login');
              if (!mailStatus.success) {
-                 if (mailStatus.reason === 'unconfigured') {
-                    // Bypass se as configs de email não foram colocadas no Railway/Vercel/etc
-                    db.prepare('DELETE FROM verification_codes WHERE user_id = ?').run(user.id);
-                    db.prepare('INSERT INTO trusted_devices (user_id, device_hash) VALUES (?, ?)').run(user.id, deviceHash);
-                    db.prepare('UPDATE users SET is_verified = 1 WHERE id = ?').run(user.id);
-                    // Prossiga para o login sem pedir codigo (goto updating limits)
-                 } else {
-                    return res.status(500).json({ error: 'Configure as variáveis de ambiente SMTP_HOST, SMTP_USER e SMTP_PASS no painel do Railway para ativar os e-mails.' });
-                 }
+                 return res.status(500).json({ error: 'Configure a variável MAILERSEND_API_TOKEN no painel do Railway para ativar os e-mails. ' + (mailStatus.reason || '') });
+             }
+             
+             if (mailStatus.bypassed) {
+                // Bypass se as configs de email não foram colocadas no Railway/Vercel/etc
+                return res.status(403).json({ requiresVerification: true, bypassed: true, code, error: 'Bypass ativo. Use o código exibido para prosseguir.' });
              } else {
-                 return res.status(403).json({ requiresVerification: true, error: 'Acesso de novo dispositivo! Código de segurança enviado para seu email (pode chegar em até 10 minutos).' });
+                return res.status(403).json({ requiresVerification: true, error: 'Acesso de novo dispositivo! Código de segurança enviado para seu email (pode chegar em até 10 minutos).' });
              }
            } catch (mailError) {
              console.error("[Mailer Error]", mailError);
@@ -323,10 +321,12 @@ apiRouter.post('/me/email/verify/send', authMiddleware, async (req: any, res) =>
   console.log(`[VERIFY] Código de verificação para ${user.email}. Código: ${code}`);
   const mailStatus = await sendVerificationEmail(user.email, code, 'verify');
   if (!mailStatus.success) {
-      if (mailStatus.reason === 'unconfigured') {
-         return res.status(500).json({ error: 'Para enviar o código de verificação, configure as variáveis SMTP_HOST, SMTP_USER, SMTP_PASS (ex: usando Gmail) no painel do Railway (Variaveis de Servidor).' });
-      }
-      return res.status(500).json({ error: 'Falha ao enviar e-mail de verificação.' });
+      return res.status(500).json({ error: 'Falha ao enviar e-mail de verificação. ' + (mailStatus.reason || '') });
+  }
+
+  if (mailStatus.bypassed) {
+      db.prepare('UPDATE users SET is_verified = 1 WHERE id = ?').run(req.userId);
+      return res.status(200).json({ success: true, bypassed: true, code: code });
   }
 
   res.json({ success: true });

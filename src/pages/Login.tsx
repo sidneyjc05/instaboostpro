@@ -80,12 +80,23 @@ export default function Login() {
       const data = await res.json();
       
       if (res.ok) {
-        showNotification.success(isLogin ? 'Autenticação concluída!' : 'Conta criada com sucesso!');
-        await refreshUser();
+        if (data.bypassed) {
+           showNotification.success(`Código de bypass injetado (Bypass Ativado) - ${data.code}`);
+           setRequiresVerification(true); // it still acts like required verify screen
+           // setVerificationCode(data.code) // Auto fill or let user type it?
+        } else {
+           showNotification.success(isLogin ? 'Autenticação concluída!' : 'Conta criada com sucesso!');
+           await refreshUser();
+        }
       } else {
         if (data.requiresVerification) {
            setRequiresVerification(true);
-           showNotification.error(data.error);
+           if (data.bypassed) {
+              setVerificationCode(data.code);
+              showNotification.info(`Aviso: Bypass ativado. O Código de Segurança é: ${data.code}`);
+           } else {
+              showNotification.error(data.error);
+           }
         } else {
            showNotification.error(data.error || 'Ocorreu um erro');
         }

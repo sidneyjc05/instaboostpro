@@ -46,7 +46,7 @@ export default function Profile() {
         });
         const data = await res.json();
         if (res.ok) {
-           showNotification.success('Email adicionado! Enviaremos um código.');
+           showNotification.success('Email adicionado!');
            await refreshUser();
            handleSendVerifyCode();
         } else {
@@ -64,8 +64,13 @@ export default function Profile() {
         const res = await fetch('/api/me/email/verify/send', { method: 'POST' });
         const data = await res.json();
         if (res.ok) {
-           showNotification.success('Código enviado para seu e-mail!');
-           setShowEmailVerify(true);
+           if (data.bypassed) {
+              showNotification.success(`E-mail verificado automaticamente. Código bypass: ${data.code}`);
+              await refreshUser();
+           } else {
+              showNotification.success('Código enviado para seu e-mail!');
+              setShowEmailVerify(true);
+           }
         } else {
            showNotification.error(data.error);
         }
@@ -109,7 +114,11 @@ export default function Profile() {
         });
         const data = await res.json();
         if (res.ok) {
-           showNotification.success('Código de segurança enviado para seu email!');
+           if (data.bypassed) {
+              showNotification.info(`Aviso: Email bypass ativado. Use este código para trocar a senha: ${data.code}`);
+           } else {
+              showNotification.success('Código de segurança enviado para seu email!');
+           }
            setShowPasswordChange(true);
         } else {
            showNotification.error(data.error);
