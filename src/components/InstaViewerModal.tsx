@@ -56,17 +56,22 @@ export function InstaViewerModal({ open, onClose, url, type, username, onInterac
 
   if (!open) return null;
 
-  const cleanUrl = url.split('?')[0].replace(/\/$/, "");
+  let embedUrl = url.split('?')[0].replace(/\/$/, "");
+  if (type === 'reel') {
+     embedUrl = embedUrl.replace('/reel/', '/p/');
+  }
+
   const profileUser = username || 'usuario';
 
-  const handleActionClick = (actionType: 'like' | 'follow') => {
+  const handleActionClick = (actionType: 'like' | 'follow' | 'watch') => {
       // Allow interaction if completed, or just process it
-      if (completed) {
-         onInteract();
-      } else if (type === 'profile') {
+      if (completed || type === 'profile') {
          onInteract();
       }
-      window.open(url, '_blank', 'noopener,noreferrer');
+      
+      if (actionType !== 'watch') {
+         window.open(url, '_blank', 'noopener,noreferrer');
+      }
   };
 
   return (
@@ -126,7 +131,7 @@ export function InstaViewerModal({ open, onClose, url, type, username, onInterac
                      {/* Lock interaction inside iframe so we only use our buttons */}
                      <div className="absolute inset-0 z-10 hidden"></div>
                      <iframe 
-                       src={`${cleanUrl}/embed`} 
+                       src={`${embedUrl}/embed/`} 
                        className="w-full h-[500px] -mt-12 bg-white" 
                        frameBorder="0" 
                        scrolling="no" 
@@ -176,20 +181,32 @@ export function InstaViewerModal({ open, onClose, url, type, username, onInterac
              )}
 
              <div className="flex gap-3">
-                <Button 
-                   onClick={() => handleActionClick('like')}
-                   className={`flex-1 font-bold text-white shadow-lg border-none py-6 transition-all ${completed ? 'bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-600 hover:to-red-700 hover:scale-[1.02]' : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'}`}
-                   disabled={!completed && type !== 'profile'}
-                >
-                   <Heart size={20} className={completed ? "text-white mr-2" : "text-zinc-500 mr-2"} /> Curtir
-                </Button>
-                <Button 
-                   onClick={() => handleActionClick('follow')}
-                   className={`flex-1 font-bold text-white shadow-lg border-none py-6 transition-all ${completed || type === 'profile' ? 'bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 hover:scale-[1.02]' : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'}`}
-                   disabled={!completed && type !== 'profile'}
-                >
-                   <UserPlus size={20} className={completed || type === 'profile' ? "text-white mr-2" : "text-zinc-500 mr-2"} /> Seguir
-                </Button>
+                {type === 'reel' && (
+                   <Button 
+                      onClick={() => handleActionClick('watch')}
+                      className={`flex-1 font-bold text-white shadow-lg border-none py-6 transition-all ${completed ? 'bg-gradient-to-r from-emerald-500 to-green-600 hover:scale-[1.02]' : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'}`}
+                      disabled={!completed}
+                   >
+                      <CheckCircle2 size={20} className={completed ? "text-white mr-2" : "text-zinc-500 mr-2"} /> Confirmar Visualização
+                   </Button>
+                )}
+                {type === 'post' && (
+                   <Button 
+                      onClick={() => handleActionClick('like')}
+                      className={`flex-1 font-bold text-white shadow-lg border-none py-6 transition-all ${completed ? 'bg-gradient-to-r from-rose-500 to-red-600 hover:scale-[1.02]' : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'}`}
+                      disabled={!completed}
+                   >
+                      <Heart size={20} className={completed ? "text-white mr-2" : "text-zinc-500 mr-2"} /> Curtir e Confirmar
+                   </Button>
+                )}
+                {type === 'profile' && (
+                   <Button 
+                      onClick={() => handleActionClick('follow')}
+                      className={`flex-1 font-bold text-white shadow-lg border-none py-6 transition-all bg-gradient-to-r from-emerald-500 to-green-600 hover:scale-[1.02]`}
+                   >
+                      <UserPlus size={20} className="text-white mr-2" /> Seguir e Confirmar
+                   </Button>
+                )}
              </div>
              
              {type !== 'profile' && !completed && (

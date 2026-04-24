@@ -18,7 +18,8 @@ interface Promotion {
 
 const getInstaLinkType = (link: string) => {
   if (!link) return 'profile';
-  return /\/(p|reel|tv)\//i.test(link) ? 'post' : 'profile';
+  if (link.includes('/reel/')) return 'reel';
+  return /\/(p|tv)\//i.test(link) ? 'post' : 'profile';
 };
 
 export default function Home() {
@@ -181,7 +182,7 @@ export default function Home() {
              exit={{ opacity: 0, x: -10 }}
              transition={{ duration: 0.2 }}
            >
-             <MissionsTab />
+             <MissionsTab onGoToFeed={() => setActiveTab('feed')} />
            </motion.div>
         ) : (
            <motion.div 
@@ -212,8 +213,9 @@ export default function Home() {
                     </motion.div>
                   ) : (
                     promotions.map((p, i) => {
-                      const isPost = getInstaLinkType(p.url) === 'post';
-                      const promoTypeLabel = isPost ? 'Divulgação de Postagem' : 'Divulgação de Perfil';
+                      const linkType = getInstaLinkType(p.url);
+                      const isContent = linkType === 'post' || linkType === 'reel';
+                      const promoTypeLabel = linkType === 'post' ? 'Divulgação de Postagem' : (linkType === 'reel' ? 'Divulgação de Reel' : 'Divulgação de Perfil');
                       
                       return (
                       <motion.div 
@@ -225,7 +227,7 @@ export default function Home() {
                         className="p-5 bg-card rounded-2xl border border-border shadow-sm flex flex-col gap-4 overflow-hidden"
                       >
                         <div className="flex items-center gap-3 w-full">
-                          <div className={`w-10 h-10 rounded-full flex items-center flex-shrink-0 justify-center text-white font-bold text-xs bg-gradient-to-tr ${isPost ? 'from-purple-500 to-pink-500' : 'from-yellow-400 to-orange-500'}`}>
+                          <div className={`w-10 h-10 rounded-full flex items-center flex-shrink-0 justify-center text-white font-bold text-xs bg-gradient-to-tr ${isContent ? 'from-purple-500 to-pink-500' : 'from-yellow-400 to-orange-500'}`}>
                             {p.username.substring(0, 2).toUpperCase()}
                           </div>
                           <div className="flex flex-col">
@@ -244,10 +246,10 @@ export default function Home() {
                         >
                             <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent"></div>
                             <div className="w-16 h-16 rounded-full bg-white/20 backdrop-blur-sm border border-white/20 flex flex-col items-center justify-center text-white group-hover:scale-110 transition-transform">
-                               {isPost ? <Play size={28} className="ml-1" /> : <UserPlus size={24} />}
+                               {isContent ? <Play size={28} className="ml-1" /> : <UserPlus size={24} />}
                             </div>
                             <span className="absolute bottom-4 text-white text-xs font-bold uppercase tracking-widest">
-                               {isPost ? 'Assistir Conteúdo' : 'Ver Perfil'}
+                               {isContent ? 'Assistir Conteúdo' : 'Ver Perfil'}
                             </span>
                         </div>
                       </motion.div>
@@ -275,7 +277,7 @@ export default function Home() {
          type={activePromo ? (getInstaLinkType(activePromo.url) as any) : 'post'}
          username={activePromo?.username || ''}
          onInteract={handleInteract}
-         title={activePromo ? (getInstaLinkType(activePromo.url) === 'post' ? 'Divulgação de Postagem' : 'Divulgação de Perfil') : ''}
+         title={activePromo ? (getInstaLinkType(activePromo.url) === 'post' ? 'Divulgação de Postagem' : (getInstaLinkType(activePromo.url) === 'reel' ? 'Assistir Reel' : 'Divulgação de Perfil')) : ''}
       />
     </div>
   );

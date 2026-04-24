@@ -4,7 +4,6 @@ import { Heart, PlaySquare, UserPlus, Clock, Play } from 'lucide-react';
 import { Button } from './ui/Button';
 import { showNotification } from '../context/NotificationContext';
 import { useAuth } from '../context/AuthContext';
-import { InstaViewerModal } from './InstaViewerModal';
 
 const MISSION_CONFIG = {
   likes: {
@@ -57,13 +56,11 @@ const LEVEL_COLORS = [
   'from-purple-500 to-violet-600'
 ];
 
-export function MissionsTab() {
+export function MissionsTab({ onGoToFeed }: { onGoToFeed: () => void }) {
   const [state, setState] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const { refreshUser } = useAuth();
   
-  const [viewerKey, setViewerKey] = useState<string | null>(null);
-
   const loadMissions = async () => {
     try {
       const res = await fetch('/api/missions');
@@ -95,18 +92,6 @@ export function MissionsTab() {
     return () => clearInterval(interval);
   }, []);
 
-  const handleInteract = async (key: string) => {
-      try {
-          await fetch('/api/missions/progress', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ type: key, amount: 1 })
-          });
-          loadMissions();
-          setViewerKey(null);
-      } catch {}
-  };
-
   if (loading || !state) {
     return (
       <div className="flex flex-col gap-4">
@@ -116,9 +101,6 @@ export function MissionsTab() {
       </div>
     );
   }
-
-  const activeMission = viewerKey ? (MISSION_CONFIG as any)[viewerKey] : null;
-  const activeState = viewerKey ? state[viewerKey] : null;
 
   return (
     <div className="flex flex-col gap-5">
@@ -138,26 +120,10 @@ export function MissionsTab() {
             onUpdate={loadMissions}
             refreshUser={refreshUser}
             onOpenViewer={() => {
-                if (key !== 'time') setViewerKey(key);
+                if (key !== 'time') onGoToFeed();
             }}
          />
        ))}
-
-       {activeMission && activeState && (
-           <InstaViewerModal
-              open={!!viewerKey}
-              onClose={() => setViewerKey(null)}
-              url={activeMission.dummyLink}
-              type={activeMission.type}
-              username={activeMission.type === 'profile' ? 'instagram' : 'conteudo_exemplo'}
-              title={activeMission.title}
-              onInteract={() => handleInteract(viewerKey as string)}
-              missionProgress={{
-                 current: activeState.progress,
-                 goal: activeMission.goals[Math.min(activeState.level - 1, 4)]
-              }}
-           />
-       )}
     </div>
   );
 }

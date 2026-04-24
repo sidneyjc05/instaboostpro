@@ -123,7 +123,13 @@ apiRouter.post('/auth/recover/send', async (req, res) => {
    db.prepare(`INSERT INTO verification_codes (user_id, code, expires_at) VALUES (?, ?, datetime('now', '+15 minutes'))`).run(user.id, code);
 
    console.log(`[RECOVERY] Envio de recuperação para ${email}. Código: ${code}`);
-   await sendVerificationEmail(email, code, 'recovery');
+   const mailStatus = await sendVerificationEmail(email, code, 'recovery');
+   if (!mailStatus.success) {
+      if (mailStatus.reason === 'unconfigured') {
+         return res.status(500).json({ error: 'O administrador ainda não configurou o sistema de emails do site. Tente novamente mais tarde.' });
+      }
+      return res.status(500).json({ error: 'Falha ao enviar email.' });
+   }
    
    res.json({ success: true });
 });
@@ -198,13 +204,24 @@ apiRouter.post('/auth/login', async (req, res) => {
            
            console.log(`[SECURITY] Suspicious login for ${user.email}. Verification Code: ${code}`);
            try {
-             await sendVerificationEmail(user.email, code, 'login');
+             const mailStatus = await sendVerificationEmail(user.email, code, 'login');
+             if (!mailStatus.success) {
+                 if (mailStatus.reason === 'unconfigured') {
+                    // Bypass se as configs de email não foram colocadas no Railway/Vercel/etc
+                    db.prepare('DELETE FROM verification_codes WHERE user_id = ?').run(user.id);
+                    db.prepare('INSERT INTO trusted_devices (user_id, device_hash) VALUES (?, ?)').run(user.id, deviceHash);
+                    db.prepare('UPDATE users SET is_verified = 1 WHERE id = ?').run(user.id);
+                    // Prossiga para o login sem pedir codigo (goto updating limits)
+                 } else {
+                    return res.status(500).json({ error: 'Erro ao enviar o código de segurança para o seu e-mail. Tente novamente mais tarde.' });
+                 }
+             } else {
+                 return res.status(403).json({ requiresVerification: true, error: 'Acesso de novo dispositivo! Código de segurança enviado para seu email (pode chegar em até 10 minutos).' });
+             }
            } catch (mailError) {
              console.error("[Mailer Error]", mailError);
-             return res.status(500).json({ error: 'Erro ao enviar o código de segurança para o seu e-mail. Tente novamente mais tarde.' });
+             return res.status(500).json({ error: 'Erro de sistema. Não foi possível processar o código.' });
            }
-
-           return res.status(403).json({ requiresVerification: true, error: 'Acesso de novo dispositivo! Código de segurança enviado para seu email (pode chegar em até 10 minutos).' });
        } else {
            const validCode = db.prepare(`SELECT id FROM verification_codes WHERE user_id = ? AND code = ? AND expires_at > datetime('now')`).get(user.id, verificationCode);
            if (!validCode) {
@@ -304,7 +321,13 @@ apiRouter.post('/me/email/verify/send', authMiddleware, async (req: any, res) =>
   db.prepare(`INSERT INTO verification_codes (user_id, code, expires_at) VALUES (?, ?, datetime('now', '+15 minutes'))`).run(req.userId, code);
 
   console.log(`[VERIFY] Código de verificação para ${user.email}. Código: ${code}`);
-  await sendVerificationEmail(user.email, code, 'verify');
+  const mailStatus = await sendVerificationEmail(user.email, code, 'verify');
+  if (!mailStatus.success) {
+      if (mailStatus.reason === 'unconfigured') {
+         return res.status(500).json({ error: 'O sistema de envio de emails não está configurado. Fale com o administrador.' });
+      }
+      return res.status(500).json({ error: 'Falha ao enviar e-mail de verificação.' });
+  }
 
   res.json({ success: true });
 });
@@ -450,6 +473,20 @@ apiRouter.post('/promotions/:id/interact', authMiddleware, (req: any, res) => {
     }
 
     db.prepare('UPDATE users SET credits = credits + ? WHERE id = ?').run(reward, req.userId);
+
+    // Progresso das missões
+    let missionType = 'follows';
+    if (promo.url.includes('/reel/')) {
+        missionType = 'reels';
+    } else if (promo.url.includes('/p/')) {
+        missionType = 'likes';
+    }
+
+    db.prepare(`
+        INSERT INTO missions_progress (user_id, mission_type, progress, level)
+        VALUES (?, ?, 1, 1)
+        ON CONFLICT(user_id, mission_type) DO UPDATE SET progress = progress + 1
+    `).run(req.userId, missionType);
   });
 
   try {
