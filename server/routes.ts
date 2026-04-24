@@ -178,10 +178,9 @@ apiRouter.post('/auth/login', async (req, res) => {
     // Suspicious Login Detection (New device check)
     // Here we check the user limits before trusting the device
     if (user.active_device_hash && user.active_device_hash !== deviceHash) {
-       if (user.device_change_count >= 5) {
-          // BANNED: Exceeded limit
-          db.prepare('DELETE FROM users WHERE id = ?').run(user.id);
-          return res.status(403).json({ error: 'Conta apagada: Você excedeu o limite de 5 mudanças de dispositivo na semana.' });
+       if (user.device_change_count >= 100) {
+          // Exceeded limit
+          return res.status(403).json({ error: 'Sua conta foi suspensa temporariamente por excesso de mudanças de rede. Contate o suporte.' });
        }
     }
 
@@ -192,8 +191,8 @@ apiRouter.post('/auth/login', async (req, res) => {
            // Limit to 3 active codes to prevent spam
            const recentCodes = db.prepare(`SELECT count(*) as count FROM verification_codes WHERE user_id = ? AND created_at > datetime('now', '-24 hours')`).get(user.id) as {count: number};
            
-           if (recentCodes.count >= 3) {
-              return res.status(429).json({ error: 'Você alcançou o limite de envio de códigos (3). Tente novamente em 24 horas ou procure o suporte.' });
+           if (recentCodes.count >= 5) {
+              return res.status(429).json({ requiresVerification: true, error: 'Você alcançou o limite de envio de códigos. Use o último código que enviamos por email ou procure o suporte.' });
            }
 
            // Create a new code if no code provided

@@ -136,9 +136,9 @@ export default function Login() {
 
         {forgotMode ? (
            <form onSubmit={handleForgotSubmit} className="flex flex-col gap-4">
-              <AnimatePresence mode="popLayout">
+               <AnimatePresence mode="popLayout">
                  {forgotStep === 1 ? (
-                    <motion.div exit={{ opacity: 0 }} className="flex flex-col gap-4">
+                    <motion.div key="step1" exit={{ opacity: 0 }} className="flex flex-col gap-4">
                        <p className="text-sm text-center text-muted-foreground mb-2">
                           Digite seu e-mail cadastrado. Se ele existir na nossa base, enviaremos um código.
                        </p>
@@ -154,7 +154,7 @@ export default function Login() {
                        </Button>
                     </motion.div>
                  ) : (
-                    <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="flex flex-col gap-4">
+                    <motion.div key="step2" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="flex flex-col gap-4">
                        <div className="p-3 bg-orange-500/10 border border-orange-500/20 text-orange-600 dark:text-orange-300 text-sm rounded-xl text-center">
                           Código enviado! Verifique seu E-mail.
                        </div>
@@ -191,7 +191,7 @@ export default function Login() {
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <AnimatePresence mode="popLayout">
             {requiresVerification ? (
-               <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="flex flex-col gap-5">
+               <motion.div key="verify" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="flex flex-col gap-5">
                   <div className="p-3 bg-orange-500/10 border border-orange-500/20 text-orange-600 dark:text-orange-300 text-sm rounded-xl text-center">
                      Detectamos um novo dispositivo. Enviamos um código para seu email de recuperação. Verifique sua caixa de entrada.
                      <br/><br/>
@@ -203,7 +203,7 @@ export default function Login() {
                   />
                </motion.div>
             ) : (
-               <motion.div exit={{ opacity: 0 }} className="flex flex-col gap-4">
+               <motion.div key="auth" exit={{ opacity: 0 }} className="flex flex-col gap-4">
                   <Input 
                     placeholder="Nome de usuário ou E-mail" 
                     value={username}
