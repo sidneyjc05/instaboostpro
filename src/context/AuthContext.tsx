@@ -28,7 +28,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const res = await fetch('/api/me');
       if (res.ok) {
-        setUser(await res.json());
+        const userData = await res.json();
+        setUser(userData);
+        if (userData) {
+          localStorage.setItem('has_account', 'true');
+        }
       } else {
         setUser(null);
       }

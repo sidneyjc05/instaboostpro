@@ -16,6 +16,7 @@ import Store from './pages/Store';
 import Profile from './pages/Profile';
 import Admin from './pages/Admin';
 import Roulette from './pages/Roulette';
+import Indicar from './pages/Indicar';
 import { Loader2 } from 'lucide-react';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -30,7 +31,10 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   }
   
   if (!user) {
-    return <Navigate to="/login" replace />;
+    if (localStorage.getItem('has_account') === 'true') {
+      return <Navigate to="/login" replace />;
+    }
+    return <Navigate to="/indicar" replace />;
   }
 
   return children;
@@ -71,6 +75,13 @@ export default function App() {
                       <Login />
                     </PublicOnlyRoute>
                   } 
+                />
+                
+                <Route
+                  path="/indicar"
+                  element={
+                     <Indicar />
+                  }
                 />
 
                 {/* Protected Routes */}

@@ -4,7 +4,7 @@ import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { OTPInput } from '../components/ui/OTPInput';
 import { showNotification } from '../context/NotificationContext';
-import { LogOut, Rocket, Clock, History, AlertTriangle, RefreshCw, Eye, QrCode, Copy, X } from 'lucide-react';
+import { LogOut, Rocket, Clock, History, AlertTriangle, RefreshCw, Eye, QrCode, Copy, X, Users, Share2, Award, ChevronDown, ChevronUp } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate } from 'react-router';
 import { useAppSound } from '../context/SoundContext';
@@ -14,6 +14,7 @@ export default function Profile() {
   const { playSuccess, playClick } = useAppSound();
   const [promotions, setPromotions] = useState<any[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
+  const [referral, setReferral] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [reboostLoading, setReboostLoading] = useState<number | null>(null);
   const [checkingPayment, setCheckingPayment] = useState<string | null>(null);
@@ -26,6 +27,33 @@ export default function Profile() {
   const [showEmailVerify, setShowEmailVerify] = useState(false);
   const [showPasswordChange, setShowPasswordChange] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  
+  const [showCommissions, setShowCommissions] = useState(false);
+  const [referralInput, setReferralInput] = useState('');
+  const [claimLoading, setClaimLoading] = useState(false);
+
+  const handleClaimReferral = async () => {
+    if (!referralInput) return showNotification.error('Digite um código');
+    setClaimLoading(true);
+    try {
+      const res = await fetch('/api/me/referral/claim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: referralInput })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showNotification.success(data.message);
+        fetchData();
+        refreshUser();
+      } else {
+        showNotification.error(data.error);
+      }
+    } catch {
+       showNotification.error('Erro de conexão');
+    }
+    setClaimLoading(false);
+  };
 
   const [now, setNow] = useState(Date.now());
 
@@ -115,7 +143,7 @@ export default function Profile() {
         const data = await res.json();
         if (res.ok) {
            if (data.bypassed) {
-              showNotification.info(`Aviso: Email bypass ativado. Use este código para trocar a senha: ${data.code}`);
+              showNotification.success(`Aviso: Email bypass ativado. Use este código para trocar a senha: ${data.code}`);
            } else {
               showNotification.success('Código de segurança enviado para seu email!');
            }
@@ -178,12 +206,14 @@ export default function Profile() {
 
   const fetchData = async () => {
     try {
-      const [promoRes, payRes] = await Promise.all([
+      const [promoRes, payRes, refRes] = await Promise.all([
         fetch('/api/users/me/promotions'),
-        fetch('/api/users/me/payments')
+        fetch('/api/users/me/payments'),
+        fetch('/api/me/referral')
       ]);
       if (promoRes.ok) setPromotions(await promoRes.json());
       if (payRes.ok) setPayments(await payRes.json());
+      if (refRes.ok) setReferral(await refRes.json());
     } catch {}
     setLoading(false);
   };
@@ -325,6 +355,160 @@ export default function Profile() {
           <span>💎</span>
           <span>{Number((user.credits || 0).toFixed(1))} Moedas</span>
         </div>
+      </div>
+
+      {/* Indique e Ganhe Section */}
+      <div className="bg-gradient-to-br from-purple-600 to-indigo-600 border border-purple-500 rounded-3xl p-1 relative overflow-hidden shadow-2xl">
+         <div className="absolute top-0 left-0 w-full h-full bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10 pointer-events-none" />
+         <div className="bg-card w-full h-full rounded-[20px] p-5 md:p-6 flex flex-col items-center text-center relative z-10">
+            <div className="w-16 h-16 bg-purple-500/20 text-purple-400 rounded-2xl flex items-center justify-center mb-4 border border-purple-500/30">
+               <Users size={32} />
+            </div>
+            <h3 className="text-2xl font-extrabold font-space bg-clip-text text-transparent bg-gradient-to-r from-purple-500 to-blue-500 animate-pulse">
+               Indique e Ganhe!
+            </h3>
+            <p className="text-sm text-muted-foreground mt-2 max-w-sm mb-6">
+               Convide seus amigos para o InstaBoost PRO e ganhe <strong className="text-yellow-400">500 moedas</strong> quando eles entrarem, e <strong className="text-primary">+10%</strong> de todas as moedas que eles ganharem!
+            </p>
+
+            {referral ? (
+               <div className="w-full flex flex-col gap-4">
+                  <div className="flex flex-col sm:flex-row gap-2 w-full">
+                     <div className="flex-1 bg-secondary border border-border rounded-xl flex items-center justify-between px-4 py-3 relative overflow-hidden group">
+                        <div className="flex flex-col items-start z-10 w-full">
+                           <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-1">Seu Código</span>
+                           <span className="font-mono text-xl text-white font-bold tracking-widest">{referral.referral_code}</span>
+                        </div>
+                        <Button 
+                           variant="outline" 
+                           size="icon" 
+                           className="bg-transparent border-none text-muted-foreground hover:text-white shrink-0 z-10"
+                           onClick={() => {
+                              navigator.clipboard.writeText(referral.referral_code);
+                              showNotification.success('Código copiado!');
+                           }}
+                        >
+                           <Copy size={18} />
+                        </Button>
+                     </div>
+                     <Button 
+                        className="bg-primary hover:bg-primary/90 text-white shadow-lg h-[74px] sm:w-[120px]"
+                        onClick={() => {
+                           const link = `${window.location.origin}/indicar?ref=${referral.referral_code}`;
+                           navigator.clipboard.writeText(link);
+                           showNotification.success('Link copiado!');
+                        }}
+                     >
+                        <Share2 size={20} className="mr-2" /> Link
+                     </Button>
+                  </div>
+
+                  {/* Ativar codigo received */}
+                  {!referral.referred_by && (
+                     <div className="mt-4 border-t border-border/50 pt-4">
+                        <p className="text-xs text-muted-foreground mb-3 font-semibold">Foi convidado por alguém?</p>
+                        <div className="flex gap-2">
+                           <Input 
+                              placeholder="Código do amigo" 
+                              value={referralInput}
+                              onChange={(e) => setReferralInput(e.target.value.toUpperCase())}
+                              className="font-mono text-center tracking-widest uppercase"
+                           />
+                           <Button variant="outline" onClick={handleClaimReferral} isLoading={claimLoading}>
+                              Resgatar
+                           </Button>
+                        </div>
+                     </div>
+                  )}
+
+                  {/* Commissions Button */}
+                  {referral.referred_users?.length > 0 && (
+                     <div className="w-full mt-2">
+                        <Button
+                           variant="outline"
+                           className="w-full bg-secondary/30 flex justify-between items-center"
+                           onClick={() => setShowCommissions(!showCommissions)}
+                        >
+                           <span className="flex items-center gap-2">
+                              <Award size={16} className="text-yellow-500" />
+                              <span className="font-bold">Comissões ({referral.total_earnings?.toFixed(0)}💰)</span>
+                           </span>
+                           {showCommissions ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                        </Button>
+
+                        <AnimatePresence>
+                           {showCommissions && (
+                              <motion.div
+                                 initial={{ height: 0, opacity: 0 }}
+                                 animate={{ height: 'auto', opacity: 1 }}
+                                 exit={{ height: 0, opacity: 0 }}
+                                 className="overflow-hidden w-full mt-2 flex flex-col gap-2"
+                              >
+                                 <div className="bg-secondary/50 rounded-2xl p-4 border border-border text-left">
+                                    <p className="text-sm font-bold text-muted-foreground uppercase mb-4 tracking-wider">Amigos Indicados ({referral.referred_users.length})</p>
+                                    <div className="flex flex-col gap-3 max-h-[300px] overflow-y-auto pr-1">
+                                       {referral.referred_users.map((ru: any, i: number) => {
+                                          let statusColor = 'bg-red-500 hover:bg-red-400';
+                                          let statusText = 'Inativo há muito tempo';
+                                          let activePercent = 10;
+                                          
+                                          if (ru.last_active_at) {
+                                            const activeDate = new Date(ru.last_active_at);
+                                            const daysDiff = Math.floor((Date.now() - activeDate.getTime()) / (1000 * 60 * 60 * 24));
+                                            if (daysDiff <= 1) {
+                                              statusColor = 'bg-emerald-500 hover:bg-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.3)]';
+                                              statusText = 'Ativo (Hoje)';
+                                              activePercent = 95;
+                                            } else if (daysDiff <= 3) {
+                                              statusColor = 'bg-green-500';
+                                              statusText = 'Ativo recentemente';
+                                              activePercent = 70;
+                                            } else if (daysDiff <= 7) {
+                                              statusColor = 'bg-yellow-500';
+                                              statusText = `Pouco ativo (${daysDiff}d atrás)`;
+                                              activePercent = 40;
+                                            } else {
+                                              statusColor = 'bg-red-500';
+                                              statusText = `Inativo há ${daysDiff} dias`;
+                                              activePercent = 10;
+                                            }
+                                          }
+
+                                          return (
+                                          <div key={i} className="flex flex-col gap-2 bg-card p-3 rounded-xl border border-border/60 hover:border-primary/30 transition-colors shadow-sm">
+                                             <div className="flex justify-between items-start">
+                                                <div className="flex items-center gap-3">
+                                                   <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-primary/80 to-blue-500/80 text-white flex items-center justify-center text-lg font-bold shadow-md relative">
+                                                      {ru.username.substring(0,2).toUpperCase()}
+                                                      <div className={`absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 border-card ${statusColor}`} />
+                                                   </div>
+                                                   <div className="flex flex-col">
+                                                      <span className="text-sm font-extrabold text-foreground">@{ru.username}</span>
+                                                      <span className="text-[10px] text-muted-foreground/80 my-0.5">{statusText}</span>
+                                                      <div className="w-20 h-1 mt-1 bg-secondary rounded-full overflow-hidden">
+                                                        <div className={`h-full ${statusColor.split(' ')[0]} rounded-full transition-all`} style={{ width: `${activePercent}%` }} />
+                                                      </div>
+                                                   </div>
+                                                </div>
+                                                <div className="flex flex-col items-end">
+                                                   <span className="text-xs font-semibold text-muted-foreground uppercase opacity-80 mb-1">Ganhos</span>
+                                                   <span className="text-lg font-black text-yellow-500 flex items-center gap-1"><Award size={14}/> {ru.total_earned?.toFixed(1) || 0}</span>
+                                                </div>
+                                             </div>
+                                          </div>
+                                       )})}
+                                    </div>
+                                 </div>
+                              </motion.div>
+                           )}
+                        </AnimatePresence>
+                     </div>
+                  )}
+               </div>
+            ) : (
+               <div className="animate-pulse w-full h-[100px] bg-secondary/50 rounded-xl" />
+            )}
+         </div>
       </div>
 
       {payments.length > 0 && (

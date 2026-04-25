@@ -63,9 +63,9 @@ export default function Create() {
 
       <div className="p-4 bg-orange-500/10 rounded-2xl border border-orange-500/20 flex gap-3 text-sm items-start">
         <Info className="text-orange-600 dark:text-orange-400 shrink-0 mt-0.5" size={20} />
-        <div className="flex flex-col gap-1 text-orange-900/90 dark:text-orange-200/90">
-          <p className="font-semibold text-orange-700 dark:text-orange-400">Atenção: Necessário Perfil Público</p>
-          <p className="text-orange-800 dark:text-orange-200">Para impulsionar a sua conta (seja feed, reels ou perfil), primeiro <strong>certifique-se de não estar bloqueado ou com a conta privada</strong>. Perfis privados não exibem o visualizador e perdem o engajamento na plataforma.</p>
+        <div className="flex flex-col gap-1">
+          <p className="font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-amber-600 animate-pulse">Atenção: Necessário Perfil Público</p>
+          <p className="text-orange-900/90 dark:text-orange-200/90 font-medium">Para impulsionar a sua conta (seja feed, reels ou perfil), primeiro <strong>certifique-se de não estar bloqueado ou com a conta privada</strong>. Perfis privados não exibem o visualizador e perdem o engajamento na plataforma.</p>
         </div>
       </div>
 

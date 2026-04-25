@@ -8,16 +8,16 @@ import { useAppSound } from '../context/SoundContext';
 
 // Definition of the wheel sections matching the user's requirements
 const PRIZES = [
-  { value: 0.5, label: "0.5 Moeda", color: "#64748b", probability: 25 },
-  { value: 1,   label: "1 Moeda",   color: "#3b82f6", probability: 20 },
-  { value: 5,   label: "5 Moedas",  color: "#10b981", probability: 15 },
-  { value: 10,  label: "10 Moedas", color: "#8b5cf6", probability: 12 },
-  { value: 20,  label: "20 Moedas", color: "#f59e0b", probability: 10 },
-  { value: 50,  label: "50 Moedas", color: "#f97316", probability: 8 },
-  { value: 100, label: "100 Moedas",color: "#ef4444", probability: 5 },
-  { value: 150, label: "150 Moedas",color: "#ec4899", probability: 3 },
-  { value: 200, label: "200 Moedas",color: "#06b6d4", probability: 1.5 },
-  { value: 300, label: "MEGA",      color: "#eab308", probability: 0.5 },
+  { value: 0.5, label: "0.5 Moeda", color: "#64748b", probability: 90 },
+  { value: 1,   label: "1 Moeda",   color: "#3b82f6", probability: 5 },
+  { value: 5,   label: "5 Moedas",  color: "#10b981", probability: 2.5 },
+  { value: 10,  label: "10 Moedas", color: "#8b5cf6", probability: 1.2 },
+  { value: 20,  label: "20 Moedas", color: "#f59e0b", probability: 0.8 },
+  { value: 50,  label: "50 Moedas", color: "#f97316", probability: 0.3 },
+  { value: 100, label: "100 Moedas",color: "#ef4444", probability: 0.15 },
+  { value: 150, label: "150 Moedas",color: "#ec4899", probability: 0.04 },
+  { value: 200, label: "200 Moedas",color: "#06b6d4", probability: 0.009 },
+  { value: 300, label: "MEGA",      color: "#eab308", probability: 0.001 },
 ];
 
 export default function Roulette() {
@@ -116,8 +116,13 @@ export default function Roulette() {
 
        setRotation(finalRotation);
 
+       let tickInterval = setInterval(() => {
+          playClick();
+       }, 200);
+
        // Wait for animation
        setTimeout(async () => {
+          clearInterval(tickInterval);
           setSpinning(false);
           setPrizeWin(PRIZES[winIndex]);
           playSuccess();

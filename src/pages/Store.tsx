@@ -90,15 +90,15 @@ export default function Store() {
   };
 
   const packages = [
-    { c: 5, price: 'R$ 0,50', time: '1 minuto' },
-    { c: 10, price: 'R$ 1,00', time: '2 minutos' },
-    { c: 25, price: 'R$ 2,00', time: '5 minutos' },
-    { c: 55, price: 'R$ 5,00', time: '11 minutos' },
-    { c: 125, price: 'R$ 10,00', time: '25 minutos' },
-    { c: 285, price: 'R$ 20,00', time: '57 minutos' },
-    { c: 640, price: 'R$ 50,00', time: '2h 8m', pop: true },
-    { c: 1430, price: 'R$ 100,00', time: '4h 46m' },
-    { c: 3210, price: 'R$ 200,00', time: '10h 42m' },
+    { c: 110, price: 'R$ 0,50', time: '22 minutos' },
+    { c: 230, price: 'R$ 1,00', time: '46 minutos' },
+    { c: 480, price: 'R$ 2,00', time: '1h 36m' },
+    { c: 1150, price: 'R$ 5,00', time: '3h 50m' },
+    { c: 2300, price: 'R$ 10,00', time: '7h 40m', pop: true },
+    { c: 4200, price: 'R$ 20,00', time: '14 horas' },
+    { c: 5100, price: 'R$ 50,00', time: '17 horas' },
+    { c: 5800, price: 'R$ 100,00', time: '19h 20m' },
+    { c: 6500, price: 'R$ 200,00', time: '21h 40m' },
     { c: 7200, price: 'R$ 250,00', time: '24 horas', pop: true }
   ];
 

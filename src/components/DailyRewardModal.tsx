@@ -73,8 +73,6 @@ export function DailyRewardModal({ open, onClose }: DailyRewardModalProps) {
     }
   };
 
-  if (!open) return null;
-
   const getDayName = (index: number) => {
      const days = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
      return days[index - 1] || 'Dia';
@@ -84,25 +82,26 @@ export function DailyRewardModal({ open, onClose }: DailyRewardModalProps) {
 
   return (
     <AnimatePresence>
-      <motion.div 
-        initial={{ opacity: 0 }} 
-        animate={{ opacity: 1 }} 
-        exit={{ opacity: 0 }}
-        className="fixed inset-0 z-50 flex items-end justify-center md:items-center bg-black/60 backdrop-blur-sm p-0 md:p-4"
-        onClick={onClose}
-      >
+      {open && (
         <motion.div 
-          initial={{ y: '100%', opacity: 0 }} 
-          animate={{ y: 0, opacity: 1 }} 
-          exit={{ y: '100%', opacity: 0 }}
-          transition={{ type: "spring", damping: 25, stiffness: 300 }}
-          className="bg-card w-full max-w-lg md:rounded-3xl rounded-t-3xl shadow-2xl flex flex-col max-h-[90vh]"
-          onClick={e => e.stopPropagation()}
+          initial={{ opacity: 0 }} 
+          animate={{ opacity: 1 }} 
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-50 flex items-end justify-center md:items-center bg-black/60 backdrop-blur-sm p-0 md:p-4"
+          onClick={onClose}
         >
+          <motion.div 
+            initial={{ y: '100%', opacity: 0 }} 
+            animate={{ y: 0, opacity: 1 }} 
+            exit={{ y: '100%', opacity: 0 }}
+            transition={{ type: "spring", damping: 25, stiffness: 300 }}
+            className="bg-card w-full max-w-lg md:rounded-3xl rounded-t-3xl shadow-2xl flex flex-col max-h-[90vh]"
+            onClick={e => e.stopPropagation()}
+          >
           {/* Header */}
           <div className="relative p-6 border-b border-border text-center overflow-hidden rounded-t-3xl">
              <div className="absolute inset-0 bg-gradient-to-br from-primary/20 via-purple-500/10 to-transparent"></div>
-             <button onClick={onClose} className="absolute right-4 top-4 p-2 bg-background/50 backdrop-blur-md rounded-full text-muted-foreground hover:text-foreground">
+             <button onClick={onClose} className="absolute z-20 right-4 top-4 p-2 bg-background/50 backdrop-blur-md rounded-full text-muted-foreground hover:text-foreground">
                 <X size={20} />
              </button>
              
@@ -168,6 +167,7 @@ export function DailyRewardModal({ open, onClose }: DailyRewardModalProps) {
           )}
         </motion.div>
       </motion.div>
+      )}
     </AnimatePresence>
   );
 }

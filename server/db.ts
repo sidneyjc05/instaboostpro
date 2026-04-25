@@ -59,6 +59,8 @@ const hasTickets = userCols.some(c => c.name === 'tickets');
 const hasSessionVersion = userCols.some(c => c.name === 'session_version');
 const hasDeviceChangeCount = userCols.some(c => c.name === 'device_change_count');
 const hasActiveDeviceHash = userCols.some(c => c.name === 'active_device_hash');
+const hasReferralCode = userCols.some(c => c.name === 'referral_code');
+const hasReferredBy = userCols.some(c => c.name === 'referred_by');
 
 const paymentCols = db.prepare('PRAGMA table_info(payments)').all() as any[];
 const hasPaymentTickets = paymentCols.some(c => c.name === 'tickets');
@@ -72,6 +74,21 @@ if (!hasTickets) db.exec('ALTER TABLE users ADD COLUMN tickets INTEGER DEFAULT 0
 if (!hasSessionVersion) db.exec('ALTER TABLE users ADD COLUMN session_version INTEGER DEFAULT 1;');
 if (!hasDeviceChangeCount) db.exec('ALTER TABLE users ADD COLUMN device_change_count INTEGER DEFAULT 0;');
 if (!hasActiveDeviceHash) db.exec('ALTER TABLE users ADD COLUMN active_device_hash TEXT;');
+if (!hasReferredBy) db.exec('ALTER TABLE users ADD COLUMN referred_by INTEGER;');
+
+if (!hasReferralCode) {
+   db.exec('ALTER TABLE users ADD COLUMN referral_code TEXT;');
+   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_referral_code ON users(referral_code);');
+   // Assign unique referral codes to existing users
+   const users = db.prepare('SELECT id, username FROM users WHERE referral_code IS NULL').all() as any[];
+   const updateRefCode = db.prepare('UPDATE users SET referral_code = ? WHERE id = ?');
+   db.transaction(() => {
+      for (const u of users) {
+          const code = u.username.toUpperCase().replace(/[^A-Z0-9]/g, '').substring(0, 8) + u.id + Math.floor(100+Math.random()*900);
+          updateRefCode.run(code, u.id);
+      }
+   })();
+}
 
 if (!hasPaymentTickets) db.exec('ALTER TABLE payments ADD COLUMN tickets INTEGER DEFAULT 0;');
 
@@ -83,6 +100,17 @@ db.exec(`
     device TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS commissions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    referrer_id INTEGER NOT NULL,
+    referred_id INTEGER NOT NULL,
+    amount REAL NOT NULL,
+    action_type TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(referrer_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY(referred_id) REFERENCES users(id) ON DELETE CASCADE
   );
 
   CREATE TABLE IF NOT EXISTS trusted_devices (

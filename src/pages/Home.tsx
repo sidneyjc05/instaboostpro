@@ -147,8 +147,8 @@ export default function Home() {
             <div className="flex items-start gap-3 relative z-10">
               <ShieldCheck className="text-blue-500 dark:text-blue-400 shrink-0 mt-0.5" size={20} />
               <div className="flex flex-col">
-                <h3 className="font-bold text-sm text-blue-700 dark:text-blue-200">Termos e Dicas</h3>
-                <p className="text-xs text-blue-900/80 dark:text-blue-100/70 mt-1">
+                <h3 className="font-extrabold text-sm text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-600 animate-pulse">Termos e Dicas</h3>
+                <p className="text-xs text-blue-900/90 dark:text-blue-100/90 font-medium mt-1">
                   Use "fakes" para interagir. Seus perfis devem ser <b>Públicos</b>.
                 </p>
               </div>

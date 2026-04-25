@@ -84,8 +84,12 @@ apiRouter.post('/auth/register', (req, res) => {
     }
 
     const initialRole = count === 0 ? 'admin' : 'user';
+    const tempReferralCode = username.toUpperCase().replace(/[^A-Z0-9]/g, '').substring(0, 8) + Math.floor(100+Math.random()*900);
 
-    const result = db.prepare('INSERT INTO users (username, email, password, role) VALUES (?, ?, ?, ?)').run(username, email || null, hash, initialRole);
+    const result = db.prepare('INSERT INTO users (username, email, password, role, referral_code) VALUES (?, ?, ?, ?, ?)').run(username, email || null, hash, initialRole, tempReferralCode);
+    
+    // Attempt to update referral code to include row id just in case
+    db.prepare('UPDATE users SET referral_code = ? WHERE id = ?').run(username.toUpperCase().replace(/[^A-Z0-9]/g, '').substring(0, 8) + result.lastInsertRowid + Math.floor(100+Math.random()*900), result.lastInsertRowid);
     
     // Auto-trust the device they used to register
     const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown') as string;
@@ -235,10 +239,9 @@ apiRouter.post('/auth/login', async (req, res) => {
     }
 
     // Now update the device limits if it changed
-    let newSessionVersion = user.session_version || 1;
+    let newSessionVersion = (user.session_version || 1) + 1;
     if (user.active_device_hash !== deviceHash) {
         db.prepare('UPDATE users SET device_change_count = device_change_count + 1 WHERE id = ?').run(user.id);
-        newSessionVersion++;
     }
 
     db.prepare('UPDATE users SET last_active_at = CURRENT_TIMESTAMP, active_device_hash = ?, session_version = ? WHERE id = ?').run(deviceHash, newSessionVersion, user.id);
@@ -296,6 +299,87 @@ apiRouter.get('/me', authMiddleware, (req: any, res) => {
   const user = db.prepare('SELECT id, username, email, role, is_verified, credits, tickets, created_at FROM users WHERE id = ? AND is_blocked = 0').get(req.userId);
   if (!user) return res.status(401).json({ error: 'User blocked or not found' });
   res.json(user);
+});
+
+apiRouter.post('/me/referral/claim', authMiddleware, (req: any, res) => {
+  const { code } = req.body;
+  if (!code) return res.status(400).json({ error: 'Código de indicação obrigatório' });
+
+  // Validate user eligibility
+  const user = db.prepare('SELECT id, created_at, referred_by FROM users WHERE id = ?').get(req.userId) as any;
+  if (!user) return res.status(400).json({ error: 'Usuário não encontrado' });
+  if (user.referred_by) {
+    return res.status(400).json({ error: 'Você já utilizou um código de indicação' });
+  }
+
+  // Check 24 hours rule
+  const createdAt = new Date(user.created_at).getTime();
+  const now = new Date().getTime();
+  if (now - createdAt > 24 * 60 * 60 * 1000) {
+    return res.status(400).json({ error: 'O prazo de 24 horas para inserir um código expirou' });
+  }
+
+  // Find referrer
+  const referrer = db.prepare('SELECT id, username FROM users WHERE referral_code = ? COLLATE NOCASE').get(code) as any;
+  if (!referrer) {
+    return res.status(400).json({ error: 'Código de indicação inválido' });
+  }
+  if (referrer.id === user.id) {
+    return res.status(400).json({ error: 'Você não pode usar seu próprio código' });
+  }
+  
+  // Basic Anti-Fraud: Same Device/IP check could be added here, but for now we look if there are other users referred from this device
+  const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown') as string;
+  const recentReferralsFromIp = db.prepare('SELECT count(*) as count FROM users WHERE referred_by = ? AND id IN (SELECT user_id FROM login_logs WHERE ip = ?)').get(referrer.id, ip) as {count: number};
+  if (recentReferralsFromIp.count > 1) { // strict, max 1 extra account from same IP
+     return res.status(403).json({ error: 'Sistema anti-fraude: limite de indicações por rede excedido.' });
+  }
+
+  // Reward!
+  db.transaction(() => {
+    // Novato: 1000 moedas
+    db.prepare('UPDATE users SET credits = credits + 1000, referred_by = ? WHERE id = ?').run(referrer.id, user.id);
+    // Veterano: 500 moedas
+    db.prepare('UPDATE users SET credits = credits + 500 WHERE id = ?').run(referrer.id);
+    
+    // Log commissions
+    db.prepare('INSERT INTO commissions (referrer_id, referred_id, amount, action_type) VALUES (?, ?, ?, ?)').run(referrer.id, user.id, 500, 'signup_bonus');
+  })();
+
+  res.json({ success: true, message: 'Código ativado com sucesso! Você ganhou 1.000 moedas.' });
+});
+
+apiRouter.get('/me/referral', authMiddleware, (req: any, res) => {
+  const user = db.prepare('SELECT referral_code, referred_by, created_at FROM users WHERE id = ?').get(req.userId) as any;
+  
+  const referredUsers = db.prepare(`
+    SELECT u.username, u.created_at, u.last_active_at, SUM(c.amount) as total_earned
+    FROM users u
+    LEFT JOIN commissions c ON c.referred_id = u.id AND c.referrer_id = ?
+    WHERE u.referred_by = ?
+    GROUP BY u.id
+    ORDER BY u.created_at DESC
+  `).all(req.userId, req.userId) as any[];
+
+  const commissions = db.prepare(`
+    SELECT c.amount, c.action_type, c.created_at, u.username
+    FROM commissions c
+    JOIN users u ON c.referred_id = u.id
+    WHERE c.referrer_id = ?
+    ORDER BY c.created_at DESC
+    LIMIT 50
+  `).all(req.userId);
+
+  const earnings = db.prepare('SELECT SUM(amount) as sum FROM commissions WHERE referrer_id = ?').get(req.userId) as any;
+
+  res.json({
+    referral_code: user.referral_code,
+    referred_by: user.referred_by,
+    created_at: user.created_at,
+    referred_users: referredUsers,
+    commissions_history: commissions,
+    total_earnings: earnings.sum || 0
+  });
 });
 
 apiRouter.post('/me/email', authMiddleware, (req: any, res) => {
@@ -417,10 +501,11 @@ apiRouter.get('/promotions', authMiddleware, (req: any, res) => {
     FROM promotions p
     JOIN users u ON p.user_id = u.id
     WHERE datetime(p.expires_at) > CURRENT_TIMESTAMP
+      AND p.user_id != ?
       AND p.id NOT IN (SELECT promotion_id FROM interactions WHERE user_id = ?)
     ORDER BY p.created_at DESC
     LIMIT 20
-  `).all(req.userId);
+  `).all(req.userId, req.userId);
   res.json(promotions);
 });
 
@@ -472,6 +557,13 @@ apiRouter.post('/promotions/:id/interact', authMiddleware, (req: any, res) => {
     }
 
     db.prepare('UPDATE users SET credits = credits + ? WHERE id = ?').run(reward, req.userId);
+
+    // Comissão de 10% para o indicador (0.02)
+    const user = db.prepare('SELECT referred_by FROM users WHERE id = ?').get(req.userId) as any;
+    if (user && user.referred_by) {
+       db.prepare('UPDATE users SET credits = credits + ? WHERE id = ?').run(reward * 0.1, user.referred_by);
+       db.prepare('INSERT INTO commissions (referrer_id, referred_id, amount, action_type) VALUES (?, ?, ?, ?)').run(user.referred_by, req.userId, reward * 0.1, 'interact');
+    }
 
     // Progresso das missões
     let missionType = 'follows';
@@ -559,16 +651,16 @@ apiRouter.post('/roulette/spin', authMiddleware, (req: any, res) => {
    // 10 prizes definitions and exact probability mapping
    // Total must be 100
    const prizes = [
-      { prize: 0.5, prob: 25 },
-      { prize: 1, prob: 20 },
-      { prize: 5, prob: 15 },
-      { prize: 10, prob: 12 },
-      { prize: 20, prob: 10 },
-      { prize: 50, prob: 8 },
-      { prize: 100, prob: 5 },
-      { prize: 150, prob: 3 },
-      { prize: 200, prob: 1.5 },
-      { prize: 300, prob: 0.5 }
+      { prize: 0.5, prob: 90 },
+      { prize: 1, prob: 5 },
+      { prize: 5, prob: 2.5 },
+      { prize: 10, prob: 1.2 },
+      { prize: 20, prob: 0.8 },
+      { prize: 50, prob: 0.3 },
+      { prize: 100, prob: 0.15 },
+      { prize: 150, prob: 0.04 },
+      { prize: 200, prob: 0.009 },
+      { prize: 300, prob: 0.001 }
    ];
 
    const rand = Math.random() * 100; // 0 to 100
@@ -606,15 +698,15 @@ apiRouter.post('/payments/pix', authMiddleware, async (req: any, res) => {
 
   // Preços predefinidos da loja
   const packageMap: Record<number, number> = {
-    5: 0.50,
-    10: 1.00,
-    25: 2.00,
-    55: 5.00,
-    125: 10.00,
-    285: 20.00,
-    640: 50.00,
-    1430: 100.00,
-    3210: 200.00,
+    110: 0.50,
+    230: 1.00,
+    480: 2.00,
+    1150: 5.00,
+    2300: 10.00,
+    4200: 20.00,
+    5100: 50.00,
+    5800: 100.00,
+    6500: 200.00,
     7200: 250.00
   };
 
@@ -719,6 +811,14 @@ apiRouter.post('/webhook/mercadopago', async (req, res) => {
              db.prepare('UPDATE users SET tickets = tickets + ? WHERE id = ?').run(payment.tickets, payment.user_id);
           } else {
              db.prepare('UPDATE users SET credits = credits + ? WHERE id = ?').run(payment.credits, payment.user_id);
+             
+             // Comissão para o referenciador (10% das moedas compradas)
+             const userForComm = db.prepare('SELECT referred_by FROM users WHERE id = ?').get(payment.user_id) as any;
+             if (userForComm && userForComm.referred_by) {
+                const comm = Math.floor(payment.credits * 0.1);
+                db.prepare('UPDATE users SET credits = credits + ? WHERE id = ?').run(comm, userForComm.referred_by);
+                db.prepare('INSERT INTO commissions (referrer_id, referred_id, amount, action_type) VALUES (?, ?, ?, ?)').run(userForComm.referred_by, payment.user_id, comm, 'purchase');
+             }
           }
         });
         tx();
@@ -872,19 +972,23 @@ apiRouter.post('/rewards/daily/claim', authMiddleware, (req: any, res) => {
 const MISSION_CONFIG = {
   likes: {
     goals: [10, 25, 50, 100, 200],
-    rewards: [0.2, 0.5, 1.5, 3.0, 6.0]
+    rewards: [0.2, 0.5, 1.5, 3.0, 6.0],
+    tickets: [0, 1, 1, 2, 3]
   },
   reels: {
     goals: [3, 8, 15, 30, 60],
-    rewards: [0.3, 1.0, 3.0, 7.0, 14.0]
+    rewards: [0.3, 1.0, 3.0, 7.0, 14.0],
+    tickets: [1, 2, 3, 4, 5]
   },
   follows: {
     goals: [5, 15, 30, 60, 120],
-    rewards: [0.3, 1.0, 2.5, 5.0, 12.0]
+    rewards: [0.3, 1.0, 2.5, 5.0, 12.0],
+    tickets: [1, 1, 2, 2, 3]
   },
   time: {
     goals: [1, 5, 10, 20, 40], // in minutes
-    rewards: [0.5, 1.5, 3.5, 7.0, 15.0]
+    rewards: [0.5, 1.5, 3.5, 7.0, 15.0],
+    tickets: [0, 0, 1, 1, 2]
   }
 };
 
@@ -892,7 +996,7 @@ apiRouter.get('/missions', authMiddleware, (req: any, res) => {
     // 10 minutes timeout reset (progress = 0)
     db.prepare(`
        UPDATE missions_progress 
-       SET progress = 0 
+       SET progress = 0, updated_at = CURRENT_TIMESTAMP 
        WHERE user_id = ? AND datetime(updated_at, '+10 minutes') < datetime('now')
     `).run(req.userId);
 
@@ -924,7 +1028,7 @@ apiRouter.post('/missions/progress', authMiddleware, (req: any, res) => {
     // Enforce 10-minute reset
     db.prepare(`
        UPDATE missions_progress 
-       SET progress = 0 
+       SET progress = 0, updated_at = CURRENT_TIMESTAMP
        WHERE user_id = ? AND mission_type = ? AND datetime(updated_at, '+10 minutes') < datetime('now')
     `).run(req.userId, type);
 
@@ -963,11 +1067,12 @@ apiRouter.post('/missions/claim', authMiddleware, (req: any, res) => {
         const realLevel = Math.min(row.level, 5);
         const goal = config.goals[realLevel - 1];
         const reward = config.rewards[realLevel - 1];
+        const tickets = config.tickets ? config.tickets[realLevel - 1] : 0;
 
         if (row.progress < goal) throw new Error('NOT_COMPLETED');
 
         // Give reward
-        db.prepare('UPDATE users SET credits = credits + ? WHERE id = ?').run(reward, req.userId);
+        db.prepare('UPDATE users SET credits = credits + ?, tickets = tickets + ? WHERE id = ?').run(reward, tickets, req.userId);
 
         // Move to next level, reset progress
         const nextLevel = Math.min(row.level + 1, 5);

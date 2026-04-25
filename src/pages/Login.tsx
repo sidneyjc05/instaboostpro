@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useSearchParams, useNavigate } from 'react-router';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
@@ -8,9 +9,17 @@ import { Instagram, ShieldAlert, Eye, EyeOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 export default function Login() {
-  const [isLogin, setIsLogin] = useState(true);
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const [isLogin, setIsLogin] = useState(!searchParams.get('register'));
   const [forgotMode, setForgotMode] = useState(false);
   const [forgotStep, setForgotStep] = useState<1 | 2>(1); // 1 = enter email, 2 = enter code & generic new password
+
+  useEffect(() => {
+     if (searchParams.get('register')) {
+        setIsLogin(false);
+     }
+  }, [searchParams]);
 
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
@@ -85,6 +94,21 @@ export default function Login() {
            setRequiresVerification(true); // it still acts like required verify screen
            // setVerificationCode(data.code) // Auto fill or let user type it?
         } else {
+           // Claim referral code if it exists and we just registered
+           if (!isLogin) {
+             const refCode = localStorage.getItem('referral_code');
+             if (refCode) {
+                try {
+                   await fetch('/api/me/referral/claim', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ code: refCode })
+                   });
+                   // we just ignore errors, if it applied it applied
+                } catch(e) {}
+             }
+           }
+
            showNotification.success(isLogin ? 'Autenticação concluída!' : 'Conta criada com sucesso!');
            await refreshUser();
         }
@@ -93,7 +117,7 @@ export default function Login() {
            setRequiresVerification(true);
            if (data.bypassed) {
               setVerificationCode(data.code);
-              showNotification.info(`Aviso: Bypass ativado. O Código de Segurança é: ${data.code}`);
+              showNotification.success(`Aviso: Bypass ativado. O Código de Segurança é: ${data.code}`);
            } else {
               showNotification.error(data.error);
            }
@@ -256,7 +280,13 @@ export default function Login() {
                {isLogin ? 'Não tem uma conta?' : 'Já tem uma conta?'}
                <button 
                  type="button" 
-                 onClick={() => setIsLogin(!isLogin)} 
+                 onClick={() => {
+                   if (isLogin) {
+                     navigate('/indicar');
+                   } else {
+                     setIsLogin(true);
+                   }
+                 }} 
                  className="ml-1 text-primary hover:underline font-medium"
                >
                  {isLogin ? 'Cadastre-se' : 'Faça login'}

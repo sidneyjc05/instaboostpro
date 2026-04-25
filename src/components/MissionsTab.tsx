@@ -12,6 +12,7 @@ const MISSION_CONFIG = {
     baseColor: 'emerald',
     goals: [10, 25, 50, 100, 200],
     rewards: [0.2, 0.5, 1.5, 3.0, 6.0],
+    tickets: [0, 1, 1, 2, 3],
     actionText: 'Curtir no Instagram',
     dummyLink: 'https://www.instagram.com/p/C_q41-fM-sW/',
     type: 'post'
@@ -22,6 +23,7 @@ const MISSION_CONFIG = {
     baseColor: 'emerald',
     goals: [3, 8, 15, 30, 60],
     rewards: [0.3, 1.0, 3.0, 7.0, 14.0],
+    tickets: [1, 2, 3, 4, 5],
     actionText: 'Assistir Reel',
     dummyLink: 'https://www.instagram.com/reel/C-16HntO_5N/',
     type: 'reel'
@@ -32,6 +34,7 @@ const MISSION_CONFIG = {
     baseColor: 'emerald',
     goals: [5, 15, 30, 60, 120],
     rewards: [0.3, 1.0, 2.5, 5.0, 12.0],
+    tickets: [1, 1, 2, 2, 3],
     actionText: 'Seguir Perfil',
     dummyLink: 'https://www.instagram.com/instagram/',
     type: 'profile'
@@ -42,6 +45,7 @@ const MISSION_CONFIG = {
     baseColor: 'emerald',
     goals: [1, 5, 10, 20, 40],
     rewards: [0.5, 1.5, 3.5, 7.0, 15.0],
+    tickets: [0, 0, 1, 1, 2],
     actionText: '',
     dummyLink: '',
     type: 'time'
@@ -176,7 +180,15 @@ function MissionCard({ missionKey, config, state, onUpdate, refreshUser, onOpenV
                         </div>
                         <div>
                             <h3 className="font-bold text-foreground">{config.title}</h3>
-                            <p className="text-xs text-muted-foreground font-medium">Nível {state.level} • Prêmio: <span className="text-primary font-bold">{reward} 💎</span></p>
+                            <p className="text-xs text-muted-foreground font-medium">
+                                Nível {state.level} • Prêmio:{' '}
+                                <span className="text-primary font-bold">{reward} 💎</span>
+                                {config.tickets && config.tickets[state.level - 1] > 0 && (
+                                  <span className="text-orange-500 font-bold ml-1">
+                                    + {config.tickets[state.level - 1]} 🎟️
+                                  </span>
+                                )}
+                            </p>
                         </div>
                     </div>
                 </div>
