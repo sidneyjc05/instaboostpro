@@ -12,25 +12,34 @@ export default function Indicar() {
   const [step, setStep] = useState(1);
   const [code, setCode] = useState(searchParams.get('ref') || '');
   
+  const isAndroid = /Android/i.test(navigator.userAgent);
+  const isMedian = /Median/i.test(navigator.userAgent);
+  const isFallback = searchParams.get('fallback') === '1';
+
   useEffect(() => {
     if (searchParams.get('ref')) {
       localStorage.setItem('referral_code', searchParams.get('ref') || '');
     }
 
-    // Tenta abrir o aplicativo Android via Intent (Deep Link)
-    const isAndroid = /Android/i.test(navigator.userAgent);
-    const isMedian = /Median/i.test(navigator.userAgent);
-
-    if (searchParams.get('ref') && isAndroid && !isMedian) {
+    if (searchParams.get('ref') && isAndroid && !isMedian && !isFallback) {
       if (!sessionStorage.getItem('app_launch_attempted')) {
         sessionStorage.setItem('app_launch_attempted', 'true');
         const currentUrl = window.location.href;
         const noProtocolUrl = currentUrl.replace(/^https?:\/\//, '');
-        const intentUrl = `intent://${noProtocolUrl}#Intent;scheme=https;package=co.median.android.xlpqlnd;S.browser_fallback_url=${encodeURIComponent(currentUrl)};end`;
+        
+        let fallbackUrl = currentUrl;
+        if (fallbackUrl.includes('?')) {
+          fallbackUrl += '&fallback=1';
+        } else {
+          fallbackUrl += '?fallback=1';
+        }
+
+        const intentUrl = `intent://${noProtocolUrl}#Intent;scheme=https;package=co.median.android.xlpqlnd;S.browser_fallback_url=${encodeURIComponent(fallbackUrl)};end`;
+        // Try auto launch, though browser might block it
         window.location.replace(intentUrl);
       }
     }
-  }, [searchParams]);
+  }, [searchParams, isAndroid, isMedian, isFallback]);
 
   const handleNext = () => {
     if (step < 3) {
@@ -75,8 +84,32 @@ export default function Indicar() {
               <p className="text-white/60 mb-8 max-w-[280px]">
                 A plataforma que vai acelerar o seu crescimento no Instagram de forma real e orgânica.
               </p>
+              
+              {isAndroid && !isMedian && !isFallback && (
+                <Button 
+                  onClick={() => {
+                    const currentUrl = window.location.href;
+                    const noProtocolUrl = currentUrl.replace(/^https?:\/\//, '');
+                    
+                    let fallbackUrl = currentUrl;
+                    if (fallbackUrl.includes('?')) {
+                      fallbackUrl += '&fallback=1';
+                    } else {
+                      fallbackUrl += '?fallback=1';
+                    }
+
+                    const intentUrl = `intent://${noProtocolUrl}#Intent;scheme=https;package=co.median.android.xlpqlnd;action=android.intent.action.VIEW;S.browser_fallback_url=${encodeURIComponent(fallbackUrl)};end`;
+                    window.location.href = intentUrl;
+                  }} 
+                  size="lg" 
+                  className="w-full h-14 text-lg bg-green-600 hover:bg-green-500 mb-4 animate-bounce"
+                >
+                  Abrir no Aplicativo Oficial
+                </Button>
+              )}
+
               <Button onClick={handleNext} size="lg" className="w-full h-14 text-lg bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500">
-                Continuar
+                {isAndroid && !isMedian && !isFallback ? "Continuar pelo navegador" : "Continuar"}
               </Button>
             </motion.div>
           )}
