@@ -31,7 +31,7 @@ export function DailyRewardModal({ open, onClose }: DailyRewardModalProps) {
   const fetchRewards = async () => {
     setLoading(true);
     try {
-      const res = await fetch(import.meta.env.BASE_URL + 'api/rewards/daily');
+      const res = await fetch('/api/rewards/daily');
       if (res.ok) {
         setData(await res.json());
       }
@@ -48,7 +48,7 @@ export function DailyRewardModal({ open, onClose }: DailyRewardModalProps) {
       const deviceHash = localStorage.getItem('device_hash') || btoa(navigator.userAgent).substring(0, 32);
       if (!localStorage.getItem('device_hash')) localStorage.setItem('device_hash', deviceHash);
 
-      const res = await fetch(import.meta.env.BASE_URL + 'api/rewards/daily/claim', {
+      const res = await fetch('/api/rewards/daily/claim', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ deviceHash })

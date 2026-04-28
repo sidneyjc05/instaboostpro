@@ -29,7 +29,7 @@ export const GlobalNotificationProvider = ({ children }: { children: React.React
     const fetchNotifications = async () => {
         if (!user) return;
         try {
-            const res = await fetch(import.meta.env.BASE_URL + 'api/notifications');
+            const res = await fetch('/api/notifications');
             if (res.ok) {
                 const data = await res.json();
                 
@@ -80,14 +80,14 @@ export const GlobalNotificationProvider = ({ children }: { children: React.React
 
     const markAsRead = async (id: number) => {
         try {
-            await fetch(`$\{import.meta.env.BASE_URL\}api/notifications/${id}/read`, { method: 'POST' });
+            await fetch(`/api/notifications/${id}/read`, { method: 'POST' });
             setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: 1 } : n));
         } catch (e) {}
     };
 
     const markAllAsRead = async () => {
         try {
-            await fetch(import.meta.env.BASE_URL + 'api/notifications/read-all', { method: 'POST' });
+            await fetch('/api/notifications/read-all', { method: 'POST' });
             setNotifications(prev => prev.map(n => ({ ...n, is_read: 1 })));
         } catch (e) {}
     };

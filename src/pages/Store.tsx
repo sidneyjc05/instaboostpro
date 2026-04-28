@@ -18,7 +18,7 @@ export default function Store() {
   const [storeConfig, setStoreConfig] = useState<any>(null);
 
   useEffect(() => {
-    fetch(import.meta.env.BASE_URL + 'api/store/config').then(res => res.json()).then(data => setStoreConfig(data)).catch(() => {});
+    fetch('/api/store/config').then(res => res.json()).then(data => setStoreConfig(data)).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -59,7 +59,7 @@ export default function Store() {
     if (polling && paymentData?.id) {
       interval = setInterval(async () => {
         try {
-          const res = await fetch(`$\{import.meta.env.BASE_URL\}api/payments/${paymentData.id}`);
+          const res = await fetch(`/api/payments/${paymentData.id}`);
           if (res.ok) {
             const data = await res.json();
             if (data.status === 'approved') {
@@ -79,7 +79,7 @@ export default function Store() {
   const handleBuy = async (credits: number | string, type: 'credits' | 'tickets' | 'plan' = 'credits') => {
     setLoading(true);
     try {
-      const res = await fetch(import.meta.env.BASE_URL + 'api/payments/pix', {
+      const res = await fetch('/api/payments/pix', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ credits, type })

@@ -5,12 +5,7 @@ import {defineConfig, loadEnv} from 'vite';
 
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
-  
-  // Set the base to the subpath only when in production (building)
-  const basePrefix = mode === 'production' ? '/apps/instaboostpro/' : '/';
-
   return {
-    base: basePrefix,
     plugins: [react(), tailwindcss()],
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),

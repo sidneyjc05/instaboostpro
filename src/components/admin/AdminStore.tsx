@@ -10,7 +10,7 @@ export default function AdminStore() {
     const [saving, setSaving] = useState(false);
 
     useEffect(() => {
-        fetch(import.meta.env.BASE_URL + 'api/store/config')
+        fetch('/api/store/config')
             .then(res => res.json())
             .then(data => {
                 setConfig(data);
@@ -22,7 +22,7 @@ export default function AdminStore() {
     const handleSave = async () => {
         setSaving(true);
         try {
-            const res = await fetch(import.meta.env.BASE_URL + 'api/admin/settings', {
+            const res = await fetch('/api/admin/settings', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

@@ -31,7 +31,7 @@ export default function Create() {
 
     setLoading(true);
     try {
-      const res = await fetch(import.meta.env.BASE_URL + 'api/promotions', {
+      const res = await fetch('/api/promotions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url, durationMinutes: duration })

@@ -24,7 +24,7 @@ export function UserSupportModal({ open, onClose }: { open: boolean, onClose: ()
 
     const loadReq = async () => {
         try {
-            const res = await fetch(import.meta.env.BASE_URL + 'api/support');
+            const res = await fetch('/api/support');
             const data = await res.json();
             if (data.length > 0 && data[0].status !== 'closed') {
                 setRequest(data[0]);
@@ -38,7 +38,7 @@ export function UserSupportModal({ open, onClose }: { open: boolean, onClose: ()
 
     const fetchMsgs = async (id: number) => {
         try {
-            const res = await fetch(`$\{import.meta.env.BASE_URL\}api/support/${id}/chat`);
+            const res = await fetch(`/api/support/${id}/chat`);
             if (res.ok) {
                 const data = await res.json();
                 setMessages(data);
@@ -61,7 +61,7 @@ export function UserSupportModal({ open, onClose }: { open: boolean, onClose: ()
         if (!desc.trim()) return;
         setLoading(true);
         try {
-            const res = await fetch(import.meta.env.BASE_URL + 'api/support', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ description: desc }) });
+            const res = await fetch('/api/support', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ description: desc }) });
             if (res.ok) {
                 showNotification.success('Solicitação enviada. Um administrador irá te responder em breve.');
                 loadReq();
@@ -75,7 +75,7 @@ export function UserSupportModal({ open, onClose }: { open: boolean, onClose: ()
 
     const handleSend = async () => {
         if (!text.trim() || !request) return;
-        await fetch(`$\{import.meta.env.BASE_URL\}api/support/${request.id}/chat`, {
+        await fetch(`/api/support/${request.id}/chat`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ message: text })
@@ -94,7 +94,7 @@ export function UserSupportModal({ open, onClose }: { open: boolean, onClose: ()
             const reader = new FileReader();
             reader.onload = async () => {
                 const base64 = reader.result;
-                await fetch(`$\{import.meta.env.BASE_URL\}api/support/${request.id}/chat`, {
+                await fetch(`/api/support/${request.id}/chat`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ message: '', image_url: base64 })

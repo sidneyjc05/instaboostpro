@@ -28,7 +28,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const fetchUser = async () => {
     try {
-      const res = await fetch(import.meta.env.BASE_URL + 'api/me');
+      const res = await fetch('/api/me');
       if (res.ok) {
         const userData = await res.json();
         setUser(userData);
@@ -50,7 +50,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const logout = async () => {
-    await fetch(import.meta.env.BASE_URL + 'api/auth/logout', { method: 'POST' });
+    await fetch('/api/auth/logout', { method: 'POST' });
     setUser(null);
   };
 

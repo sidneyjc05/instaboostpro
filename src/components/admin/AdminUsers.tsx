@@ -34,7 +34,7 @@ export function AdminUsers({ users, refresh }: { users: any[], refresh: () => vo
     const handleAction = async (action: string, value: any) => {
         setActionLoading(true);
         try {
-            const res = await fetch(`$\{import.meta.env.BASE_URL\}api/admin/users/${selectedUser.id}/update`, {
+            const res = await fetch(`/api/admin/users/${selectedUser.id}/update`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ action, value, reason })
@@ -152,7 +152,7 @@ export function AdminUsers({ users, refresh }: { users: any[], refresh: () => vo
                             <div className="bg-secondary/30 p-4 rounded-xl flex flex-col gap-2 border border-border justify-center items-center text-center">
                                 <h3 className="font-bold text-sm text-red-500 mb-2 mt-auto">Acesso</h3>
                                 <Button variant={selectedUser.is_blocked ? "primary" : "destructive"} className="w-full mt-auto" onClick={async () => {
-                                    await fetch(`$\{import.meta.env.BASE_URL\}api/admin/users/${selectedUser.id}/block`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ blocked: !selectedUser.is_blocked }) });
+                                    await fetch(`/api/admin/users/${selectedUser.id}/block`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ blocked: !selectedUser.is_blocked }) });
                                     refresh();
                                     setSelectedUser(null);
                                 }}>

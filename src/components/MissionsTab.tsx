@@ -67,7 +67,7 @@ export function MissionsTab({ onGoToFeed }: { onGoToFeed: () => void }) {
   
   const loadMissions = async () => {
     try {
-      const res = await fetch(import.meta.env.BASE_URL + 'api/missions');
+      const res = await fetch('/api/missions');
       if (res.ok) setState(await res.json());
     } catch {
       showNotification.error('Erro ao carregar missões');
@@ -83,7 +83,7 @@ export function MissionsTab({ onGoToFeed }: { onGoToFeed: () => void }) {
     const interval = setInterval(async () => {
         if (!document.hidden) {
             try {
-                await fetch(import.meta.env.BASE_URL + 'api/missions/progress', {
+                await fetch('/api/missions/progress', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ type: 'time', amount: 1 })
@@ -147,7 +147,7 @@ function MissionCard({ missionKey, config, state, onUpdate, refreshUser, onOpenV
         e.stopPropagation();
         setSubmitting(true);
         try {
-            const res = await fetch(import.meta.env.BASE_URL + 'api/missions/claim', {
+            const res = await fetch('/api/missions/claim', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ type: missionKey })
