@@ -86,7 +86,13 @@ export default function Store() {
       });
       const data = await res.json();
       if (res.ok) {
-        setPaymentData({ ...data, exactExpiry: Date.now() + 15 * 60 * 1000, pendingPlan: type === 'plan' ? credits.toString() : undefined });
+        setPaymentData({ 
+            ...data, 
+            exactExpiry: Date.now() + 15 * 60 * 1000, 
+            pendingPlan: type === 'plan' ? credits.toString() : undefined,
+            tickets: type === 'tickets' ? Number(credits) : 0,
+            credits: type === 'credits' ? Number(credits) : 0
+        });
         setTimeLeft(15 * 60);
         setPaymentSuccess(false);
         setPolling(true);
@@ -348,11 +354,11 @@ export default function Store() {
                  </p>
               ) : paymentData.tickets > 0 ? (
                  <p className="font-bold text-blue-500 mt-2 bg-blue-500/10 px-3 py-1 rounded-full border border-blue-500/30 w-fit mx-auto">
-                    {paymentData.tickets.toLocaleString('pt-BR')} Tickets 🎟️
+                    {paymentData.tickets?.toLocaleString('pt-BR') || paymentData.tickets} Tickets 🎟️
                  </p>
               ) : (
                  <p className="font-bold text-green-500 mt-2 bg-green-500/10 px-3 py-1 rounded-full border border-green-500/30 w-fit mx-auto">
-                    {paymentData.credits.toLocaleString('pt-BR')} Moedas 💰
+                    {paymentData.credits?.toLocaleString('pt-BR') || paymentData.credits} Moedas 💰
                  </p>
               )}
             </div>

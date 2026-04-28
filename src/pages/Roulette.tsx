@@ -166,7 +166,7 @@ export default function Roulette() {
         <div className="flex-1 bg-secondary/50 border border-border rounded-3xl p-4 flex flex-col items-center justify-center">
             <span className="text-sm font-medium text-muted-foreground">Minhas Moedas</span>
             <span className="text-2xl font-bold font-mono tracking-tight text-yellow-500 flex items-center gap-2">
-               {user?.credits.toLocaleString('pt-BR') ?? 0} 💰
+               {user?.credits?.toLocaleString('pt-BR') ?? 0} 💰
             </span>
         </div>
       </div>
