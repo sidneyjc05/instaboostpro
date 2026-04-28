@@ -909,21 +909,74 @@ apiRouter.post('/payments/pix', authMiddleware, async (req: any, res) => {
 });
 
 apiRouter.get('/payments/:id', authMiddleware, async (req: any, res) => {
-  const payment = db.prepare('SELECT id, status, credits FROM payments WHERE id = ? AND user_id = ?').get(req.params.id, req.userId) as any;
+  const payment = db.prepare('SELECT * FROM payments WHERE id = ? AND user_id = ?').get(req.params.id, req.userId) as any;
   if (!payment) return res.status(404).json({ error: 'Not found' });
 
   if (payment.status === 'pending') {
     try {
       const mpPayInfo = await mpPayment.get({ id: payment.id });
-      const rawBase64 = mpPayInfo.point_of_interaction?.transaction_data?.qr_code_base64;
-      payment.qrCode = rawBase64 ? `data:image/png;base64,${rawBase64}` : null;
-      payment.pixCode = mpPayInfo.point_of_interaction?.transaction_data?.qr_code;
+      
+      if (mpPayInfo.status === 'approved') {
+        const tx = db.transaction(() => {
+          const updateRes = db.prepare("UPDATE payments SET status = 'approved' WHERE id = ? AND status = 'pending'").run(payment.id.toString());
+          if (updateRes.changes > 0) {
+            const buyer = db.prepare('SELECT username FROM users WHERE id = ?').get(payment.user_id) as any;
+            if (payment.item_type === 'plan' || payment.plan_id) {
+               const planId = payment.plan_id;
+               const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+               
+               let bonus = 0;
+               if (planId === 'pro') bonus = 500;
+               else if (planId === 'premium') bonus = 1500;
+               else if (planId === 'ultra') bonus = 4000;
+  
+               db.prepare('UPDATE users SET plan_type = ?, plan_expires_at = ?, credits = credits + ? WHERE id = ?').run(planId, expiresAt, bonus, payment.user_id);
+               createNotification(payment.user_id, 'Plano Ativado!', `Seu Plano ${planId.toUpperCase()} foi ativado com sucesso.`, 'profile');
+               
+               const admins = db.prepare("SELECT id FROM users WHERE role = 'admin'").all() as any[];
+               for (const a of admins) {
+                    createNotification(a.id, 'Nova Venda', `Usuário @${buyer?.username || 'desconhecido'} comprou o Plano ${planId.toUpperCase()}`, 'admin_store');
+               }
+            } else if (payment.item_type === 'tickets' || payment.tickets > 0) {
+               db.prepare('UPDATE users SET tickets = tickets + ? WHERE id = ?').run(payment.tickets, payment.user_id);
+               createNotification(payment.user_id, 'Compra Aprovada!', `Seus ${payment.tickets} tickets foram adicionados na conta.`, 'store');
+            } else {
+               db.prepare('UPDATE users SET credits = credits + ? WHERE id = ?').run(payment.credits, payment.user_id);
+               createNotification(payment.user_id, 'Compra Aprovada!', `Suas ${payment.credits} moedas foram adicionadas na conta.`, 'store');
+               
+               const userForComm = db.prepare('SELECT referred_by FROM users WHERE id = ?').get(payment.user_id) as any;
+               if (userForComm && userForComm.referred_by) {
+                  let commissionRate = 0.1;
+                  const referrer = db.prepare('SELECT plan_type FROM users WHERE id = ?').get(userForComm.referred_by) as any;
+                  if (referrer) {
+                     if (referrer.plan_type === 'pro') commissionRate = 0.2;
+                     else if (referrer.plan_type === 'premium') commissionRate = 0.3;
+                     else if (referrer.plan_type === 'ultra') commissionRate = 0.5;
+                  }
+                  const comm = Math.floor(payment.credits * commissionRate);
+                  db.prepare('UPDATE users SET credits = credits + ? WHERE id = ?').run(comm, userForComm.referred_by);
+                  db.prepare('INSERT INTO commissions (referrer_id, referred_id, amount, action_type) VALUES (?, ?, ?, ?)').run(userForComm.referred_by, payment.user_id, comm, 'purchase');
+                  createNotification(userForComm.referred_by, 'Comissão Recebida!', `Você ganhou ${comm} moedas de comissão.`, 'profile');
+               }
+            }
+          }
+        });
+        tx();
+        payment.status = 'approved';
+      } else if (mpPayInfo.status === 'cancelled' || mpPayInfo.status === 'rejected') {
+        db.prepare("UPDATE payments SET status = 'cancelled' WHERE id = ?").run(payment.id.toString());
+        payment.status = 'cancelled';
+      } else {
+        const rawBase64 = mpPayInfo.point_of_interaction?.transaction_data?.qr_code_base64;
+        payment.qrCode = rawBase64 ? `data:image/png;base64,${rawBase64}` : null;
+        payment.pixCode = mpPayInfo.point_of_interaction?.transaction_data?.qr_code;
+      }
     } catch (err) {
-      console.error('Failed to get QR from MP', err);
+      console.error('Failed to get QR/status from MP', err);
     }
   }
 
-  res.json(payment);
+  res.json({ id: payment.id, status: payment.status, credits: payment.credits, qrCode: payment.qrCode, pixCode: payment.pixCode, item_type: payment.item_type, tickets: payment.tickets, plan_id: payment.plan_id });
 });
 
 // Simulates a webhook hitting our endpoint from Mercado Pago
@@ -944,47 +997,49 @@ apiRouter.post('/webhook/mercadopago', async (req, res) => {
       
       if (payment) {
         const tx = db.transaction(() => {
-          db.prepare("UPDATE payments SET status = 'approved' WHERE id = ?").run(paymentId.toString());
-          const buyer = db.prepare('SELECT username FROM users WHERE id = ?').get(payment.user_id) as any;
-          if (payment.item_type === 'plan' || payment.plan_id) {
-             const planId = payment.plan_id;
-             const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-             
-             let bonus = 0;
-             if (planId === 'pro') bonus = 500;
-             else if (planId === 'premium') bonus = 1500;
-             else if (planId === 'ultra') bonus = 4000;
-
-             db.prepare('UPDATE users SET plan_type = ?, plan_expires_at = ?, credits = credits + ? WHERE id = ?').run(planId, expiresAt, bonus, payment.user_id);
-             createNotification(payment.user_id, 'Plano Ativado!', `Seu Plano ${planId.toUpperCase()} foi ativado com sucesso.`, 'profile');
-             
-             // Notify admins
-             const admins = db.prepare("SELECT id FROM users WHERE role = 'admin'").all() as any[];
-             for (const a of admins) {
-                  createNotification(a.id, 'Nova Venda', `Usuário @${buyer?.username || 'desconhecido'} comprou o Plano ${planId.toUpperCase()}`, 'admin_store');
-             }
-          } else if (payment.item_type === 'tickets' || payment.tickets > 0) {
-             db.prepare('UPDATE users SET tickets = tickets + ? WHERE id = ?').run(payment.tickets, payment.user_id);
-             createNotification(payment.user_id, 'Compra Aprovada!', `Seus ${payment.tickets} tickets foram adicionados na conta.`, 'store');
-          } else {
-             db.prepare('UPDATE users SET credits = credits + ? WHERE id = ?').run(payment.credits, payment.user_id);
-             createNotification(payment.user_id, 'Compra Aprovada!', `Suas ${payment.credits} moedas foram adicionadas na conta.`, 'store');
-             
-             // Comissão para o referenciador (10% das moedas compradas)
-             const userForComm = db.prepare('SELECT referred_by FROM users WHERE id = ?').get(payment.user_id) as any;
-             if (userForComm && userForComm.referred_by) {
-                let commissionRate = 0.1;
-                const referrer = db.prepare('SELECT plan_type FROM users WHERE id = ?').get(userForComm.referred_by) as any;
-                if (referrer) {
-                   if (referrer.plan_type === 'pro') commissionRate = 0.2;
-                   else if (referrer.plan_type === 'premium') commissionRate = 0.3;
-                   else if (referrer.plan_type === 'ultra') commissionRate = 0.5;
-                }
-                const comm = Math.floor(payment.credits * commissionRate);
-                db.prepare('UPDATE users SET credits = credits + ? WHERE id = ?').run(comm, userForComm.referred_by);
-                db.prepare('INSERT INTO commissions (referrer_id, referred_id, amount, action_type) VALUES (?, ?, ?, ?)').run(userForComm.referred_by, payment.user_id, comm, 'purchase');
-                createNotification(userForComm.referred_by, 'Comissão Recebida!', `Você ganhou ${comm} moedas de comissão.`, 'profile');
-             }
+          const updateRes = db.prepare("UPDATE payments SET status = 'approved' WHERE id = ? AND status = 'pending'").run(paymentId.toString());
+          if (updateRes.changes > 0) {
+            const buyer = db.prepare('SELECT username FROM users WHERE id = ?').get(payment.user_id) as any;
+            if (payment.item_type === 'plan' || payment.plan_id) {
+               const planId = payment.plan_id;
+               const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+               
+               let bonus = 0;
+               if (planId === 'pro') bonus = 500;
+               else if (planId === 'premium') bonus = 1500;
+               else if (planId === 'ultra') bonus = 4000;
+  
+               db.prepare('UPDATE users SET plan_type = ?, plan_expires_at = ?, credits = credits + ? WHERE id = ?').run(planId, expiresAt, bonus, payment.user_id);
+               createNotification(payment.user_id, 'Plano Ativado!', `Seu Plano ${planId.toUpperCase()} foi ativado com sucesso.`, 'profile');
+               
+               // Notify admins
+               const admins = db.prepare("SELECT id FROM users WHERE role = 'admin'").all() as any[];
+               for (const a of admins) {
+                    createNotification(a.id, 'Nova Venda', `Usuário @${buyer?.username || 'desconhecido'} comprou o Plano ${planId.toUpperCase()}`, 'admin_store');
+               }
+            } else if (payment.item_type === 'tickets' || payment.tickets > 0) {
+               db.prepare('UPDATE users SET tickets = tickets + ? WHERE id = ?').run(payment.tickets, payment.user_id);
+               createNotification(payment.user_id, 'Compra Aprovada!', `Seus ${payment.tickets} tickets foram adicionados na conta.`, 'store');
+            } else {
+               db.prepare('UPDATE users SET credits = credits + ? WHERE id = ?').run(payment.credits, payment.user_id);
+               createNotification(payment.user_id, 'Compra Aprovada!', `Suas ${payment.credits} moedas foram adicionadas na conta.`, 'store');
+               
+               // Comissão para o referenciador (10% das moedas compradas)
+               const userForComm = db.prepare('SELECT referred_by FROM users WHERE id = ?').get(payment.user_id) as any;
+               if (userForComm && userForComm.referred_by) {
+                  let commissionRate = 0.1;
+                  const referrer = db.prepare('SELECT plan_type FROM users WHERE id = ?').get(userForComm.referred_by) as any;
+                  if (referrer) {
+                     if (referrer.plan_type === 'pro') commissionRate = 0.2;
+                     else if (referrer.plan_type === 'premium') commissionRate = 0.3;
+                     else if (referrer.plan_type === 'ultra') commissionRate = 0.5;
+                  }
+                  const comm = Math.floor(payment.credits * commissionRate);
+                  db.prepare('UPDATE users SET credits = credits + ? WHERE id = ?').run(comm, userForComm.referred_by);
+                  db.prepare('INSERT INTO commissions (referrer_id, referred_id, amount, action_type) VALUES (?, ?, ?, ?)').run(userForComm.referred_by, payment.user_id, comm, 'purchase');
+                  createNotification(userForComm.referred_by, 'Comissão Recebida!', `Você ganhou ${comm} moedas de comissão.`, 'profile');
+               }
+            }
           }
         });
         tx();

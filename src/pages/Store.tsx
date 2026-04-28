@@ -230,7 +230,12 @@ export default function Store() {
             </motion.div>
             <div>
                  <h3 className="text-3xl font-extrabold text-foreground">Pagamento Concluído!</h3>
-              <p className="text-muted-foreground mt-2">Muito obrigado por contribuir. Os itens já foram adicionados na sua conta.</p>
+              <p className="text-green-400 mt-2 text-lg font-bold">
+                {paymentData?.pendingPlan ? `Parabéns, você ativou o Plano ${paymentData.pendingPlan.toUpperCase()}!` : 
+                 paymentData?.tickets && paymentData.tickets > 0 ? `Parabéns, você comprou ${paymentData.tickets} tickets!` : 
+                 `Parabéns, você comprou ${paymentData?.credits ?? 0} moedas!`}
+              </p>
+              <p className="text-muted-foreground mt-2">Muito obrigado por contribuir. Uma mensagem de agradecimento foi enviada nas suas notificações também!</p>
             </div>
             <Button size="lg" className="mt-4" onClick={() => { setPaymentSuccess(false); setPaymentData(null); }}>
               Voltar para Loja
