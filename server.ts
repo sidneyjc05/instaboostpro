@@ -26,19 +26,7 @@ async function startServer() {
           "namespace": "android_app",
           "package_name": "co.median.android.xlpqlnd",
           "sha256_cert_fingerprints": [
-            "FA:2E:FB:B8:77:BE:22:DF:A4:22:E1:0F:A8:DD:C0:77:3B:B8:05"
-          ]
-        }
-      },
-      {
-        "relation": [
-          "delegate_permission/common.handle_all_urls"
-        ],
-        "target": {
-          "namespace": "android_app",
-          "package_name": "com.app.railway.up.instaboostpro-production",
-          "sha256_cert_fingerprints": [
-            "FA:2E:FB:B8:77:BE:22:DF:A4:22:E1:0F:A8:DD:C0:77:3B:B8:05"
+            "FA:2E:FB:B8:77:BE:22:DF:A4:22:E1:0F:A8:DD:C0:77:3B:B8:05:7A:56:DA:90:9C:DE:13:72:FD:A8:60:90:A4"
           ]
         }
       }
