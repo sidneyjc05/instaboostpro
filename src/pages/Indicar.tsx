@@ -16,6 +16,20 @@ export default function Indicar() {
     if (searchParams.get('ref')) {
       localStorage.setItem('referral_code', searchParams.get('ref') || '');
     }
+
+    // Tenta abrir o aplicativo Android via Intent (Deep Link)
+    const isAndroid = /Android/i.test(navigator.userAgent);
+    const isMedian = /Median/i.test(navigator.userAgent);
+
+    if (searchParams.get('ref') && isAndroid && !isMedian) {
+      if (!sessionStorage.getItem('app_launch_attempted')) {
+        sessionStorage.setItem('app_launch_attempted', 'true');
+        const currentUrl = window.location.href;
+        const noProtocolUrl = currentUrl.replace(/^https?:\/\//, '');
+        const intentUrl = `intent://${noProtocolUrl}#Intent;scheme=https;package=co.median.android.xlpqlnd;S.browser_fallback_url=${encodeURIComponent(currentUrl)};end`;
+        window.location.replace(intentUrl);
+      }
+    }
   }, [searchParams]);
 
   const handleNext = () => {
