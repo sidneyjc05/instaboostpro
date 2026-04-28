@@ -15,6 +15,36 @@ async function startServer() {
   // API routing
   app.use('/api', apiRouter);
 
+  // Asset links for Android App Link verification
+  app.get('/.well-known/assetlinks.json', (req, res) => {
+    res.json([
+      {
+        "relation": [
+          "delegate_permission/common.handle_all_urls"
+        ],
+        "target": {
+          "namespace": "android_app",
+          "package_name": "co.median.android.xlpqlnd",
+          "sha256_cert_fingerprints": [
+            "FA:2E:FB:B8:77:BE:22:DF:A4:22:E1:0F:A8:DD:C0:77:3B:B8:05"
+          ]
+        }
+      },
+      {
+        "relation": [
+          "delegate_permission/common.handle_all_urls"
+        ],
+        "target": {
+          "namespace": "android_app",
+          "package_name": "com.app.railway.up.instaboostpro-production",
+          "sha256_cert_fingerprints": [
+            "FA:2E:FB:B8:77:BE:22:DF:A4:22:E1:0F:A8:DD:C0:77:3B:B8:05"
+          ]
+        }
+      }
+    ]);
+  });
+
   // Vite Integration
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
