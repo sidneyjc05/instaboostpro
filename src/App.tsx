@@ -72,7 +72,7 @@ function AppContent() {
 
      const checkMaintenance = async () => {
          try {
-             const r = await fetch('/api/settings/public');
+             const r = await fetch(import.meta.env.BASE_URL + 'api/settings/public');
              const data = await r.json();
              if (isMounted) {
                  if (data.maintenance_mode === 'on' && !isAdmin) {
@@ -176,7 +176,7 @@ export default function App() {
         <NotificationProvider>
           <AuthProvider>
             <GlobalNotificationProvider>
-              <BrowserRouter>
+              <BrowserRouter basename={import.meta.env.BASE_URL}>
                 <AppContent />
               </BrowserRouter>
             </GlobalNotificationProvider>

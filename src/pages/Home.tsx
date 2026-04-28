@@ -39,7 +39,7 @@ export default function Home() {
   const loadPromos = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/promotions');
+      const res = await fetch(import.meta.env.BASE_URL + 'api/promotions');
       if (res.ok) {
         setPromotions(await res.json());
       }
@@ -52,7 +52,7 @@ export default function Home() {
 
   const checkDailyRewards = async () => {
     try {
-      const res = await fetch('/api/rewards/daily');
+      const res = await fetch(import.meta.env.BASE_URL + 'api/rewards/daily');
       if (res.ok) {
         const data = await res.json();
         const available = data.plan?.some((p: any) => p.state === 'available');
@@ -72,7 +72,7 @@ export default function Home() {
   const handleInteract = async () => {
     if (!activePromo) return;
     try {
-      const res = await fetch(`/api/promotions/${activePromo.id}/interact`, { method: 'POST' });
+      const res = await fetch(`$\{import.meta.env.BASE_URL\}api/promotions/${activePromo.id}/interact`, { method: 'POST' });
       const data = await res.json();
       if (res.ok) {
         showNotification.success(`Você ganhou ${data.reward} moedas!`);

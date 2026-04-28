@@ -36,7 +36,7 @@ export default function Login() {
     
     try {
        if (forgotStep === 1) {
-          const res = await fetch('/api/auth/recover/send', {
+          const res = await fetch(import.meta.env.BASE_URL + 'api/auth/recover/send', {
              method: 'POST',
              headers: { 'Content-Type': 'application/json' },
              body: JSON.stringify({ email })
@@ -49,7 +49,7 @@ export default function Login() {
              showNotification.error(data.error);
           }
        } else {
-          const res = await fetch('/api/auth/recover/reset', {
+          const res = await fetch(import.meta.env.BASE_URL + 'api/auth/recover/reset', {
              method: 'POST',
              headers: { 'Content-Type': 'application/json' },
              body: JSON.stringify({ email, code: verificationCode, newPassword: password })
@@ -76,7 +76,7 @@ export default function Login() {
     e.preventDefault();
     setLoading(true);
     try {
-      const endpoint = isLogin ? '/api/auth/login' : '/api/auth/register';
+      const endpoint = isLogin ? import.meta.env.BASE_URL + 'api/auth/login' : import.meta.env.BASE_URL + 'api/auth/register';
       const body = isLogin 
          ? { username, password, verificationCode } 
          : { username, email, password };
@@ -99,7 +99,7 @@ export default function Login() {
              const refCode = localStorage.getItem('referral_code');
              if (refCode) {
                 try {
-                   await fetch('/api/me/referral/claim', {
+                   await fetch(import.meta.env.BASE_URL + 'api/me/referral/claim', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ code: refCode })

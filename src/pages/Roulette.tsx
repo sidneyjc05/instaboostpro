@@ -35,7 +35,7 @@ export default function Roulette() {
 
   const checkFreeStatus = async () => {
     try {
-      const res = await fetch('/api/roulette/status');
+      const res = await fetch(import.meta.env.BASE_URL + 'api/roulette/status');
       if (res.ok) {
         const data = await res.json();
         setCanClaimFree(data.canClaim);
@@ -54,7 +54,7 @@ export default function Roulette() {
       const deviceHash = localStorage.getItem('device_hash') || btoa(navigator.userAgent).substring(0, 32);
       if (!localStorage.getItem('device_hash')) localStorage.setItem('device_hash', deviceHash);
 
-      const res = await fetch('/api/roulette/claim', {
+      const res = await fetch(import.meta.env.BASE_URL + 'api/roulette/claim', {
          method: 'POST',
          headers: { 'Content-Type': 'application/json' },
          body: JSON.stringify({ deviceHash })
@@ -86,7 +86,7 @@ export default function Roulette() {
     setPrizeWin(null);
 
     try {
-       const res = await fetch('/api/roulette/spin', { method: 'POST' });
+       const res = await fetch(import.meta.env.BASE_URL + 'api/roulette/spin', { method: 'POST' });
        const data = await res.json();
        
        if (!res.ok) {

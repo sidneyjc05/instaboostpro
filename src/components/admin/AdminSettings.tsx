@@ -13,7 +13,7 @@ export function AdminSettings() {
 
     const loadSettings = async () => {
         try {
-            const res = await fetch('/api/admin/settings');
+            const res = await fetch(import.meta.env.BASE_URL + 'api/admin/settings');
             if (res.ok) setSettings(await res.json());
         } catch(e) {}
     };
@@ -23,7 +23,7 @@ export function AdminSettings() {
     const updateSetting = async (key: string, value: string) => {
         setLoading(true);
         try {
-            await fetch('/api/admin/settings', {
+            await fetch(import.meta.env.BASE_URL + 'api/admin/settings', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ key, value })
@@ -38,7 +38,7 @@ export function AdminSettings() {
 
     const handleBackupExport = async () => {
         try {
-            const res = await fetch('/api/admin/backup');
+            const res = await fetch(import.meta.env.BASE_URL + 'api/admin/backup');
             const data = await res.json();
             const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
@@ -65,7 +65,7 @@ export function AdminSettings() {
             reader.onload = async () => {
                 try {
                     const json = JSON.parse(reader.result as string);
-                    const res = await fetch('/api/admin/backup', {
+                    const res = await fetch(import.meta.env.BASE_URL + 'api/admin/backup', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(json)
@@ -93,7 +93,7 @@ export function AdminSettings() {
         showNotification.info('Iniciando varredura inteligente do sistema...');
         
         try {
-            const res = await fetch('/api/admin/system/cleanup', {
+            const res = await fetch(import.meta.env.BASE_URL + 'api/admin/system/cleanup', {
                 method: 'POST'
             });
             const data = await res.json();

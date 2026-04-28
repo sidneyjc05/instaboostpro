@@ -12,11 +12,14 @@ async function startServer() {
   app.use(express.urlencoded({ limit: '50mb', extended: true }));
   app.use(cookieParser());
 
+  // Setup a common router for both root and subpath
+  const appRoot = express.Router();
+
   // API routing
-  app.use('/api', apiRouter);
+  appRoot.use('/api', apiRouter);
 
   // Asset links for Android App Link verification
-  app.get('/.well-known/assetlinks.json', (req, res) => {
+  appRoot.get('/.well-known/assetlinks.json', (req, res) => {
     res.json([
       {
         "relation": [
@@ -40,14 +43,18 @@ async function startServer() {
       server: { middlewareMode: true },
       appType: 'spa',
     });
-    app.use(vite.middlewares);
+    appRoot.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
+    appRoot.use(express.static(distPath));
+    appRoot.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
+
+  // Mount at both root and target subpath
+  app.use('/', appRoot);
+  app.use('/apps/instaboostpro', appRoot);
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on http://localhost:${PORT}`);

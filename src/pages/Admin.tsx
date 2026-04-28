@@ -22,8 +22,8 @@ export default function Admin() {
     const fetchAdminData = async () => {
         try {
             const [usersRes, statsRes] = await Promise.all([
-                fetch('/api/admin/users/all'),
-                fetch('/api/admin/stats')
+                fetch(import.meta.env.BASE_URL + 'api/admin/users/all'),
+                fetch(import.meta.env.BASE_URL + 'api/admin/stats')
             ]);
             if (usersRes.ok) setUsers(await usersRes.json());
             if (statsRes.ok) setStats(await statsRes.json());

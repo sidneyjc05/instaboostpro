@@ -41,7 +41,7 @@ export default function Profile() {
     if (!referralInput) return showNotification.error('Digite um código');
     setClaimLoading(true);
     try {
-      const res = await fetch('/api/me/referral/claim', {
+      const res = await fetch(import.meta.env.BASE_URL + 'api/me/referral/claim', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code: referralInput })
@@ -72,7 +72,7 @@ export default function Profile() {
      if (!emailInput) return showNotification.error('Digite um e-mail válido');
      setActionLoading(true);
      try {
-        const res = await fetch('/api/me/email', {
+        const res = await fetch(import.meta.env.BASE_URL + 'api/me/email', {
            method: 'POST',
            headers: { 'Content-Type': 'application/json' },
            body: JSON.stringify({ email: emailInput })
@@ -94,7 +94,7 @@ export default function Profile() {
   const handleSendVerifyCode = async () => {
      setActionLoading(true);
      try {
-        const res = await fetch('/api/me/email/verify/send', { method: 'POST' });
+        const res = await fetch(import.meta.env.BASE_URL + 'api/me/email/verify/send', { method: 'POST' });
         const data = await res.json();
         if (res.ok) {
            if (data.bypassed) {
@@ -117,7 +117,7 @@ export default function Profile() {
      if (!codeInput) return;
      setActionLoading(true);
      try {
-        const res = await fetch('/api/me/email/verify', {
+        const res = await fetch(import.meta.env.BASE_URL + 'api/me/email/verify', {
            method: 'POST',
            headers: { 'Content-Type': 'application/json' },
            body: JSON.stringify({ code: codeInput })
@@ -140,7 +140,7 @@ export default function Profile() {
   const handleChangePassword = async () => {
      setActionLoading(true);
      try {
-        const res = await fetch('/api/auth/recover/send', {
+        const res = await fetch(import.meta.env.BASE_URL + 'api/auth/recover/send', {
            method: 'POST',
            headers: { 'Content-Type': 'application/json' },
            body: JSON.stringify({ email: user?.email })
@@ -166,7 +166,7 @@ export default function Profile() {
      if (!codeInput || !passwordInput) return showNotification.error('Preencha os campos');
      setActionLoading(true);
      try {
-        const res = await fetch('/api/auth/recover/reset', {
+        const res = await fetch(import.meta.env.BASE_URL + 'api/auth/recover/reset', {
            method: 'POST',
            headers: { 'Content-Type': 'application/json' },
            body: JSON.stringify({ email: user?.email, code: codeInput, newPassword: passwordInput })
@@ -192,7 +192,7 @@ export default function Profile() {
     if (activeQrModal?.id) {
        interval = setInterval(async () => {
           try {
-             const res = await fetch(`/api/payments/${activeQrModal.id}`);
+             const res = await fetch(`$\{import.meta.env.BASE_URL\}api/payments/${activeQrModal.id}`);
              if (res.ok) {
                 const data = await res.json();
                 if (data.status === 'approved') {
@@ -212,9 +212,9 @@ export default function Profile() {
   const fetchData = async () => {
     try {
       const [promoRes, payRes, refRes] = await Promise.all([
-        fetch('/api/users/me/promotions'),
-        fetch('/api/users/me/payments'),
-        fetch('/api/me/referral')
+        fetch(import.meta.env.BASE_URL + 'api/users/me/promotions'),
+        fetch(import.meta.env.BASE_URL + 'api/users/me/payments'),
+        fetch(import.meta.env.BASE_URL + 'api/me/referral')
       ]);
       if (promoRes.ok) setPromotions(await promoRes.json());
       if (payRes.ok) setPayments(await payRes.json());
@@ -226,7 +226,7 @@ export default function Profile() {
   const handleReboost = async (id: number) => {
     setReboostLoading(id);
     try {
-      const res = await fetch(`/api/promotions/${id}/reboost`, {
+      const res = await fetch(`$\{import.meta.env.BASE_URL\}api/promotions/${id}/reboost`, {
         method: 'POST'
       });
       const data = await res.json();
@@ -246,7 +246,7 @@ export default function Profile() {
   const handleViewPix = async (payId: string) => {
      setCheckingPayment(payId);
      try {
-       const res = await fetch(`/api/payments/${payId}`);
+       const res = await fetch(`$\{import.meta.env.BASE_URL\}api/payments/${payId}`);
        const data = await res.json();
        if (res.ok && data.qrCode) {
           setActiveQrModal(data);

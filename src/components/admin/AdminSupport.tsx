@@ -13,7 +13,7 @@ export function AdminSupport() {
 
     const fetchRequests = async () => {
         try {
-            const res = await fetch('/api/admin/support');
+            const res = await fetch(import.meta.env.BASE_URL + 'api/admin/support');
             if (res.ok) setRequests(await res.json());
         } catch(e) {}
     };
@@ -24,7 +24,7 @@ export function AdminSupport() {
 
     const fetchMessages = async (id: number) => {
         try {
-            const res = await fetch(`/api/admin/support/${id}/chat`);
+            const res = await fetch(`$\{import.meta.env.BASE_URL\}api/admin/support/${id}/chat`);
             if (res.ok) {
                 setMessages(await res.json());
                 setTimeout(() => {
@@ -44,13 +44,13 @@ export function AdminSupport() {
     }, [selectedReq]);
 
     const handleAccept = async (id: number) => {
-        await fetch(`/api/admin/support/${id}/accept`, { method: 'POST' });
+        await fetch(`$\{import.meta.env.BASE_URL\}api/admin/support/${id}/accept`, { method: 'POST' });
         showNotification.success('Suporte aceito');
         fetchRequests();
     };
 
     const handleClose = async (id: number) => {
-        await fetch(`/api/admin/support/${id}/close`, { method: 'POST' });
+        await fetch(`$\{import.meta.env.BASE_URL\}api/admin/support/${id}/close`, { method: 'POST' });
         showNotification.success('Suporte encerrado e mensagens apagadas');
         setSelectedReq(null);
         fetchRequests();
@@ -58,7 +58,7 @@ export function AdminSupport() {
 
     const handleSend = async () => {
         if (!text.trim()) return;
-        await fetch(`/api/admin/support/${selectedReq.id}/chat`, {
+        await fetch(`$\{import.meta.env.BASE_URL\}api/admin/support/${selectedReq.id}/chat`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ message: text })
@@ -77,7 +77,7 @@ export function AdminSupport() {
             const reader = new FileReader();
             reader.onload = async () => {
                 const base64 = reader.result;
-                await fetch(`/api/admin/support/${selectedReq.id}/chat`, {
+                await fetch(`$\{import.meta.env.BASE_URL\}api/admin/support/${selectedReq.id}/chat`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ message: '', image_url: base64 })
