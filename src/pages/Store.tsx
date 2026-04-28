@@ -10,11 +10,28 @@ export default function Store() {
   const { refreshUser } = useAuth();
   const { playSuccess, playClick } = useAppSound();
   const [loading, setLoading] = useState(false);
-  const [paymentData, setPaymentData] = useState<{ id: string, qrCode: string, pixCode: string, exactExpiry: number } | null>(null);
+  const [paymentData, setPaymentData] = useState<{ id: string, qrCode: string, pixCode: string, tickets: number, credits: number, exactExpiry: number, pendingPlan?: string } | null>(null);
   const [polling, setPolling] = useState(false);
   const [timeLeft, setTimeLeft] = useState(15 * 60);
   const [paymentSuccess, setPaymentSuccess] = useState(false);
-  const [tab, setTab] = useState<'credits' | 'tickets'>('credits');
+  const [tab, setTab] = useState<'credits' | 'tickets' | 'plans'>('plans');
+  const [storeConfig, setStoreConfig] = useState<any>(null);
+
+  useEffect(() => {
+    fetch('/api/store/config').then(res => res.json()).then(data => setStoreConfig(data)).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    // Check if there is a 'tab' search param
+    const searchParams = new URLSearchParams(window.location.search);
+    if (searchParams.get('tab') === 'plans') {
+       setTab('plans');
+    } else if (searchParams.get('tab') === 'credits') {
+       setTab('credits');
+    } else if (searchParams.get('tab') === 'tickets') {
+       setTab('tickets');
+    }
+  }, []);
 
   // Expiration and countdown timer
   useEffect(() => {
@@ -59,7 +76,7 @@ export default function Store() {
     return () => clearInterval(interval);
   }, [polling, paymentData]);
 
-  const handleBuy = async (credits: number, type: 'credits' | 'tickets' = 'credits') => {
+  const handleBuy = async (credits: number | string, type: 'credits' | 'tickets' | 'plan' = 'credits') => {
     setLoading(true);
     try {
       const res = await fetch('/api/payments/pix', {
@@ -69,7 +86,7 @@ export default function Store() {
       });
       const data = await res.json();
       if (res.ok) {
-        setPaymentData({ ...data, exactExpiry: Date.now() + 15 * 60 * 1000 });
+        setPaymentData({ ...data, exactExpiry: Date.now() + 15 * 60 * 1000, pendingPlan: type === 'plan' ? credits.toString() : undefined });
         setTimeLeft(15 * 60);
         setPaymentSuccess(false);
         setPolling(true);
@@ -89,7 +106,7 @@ export default function Store() {
     return `${min.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
   };
 
-  const packages = [
+  let packages = [
     { c: 110, price: 'R$ 0,50', time: '22 minutos' },
     { c: 230, price: 'R$ 1,00', time: '46 minutos' },
     { c: 480, price: 'R$ 2,00', time: '1h 36m' },
@@ -102,7 +119,7 @@ export default function Store() {
     { c: 7200, price: 'R$ 250,00', time: '24 horas', pop: true }
   ];
 
-  const ticketPackages = [
+  let ticketPackages = [
     { c: 5, price: 'R$ 1,50' },
     { c: 12, price: 'R$ 3,00' },
     { c: 22, price: 'R$ 5,00' },
@@ -114,6 +131,78 @@ export default function Store() {
     { c: 1900, price: 'R$ 250,00' },
     { c: 2400, price: 'R$ 300,00', pop: true }
   ];
+
+  let planPackages = [
+    { 
+       id: 'pro', 
+       name: 'Pro', 
+       price: 'R$ 50,00', 
+       period: '30 dias',
+       color: 'from-green-500/20 to-green-900/20',
+       borderColor: 'border-green-500/50',
+       ringColor: 'ring-green-500/30',
+       benefits: [
+          'Dobro de moedas em todas as missões',
+          '+20% chances na roleta',
+          '10 publicações por dia',
+          'Prioridade no Feed Geral',
+          'Análise de desempenho básica',
+          '+500 moedas de bônus mensal',
+          '+10% de comissão extra'
+       ]
+    },
+    { 
+       id: 'premium', 
+       name: 'Premium', 
+       price: 'R$ 100,00', 
+       period: '30 dias',
+       color: 'from-purple-500/20 to-purple-900/20',
+       borderColor: 'border-purple-500/50',
+       ringColor: 'ring-purple-500/30',
+       pop: true,
+       benefits: [
+          'Dobro de moedas nas missões',
+          '+40% chances na roleta',
+          '15 publicações por dia (24h limite)',
+          '+4 tickets de roleta diários',
+          'Stories com duração +24h',
+          'Análise de desempenho avançada',
+          'Redução de cooldown em missões',
+          'Remoção de anúncios / Ultra clean',
+          '+1.500 moedas de bônus mensal',
+          '+20% de comissão extra'
+       ]
+    },
+    { 
+       id: 'ultra', 
+       name: 'Ultra', 
+       price: 'R$ 150,00', 
+       period: '30 dias',
+       color: 'from-yellow-400/20 to-orange-600/20',
+       borderColor: 'border-yellow-500/50',
+       ringColor: 'ring-yellow-500/30',
+       benefits: [
+          'Dobro + 50% extra de moedas',
+          '+80% chances na roleta',
+          '30 publicações por dia (48h limite)',
+          '+8 tickets de roleta diários',
+          'Stories com duração +48h',
+          'Suporte VIP 24h',
+          'Maior prioridade no Feed Geral',
+          'Acesso Beta a novos recursos',
+          'Remoção de anúncios / Ultra clean',
+          '+4.000 moedas de bônus mensal',
+          '+40% de comissão extra'
+       ]
+    }
+  ];
+
+  if (storeConfig) {
+      const formatPrice = (num: number) => `R$ ${num.toFixed(2).replace('.', ',')}`;
+      packages = packages.map(p => ({ ...p, price: storeConfig.coins[p.c] ? formatPrice(storeConfig.coins[p.c]) : p.price }));
+      ticketPackages = ticketPackages.map(p => ({ ...p, price: storeConfig.tickets[p.c] ? formatPrice(storeConfig.tickets[p.c]) : p.price }));
+      planPackages = planPackages.map(p => ({ ...p, price: storeConfig.plans[p.id] ? formatPrice(storeConfig.plans[p.id]) : p.price }));
+  }
 
   return (
     <div className="flex flex-col gap-6 pb-20">
@@ -163,10 +252,47 @@ export default function Store() {
                >
                  Tickets 🎟️
                </button>
+               <button 
+                 className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${tab === 'plans' ? 'bg-background shadow-sm text-primary' : 'text-muted-foreground'}`}
+                 onClick={() => { playClick(); setTab('plans'); }}
+               >
+                 Planos 💎
+               </button>
             </div>
 
+            {tab === 'plans' && (
+               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                  {planPackages.map(pkg => (
+                     <div key={pkg.id} className={`relative bg-gradient-to-br ${pkg.color} bg-card border rounded-3xl p-6 flex flex-col gap-4 ${pkg.pop ? `ring-2 ${pkg.ringColor} shadow-xl z-10` : 'hover:bg-secondary/50 transition-all duration-300'} ${pkg.borderColor}`}>
+                        {pkg.pop && <div className="absolute top-0 right-0 transform translate-x-3 -translate-y-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white text-[10px] uppercase font-bold py-1 px-3 w-fit rounded-full shadow-lg z-20 shadow-purple-500/50">Mais Popular</div>}
+                        
+                        <div className="flex flex-col items-center">
+                           <div className="text-2xl mt-4 border-b border-border/50 pb-4 w-full text-center font-black uppercase tracking-widest text-white">
+                              {pkg.name}
+                           </div>
+                           <div className="font-bold text-4xl mt-4">{pkg.price}</div>
+                           <div className="text-sm mt-1 text-muted-foreground bg-black/10 dark:bg-white/5 py-1 px-3 rounded-full">Duração: <strong className="text-foreground">{pkg.period}</strong></div>
+                        </div>
+
+                        <div className="flex-1 flex flex-col gap-3 mt-4 overflow-y-auto max-h-[400px] pr-2 custom-scrollbar">
+                           {pkg.benefits.map((b, i) => (
+                              <div key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
+                                 <CheckCircle className="shrink-0 mt-0.5 text-primary" size={16} />
+                                 <span className="leading-tight">{b}</span>
+                              </div>
+                           ))}
+                        </div>
+
+                        <Button className="w-full mt-4 h-12 text-lg shadow-lg" variant={pkg.pop ? 'primary' : 'secondary'} onClick={() => handleBuy(pkg.id, 'plan')} isLoading={loading}>
+                           Assinar {pkg.name}
+                        </Button>
+                     </div>
+                  ))}
+               </div>
+            )}
+
             {tab === 'credits' && (
-              <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
                 {packages.map(pkg => (
                   <div key={pkg.c} className={`relative bg-card border rounded-3xl p-5 flex flex-col items-center gap-2 ${pkg.pop ? 'bg-gradient-to-br from-primary/20 to-blue-900/20 border-primary/30 ring-2 ring-primary/20 shadow-md z-10' : 'border-border'}`}>
                     <div className="text-2xl mt-2 border-b border-border/50 pb-2 w-full text-center">
@@ -183,7 +309,7 @@ export default function Store() {
             )}
 
             {tab === 'tickets' && (
-               <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+               <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
                   {ticketPackages.map(pkg => (
                      <div key={pkg.c} className={`relative bg-card border rounded-3xl p-5 flex flex-col items-center gap-2 ${pkg.pop ? 'bg-gradient-to-br from-primary/20 to-blue-900/20 border-primary/30 ring-2 ring-primary/20 shadow-md z-10' : 'border-border'}`}>
                         <div className="text-2xl mt-2 border-b border-border/50 pb-2 w-full text-center">
@@ -216,6 +342,19 @@ export default function Store() {
             <div>
               <h3 className="text-xl font-bold">Escaneie o QR Code</h3>
               <p className="text-sm text-muted-foreground mt-1">Aprovação em segundos. Escaneie pelo app do seu banco para pagar via PIX.</p>
+              {paymentData.pendingPlan ? (
+                 <p className="font-bold text-yellow-500 mt-2 bg-yellow-500/10 px-3 py-1 rounded-full border border-yellow-500/30 w-fit mx-auto">
+                    Plano {paymentData.pendingPlan.toUpperCase()} (30 dias)
+                 </p>
+              ) : paymentData.tickets > 0 ? (
+                 <p className="font-bold text-blue-500 mt-2 bg-blue-500/10 px-3 py-1 rounded-full border border-blue-500/30 w-fit mx-auto">
+                    {paymentData.tickets.toLocaleString('pt-BR')} Tickets 🎟️
+                 </p>
+              ) : (
+                 <p className="font-bold text-green-500 mt-2 bg-green-500/10 px-3 py-1 rounded-full border border-green-500/30 w-fit mx-auto">
+                    {paymentData.credits.toLocaleString('pt-BR')} Moedas 💰
+                 </p>
+              )}
             </div>
             
             {paymentData.qrCode ? (

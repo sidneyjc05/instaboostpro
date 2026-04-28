@@ -9,6 +9,8 @@ export interface User {
   is_blocked: boolean;
   credits: number;
   tickets: number;
+  plan_type?: string;
+  plan_expires_at?: string;
 }
 
 interface AuthContextType {

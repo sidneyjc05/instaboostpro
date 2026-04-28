@@ -24,6 +24,16 @@ export const authMiddleware = (req: Request, res: Response, next: NextFunction) 
        return res.status(401).json({ error: 'Outra pessoa acessou sua conta (Sessão expirada)' });
     }
 
+    if (payload.role !== 'admin') {
+       const allowedPaths = ['/api/me', '/api/notifications'];
+       if (!allowedPaths.includes(req.originalUrl)) {
+           const maintenanceMode = db.prepare('SELECT value FROM settings WHERE key = ?').get('maintenance_mode') as any;
+           if (maintenanceMode && maintenanceMode.value === 'on') {
+               return res.status(403).json({ error: 'Sistema em manutenção' });
+           }
+       }
+    }
+
     (req as any).userId = payload.id;
     (req as any).userRole = payload.role || 'user';
     next();

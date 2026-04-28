@@ -1,12 +1,14 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { db } from './db.js';
+import { db, createNotification } from './db.js';
 import { authMiddleware, adminMiddleware } from './auth.js';
 import crypto from 'crypto';
 import qrcode from 'qrcode';
 import { MercadoPagoConfig, Payment } from 'mercadopago';
 import { sendVerificationEmail } from './mailer.js';
+
+import { adminRouter } from './admin.js';
 
 export const apiRouter = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecret';
@@ -61,10 +63,23 @@ function getWeekStart(d: Date) {
   return date;
 }
 
+// --- PUBLIC SETTINGS --- //
+apiRouter.get('/settings/public', (req, res) => {
+    const settings = db.prepare(`SELECT key, value FROM settings WHERE key IN ('maintenance_mode', 'maintenance_end', 'maintenance_message')`).all() as any[];
+    const result = settings.reduce((acc, s) => ({ ...acc, [s.key]: s.value }), {});
+    res.json(result);
+});
+
 // --- AUTH --- //
 apiRouter.post('/auth/register', (req, res) => {
   const { username, email, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+
+  // Block registration if maintenance mode is on
+  const maintenanceMode = db.prepare('SELECT value FROM settings WHERE key = ?').get('maintenance_mode') as any;
+  if (maintenanceMode && maintenanceMode.value === 'on') {
+      return res.status(403).json({ error: 'O sistema está em manutenção no momento. Cadastros estão temporariamente indisponíveis.' });
+  }
 
   // Check unique email if provided
   if (email) {
@@ -263,41 +278,85 @@ apiRouter.post('/auth/logout', (req, res) => {
 });
 
 // --- ADMIN ROUTES --- //
-apiRouter.get('/admin/users', authMiddleware, adminMiddleware, (req, res) => {
-   const users = db.prepare(`
-      SELECT id, username, email, role, credits, is_blocked, last_active_at, created_at 
-      FROM users 
-      ORDER BY created_at DESC
-   `).all();
-   res.json(users);
+apiRouter.use('/admin', adminRouter);
+
+// --- SUPPORT ROUTES (User) --- //
+// Notifications
+apiRouter.get('/notifications', authMiddleware, (req: any, res) => {
+    const notifications = db.prepare('SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 50').all(req.userId);
+    res.json(notifications);
 });
 
-apiRouter.get('/admin/logs', authMiddleware, adminMiddleware, (req, res) => {
-   const logs = db.prepare(`
-      SELECT l.id, u.username, l.ip, l.device, l.created_at
-      FROM login_logs l
-      JOIN users u ON l.user_id = u.id
-      ORDER BY l.created_at DESC LIMIT 100
-   `).all();
-   res.json(logs);
+apiRouter.post('/notifications/:id/read', authMiddleware, (req: any, res) => {
+    db.prepare('UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?').run(req.params.id, req.userId);
+    res.json({ success: true });
 });
 
-apiRouter.post('/admin/users/:id/block', authMiddleware, adminMiddleware, (req, res) => {
-   const { blocked } = req.body;
-   db.prepare('UPDATE users SET is_blocked = ? WHERE id = ?').run(blocked ? 1 : 0, req.params.id);
-   res.json({ success: true });
+apiRouter.post('/notifications/read-all', authMiddleware, (req: any, res) => {
+    db.prepare('UPDATE notifications SET is_read = 1 WHERE user_id = ?').run(req.userId);
+    res.json({ success: true });
 });
 
-apiRouter.post('/admin/users/:id/role', authMiddleware, adminMiddleware, (req, res) => {
-   const { role } = req.body; // 'admin' or 'user'
-   db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, req.params.id);
-   res.json({ success: true });
+apiRouter.get('/support', authMiddleware, (req: any, res) => {
+    const reqs = db.prepare('SELECT * FROM support_requests WHERE user_id = ? ORDER BY created_at DESC').all(req.userId);
+    res.json(reqs);
+});
+
+apiRouter.post('/support', authMiddleware, (req: any, res) => {
+    const { description } = req.body;
+    const existing = db.prepare(`SELECT id FROM support_requests WHERE user_id = ? AND status != 'closed'`).get(req.userId);
+    if (existing) {
+        return res.status(400).json({ error: 'Você já possui uma solicitação de suporte em andamento' });
+    }
+    const rr = db.prepare('INSERT INTO support_requests (user_id, description) VALUES (?, ?)').run(req.userId, description);
+    
+    // Notify all admins
+    const admins = db.prepare("SELECT id FROM users WHERE role = 'admin'").all() as any[];
+    for (const a of admins) {
+         createNotification(a.id, 'Novo Suporte', 'Nova solicitação de suporte pendente', 'admin_support');
+    }
+
+    res.json({ success: true, id: rr.lastInsertRowid });
+});
+
+apiRouter.get('/support/:id/chat', authMiddleware, (req: any, res) => {
+    // Check ownership
+    const sreq = db.prepare('SELECT * FROM support_requests WHERE id = ? AND user_id = ?').get(req.params.id, req.userId);
+    if (!sreq) return res.status(403).json({ error: 'Não autorizado' });
+    
+    // Mark messages as read
+    db.prepare('UPDATE support_messages SET read_at = CURRENT_TIMESTAMP WHERE request_id = ? AND sender_id != ? AND read_at IS NULL').run(req.params.id, req.userId);
+    
+    const msgs = db.prepare('SELECT * FROM support_messages WHERE request_id = ? ORDER BY created_at ASC').all(req.params.id);
+    res.json(msgs);
+});
+
+apiRouter.post('/support/:id/chat', authMiddleware, (req: any, res) => {
+    const { message, image_url } = req.body;
+    const sreq = db.prepare('SELECT * FROM support_requests WHERE id = ? AND user_id = ?').get(req.params.id, req.userId) as any;
+    if (!sreq || sreq.status === 'closed') return res.status(403).json({ error: 'Não autorizado' });
+
+    db.prepare('INSERT INTO support_messages (request_id, sender_id, message, image_url) VALUES (?, ?, ?, ?)').run(req.params.id, req.userId, message, image_url);
+    
+    // Notify all admins
+    const admins = db.prepare("SELECT id FROM users WHERE role = 'admin'").all() as any[];
+    for (const a of admins) {
+         createNotification(a.id, 'Nova Mensagem do Suporte', `O usuário atualizou o ticket de suporte #${req.params.id}`, 'admin_support');
+    }
+
+    res.json({ success: true });
 });
 
 apiRouter.get('/me', authMiddleware, (req: any, res) => {
   db.prepare('UPDATE users SET last_active_at = CURRENT_TIMESTAMP WHERE id = ?').run(req.userId);
-  const user = db.prepare('SELECT id, username, email, role, is_verified, credits, tickets, created_at FROM users WHERE id = ? AND is_blocked = 0').get(req.userId);
+  const user = db.prepare('SELECT id, username, email, role, is_verified, credits, tickets, plan_type, plan_expires_at, created_at FROM users WHERE id = ? AND is_blocked = 0').get(req.userId) as any;
   if (!user) return res.status(401).json({ error: 'User blocked or not found' });
+  
+  if (user.plan_expires_at && new Date(user.plan_expires_at).getTime() < Date.now()) {
+      user.plan_type = 'basic';
+      db.prepare(`UPDATE users SET plan_type = 'basic' WHERE id = ?`).run(req.userId);
+  }
+  
   res.json(user);
 });
 
@@ -344,6 +403,10 @@ apiRouter.post('/me/referral/claim', authMiddleware, (req: any, res) => {
     
     // Log commissions
     db.prepare('INSERT INTO commissions (referrer_id, referred_id, amount, action_type) VALUES (?, ?, ?, ?)').run(referrer.id, user.id, 500, 'signup_bonus');
+    
+    // Notifications
+    createNotification(user.id, 'Parabéns!', 'Indicação realizada com sucesso! Você recebeu 1000 moedas como boas-vindas.', 'referral');
+    createNotification(referrer.id, 'Nova Comissão!', 'O usuário que você indicou confirmou o código. Você ganhou 500 moedas.', 'referral');
   })();
 
   res.json({ success: true, message: 'Código ativado com sucesso! Você ganhou 1.000 moedas.' });
@@ -497,13 +560,20 @@ apiRouter.post('/promotions/:id/reboost', authMiddleware, (req: any, res) => {
 apiRouter.get('/promotions', authMiddleware, (req: any, res) => {
   // Get active promotions not yet interacted with
   const promotions = db.prepare(`
-    SELECT p.id, p.url, p.user_id, u.username, p.expires_at 
+    SELECT p.id, p.url, p.user_id, u.username, p.expires_at, u.plan_type
     FROM promotions p
     JOIN users u ON p.user_id = u.id
     WHERE datetime(p.expires_at) > CURRENT_TIMESTAMP
       AND p.user_id != ?
       AND p.id NOT IN (SELECT promotion_id FROM interactions WHERE user_id = ?)
-    ORDER BY p.created_at DESC
+    ORDER BY 
+      CASE u.plan_type 
+        WHEN 'ultra' THEN 1
+        WHEN 'premium' THEN 2
+        WHEN 'pro' THEN 3
+        ELSE 4
+      END ASC,
+      p.created_at DESC
     LIMIT 20
   `).all(req.userId, req.userId);
   res.json(promotions);
@@ -513,10 +583,25 @@ apiRouter.post('/promotions', authMiddleware, (req: any, res) => {
   const { url, durationMinutes } = req.body;
   if (!url || !durationMinutes) return res.status(400).json({ error: 'URL and duration required' });
 
-  // Limit check: Does user have 10 active promotions already?
+  const userRecord = db.prepare('SELECT plan_type FROM users WHERE id = ?').get(req.userId) as any;
+  const planType = userRecord?.plan_type || 'basic';
+
+  let maxActive = 5;
+  if (planType === 'pro') maxActive = 10;
+  if (planType === 'premium') maxActive = 15;
+  if (planType === 'ultra') maxActive = 30;
+
+  let maxDurationHours = 24;
+  if (planType === 'ultra') maxDurationHours = 48;
+
+  if (durationMinutes > maxDurationHours * 60) {
+      return res.status(400).json({ error: `Seu plano atual permite no máximo ${maxDurationHours}h de destaque por publicação.` });
+  }
+
+  // Limit check
   const activeCount: any = db.prepare(`SELECT count(*) as count FROM promotions WHERE user_id = ? AND datetime(expires_at) > CURRENT_TIMESTAMP`).get(req.userId);
-  if (activeCount.count >= 10) {
-     return res.status(400).json({ error: 'Limite alcançado: Você pode ter no máximo 10 publicações ativas simultaneamente.' });
+  if (activeCount.count >= maxActive) {
+     return res.status(400).json({ error: `Limite alcançado: Seu Plano ${planType.toUpperCase()} permite ${maxActive} publicações ativas.` });
   }
 
   const cost = durationMinutes * 5;
@@ -561,8 +646,15 @@ apiRouter.post('/promotions/:id/interact', authMiddleware, (req: any, res) => {
     // Comissão de 10% para o indicador (0.02)
     const user = db.prepare('SELECT referred_by FROM users WHERE id = ?').get(req.userId) as any;
     if (user && user.referred_by) {
-       db.prepare('UPDATE users SET credits = credits + ? WHERE id = ?').run(reward * 0.1, user.referred_by);
-       db.prepare('INSERT INTO commissions (referrer_id, referred_id, amount, action_type) VALUES (?, ?, ?, ?)').run(user.referred_by, req.userId, reward * 0.1, 'interact');
+       let commissionRate = 0.1;
+       const referrer = db.prepare('SELECT plan_type FROM users WHERE id = ?').get(user.referred_by) as any;
+       if (referrer) {
+          if (referrer.plan_type === 'pro') commissionRate = 0.2;
+          else if (referrer.plan_type === 'premium') commissionRate = 0.3;
+          else if (referrer.plan_type === 'ultra') commissionRate = 0.5;
+       }
+       db.prepare('UPDATE users SET credits = credits + ? WHERE id = ?').run(reward * commissionRate, user.referred_by);
+       db.prepare('INSERT INTO commissions (referrer_id, referred_id, amount, action_type) VALUES (?, ?, ?, ?)').run(user.referred_by, req.userId, reward * commissionRate, 'interact');
     }
 
     // Progresso das missões
@@ -629,13 +721,21 @@ apiRouter.post('/roulette/claim', authMiddleware, (req: any, res) => {
      return res.status(400).json({ error: 'Esta conta já resgatou tickets nas últimas 24h.' });
   }
 
+  const userRecord = db.prepare('SELECT plan_type FROM users WHERE id = ?').get(req.userId) as any;
+  const pType = userRecord?.plan_type || 'basic';
+  
+  let ticketsToGive = 3;
+  if (pType === 'pro') ticketsToGive += 2;
+  if (pType === 'premium') ticketsToGive += 4;
+  if (pType === 'ultra') ticketsToGive += 8;
+
   try {
      const tx = db.transaction(() => {
         db.prepare('INSERT INTO free_tickets_claims (user_id, device_hash) VALUES (?, ?)').run(req.userId, deviceHash);
-        db.prepare('UPDATE users SET tickets = tickets + 3 WHERE id = ?').run(req.userId);
+        db.prepare('UPDATE users SET tickets = tickets + ? WHERE id = ?').run(ticketsToGive, req.userId);
      });
      tx();
-     res.json({ success: true, tickets: 3 });
+     res.json({ success: true, tickets: ticketsToGive });
   } catch(e) {
      res.status(500).json({ error: 'Falha ao processar.' });
   }
@@ -643,7 +743,7 @@ apiRouter.post('/roulette/claim', authMiddleware, (req: any, res) => {
 
 apiRouter.post('/roulette/spin', authMiddleware, (req: any, res) => {
    // Check if user has at least 1 ticket
-   const user = db.prepare('SELECT tickets FROM users WHERE id = ?').get(req.userId) as any;
+   const user = db.prepare('SELECT tickets, plan_type FROM users WHERE id = ?').get(req.userId) as any;
    if (!user || user.tickets < 1) {
       return res.status(400).json({ error: 'Você não tem tickets suficientes.' });
    }
@@ -663,11 +763,28 @@ apiRouter.post('/roulette/spin', authMiddleware, (req: any, res) => {
       { prize: 300, prob: 0.001 }
    ];
 
+   let multiplier = 1;
+   const pType = user.plan_type || 'basic';
+   if (pType === 'pro') multiplier = 1.2;
+   if (pType === 'premium') multiplier = 1.4;
+   if (pType === 'ultra') multiplier = 1.8;
+
+   const updatedPrizes = prizes.map(p => {
+      if (p.prize === 0.5) return p;
+      return { prize: p.prize, prob: p.prob * multiplier };
+   });
+   
+   let higherPrizesProbSum = 0;
+   for (const p of updatedPrizes) {
+       if (p.prize !== 0.5) higherPrizesProbSum += p.prob;
+   }
+   updatedPrizes[0].prob = Math.max(0, 100 - higherPrizesProbSum);
+
    const rand = Math.random() * 100; // 0 to 100
    let accumulatedProb = 0;
    let wonPrize = 0.5;
 
-   for (const p of prizes) {
+   for (const p of updatedPrizes) {
       accumulatedProb += p.prob;
       if (rand <= accumulatedProb) {
          wonPrize = p.prize;
@@ -688,43 +805,59 @@ apiRouter.post('/roulette/spin', authMiddleware, (req: any, res) => {
    }
 });
 
+apiRouter.get('/store/config', (req, res) => {
+   const dbConfig = db.prepare(`SELECT value FROM settings WHERE key = 'store_config'`).get() as any;
+   let storeConfig = null;
+   if (dbConfig) {
+       try { storeConfig = JSON.parse(dbConfig.value); } catch(e){}
+   }
+   res.json(storeConfig || {
+       coins: { 110: 0.50, 230: 1.00, 480: 2.00, 1150: 5.00, 2300: 10.00, 4200: 20.00, 5100: 50.00, 5800: 100.00, 6500: 200.00, 7200: 250.00 },
+       tickets: { 5: 1.50, 12: 3.00, 22: 5.00, 50: 10.00, 110: 20.00, 300: 50.00, 650: 100.00, 1050: 150.00, 1900: 250.00, 2400: 300.00 },
+       plans: { pro: 50.00, premium: 100.00, ultra: 150.00 },
+       promo: { active: false, type: 'percent', value: 0, expiresAt: null }
+   });
+});
+
 apiRouter.post('/payments/pix', authMiddleware, async (req: any, res) => {
   const { credits, type } = req.body;
-  if (!credits || typeof credits !== 'number') return res.status(400).json({ error: 'Invalid credits amount' });
+  if (!credits) return res.status(400).json({ error: 'Invalid amount' });
 
   if (!process.env.MERCADOPAGO_ACCESS_TOKEN) {
     return res.status(500).json({ error: 'Mercado Pago token não foi configurado (.env).' });
   }
 
-  // Preços predefinidos da loja
-  const packageMap: Record<number, number> = {
-    110: 0.50,
-    230: 1.00,
-    480: 2.00,
-    1150: 5.00,
-    2300: 10.00,
-    4200: 20.00,
-    5100: 50.00,
-    5800: 100.00,
-    6500: 200.00,
-    7200: 250.00
-  };
+  const dbConfig = db.prepare(`SELECT value FROM settings WHERE key = 'store_config'`).get() as any;
+  let storeConfig = {
+      coins: { 110: 0.50, 230: 1.00, 480: 2.00, 1150: 5.00, 2300: 10.00, 4200: 20.00, 5100: 50.00, 5800: 100.00, 6500: 200.00, 7200: 250.00 },
+      tickets: { 5: 1.50, 12: 3.00, 22: 5.00, 50: 10.00, 110: 20.00, 300: 50.00, 650: 100.00, 1050: 150.00, 1900: 250.00, 2400: 300.00 },
+      plans: { pro: 50.00, premium: 100.00, ultra: 150.00 },
+      promo: { active: false, type: 'percent', value: 0, expiresAt: null }
+  } as any;
+  if (dbConfig) {
+      try { storeConfig = JSON.parse(dbConfig.value); } catch(e){}
+  }
 
-  const ticketPackageMap: Record<number, number> = {
-    5: 1.50,
-    12: 3.00,
-    22: 5.00,
-    50: 10.00,
-    110: 20.00,
-    300: 50.00,
-    650: 100.00,
-    1050: 150.00,
-    1900: 250.00,
-    2400: 300.00
-  };
+  // Handle prices and promo logic
+  let originalAmount = 0;
+  if (type === 'tickets') originalAmount = storeConfig.tickets[credits];
+  else if (type === 'plan') originalAmount = storeConfig.plans[credits];
+  else originalAmount = storeConfig.coins[credits];
 
-  const amount = type === 'tickets' ? ticketPackageMap[credits] : packageMap[credits];
-  if (!amount) return res.status(400).json({ error: 'Pacote inválido' });
+  if (!originalAmount) return res.status(400).json({ error: 'Pacote inválido' });
+
+  let amount = originalAmount;
+  if (storeConfig.promo && storeConfig.promo.active) {
+      const now = new Date().getTime();
+      const ex = storeConfig.promo.expiresAt ? new Date(storeConfig.promo.expiresAt).getTime() : Infinity;
+      if (now < ex) {
+          if (storeConfig.promo.type === 'percent') {
+              amount = amount - (amount * (storeConfig.promo.value / 100));
+          } else if (storeConfig.promo.type === 'fixed') {
+              amount = Math.max(0.10, amount - storeConfig.promo.value);
+          }
+      }
+  }
 
   try {
     const user = db.prepare('SELECT username FROM users WHERE id = ?').get(req.userId) as any;
@@ -732,7 +865,10 @@ apiRouter.post('/payments/pix', authMiddleware, async (req: any, res) => {
     const expiresAtDate = new Date(Date.now() + 15 * 60 * 1000);
     const dateOfExpirationString = expiresAtDate.toISOString();
 
-    const descriptionText = type === 'tickets' ? `${credits} Tickets InstaBoost` : `${credits} Créditos InstaBoost`;
+    let descriptionText = '';
+    if (type === 'tickets') descriptionText = `${credits} Tickets InstaBoost`;
+    else if (type === 'plan') descriptionText = `Plano ${String(credits).toUpperCase()} (30 dias)`;
+    else descriptionText = `${credits} Créditos InstaBoost`;
 
     const paymentResponse = await mpPayment.create({
       body: {
@@ -754,9 +890,11 @@ apiRouter.post('/payments/pix', authMiddleware, async (req: any, res) => {
     const pixCode = paymentResponse.point_of_interaction?.transaction_data?.qr_code;
     
     if (type === 'tickets') {
-      db.prepare('INSERT INTO payments (id, user_id, amount, credits, tickets) VALUES (?, ?, ?, 0, ?)').run(paymentId, req.userId, amount, credits);
+      db.prepare("INSERT INTO payments (id, user_id, amount, credits, tickets, item_type) VALUES (?, ?, ?, 0, ?, 'tickets')").run(paymentId, req.userId, amount, credits);
+    } else if (type === 'plan') {
+      db.prepare("INSERT INTO payments (id, user_id, amount, credits, tickets, item_type, plan_id) VALUES (?, ?, ?, 0, 0, 'plan', ?)").run(paymentId, req.userId, amount, credits);
     } else {
-      db.prepare('INSERT INTO payments (id, user_id, amount, credits, tickets) VALUES (?, ?, ?, ?, 0)').run(paymentId, req.userId, amount, credits);
+      db.prepare("INSERT INTO payments (id, user_id, amount, credits, tickets, item_type) VALUES (?, ?, ?, ?, 0, 'credits')").run(paymentId, req.userId, amount, credits);
     }
 
     res.json({ 
@@ -807,17 +945,45 @@ apiRouter.post('/webhook/mercadopago', async (req, res) => {
       if (payment) {
         const tx = db.transaction(() => {
           db.prepare("UPDATE payments SET status = 'approved' WHERE id = ?").run(paymentId.toString());
-          if (payment.tickets > 0) {
+          const buyer = db.prepare('SELECT username FROM users WHERE id = ?').get(payment.user_id) as any;
+          if (payment.item_type === 'plan' || payment.plan_id) {
+             const planId = payment.plan_id;
+             const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+             
+             let bonus = 0;
+             if (planId === 'pro') bonus = 500;
+             else if (planId === 'premium') bonus = 1500;
+             else if (planId === 'ultra') bonus = 4000;
+
+             db.prepare('UPDATE users SET plan_type = ?, plan_expires_at = ?, credits = credits + ? WHERE id = ?').run(planId, expiresAt, bonus, payment.user_id);
+             createNotification(payment.user_id, 'Plano Ativado!', `Seu Plano ${planId.toUpperCase()} foi ativado com sucesso.`, 'profile');
+             
+             // Notify admins
+             const admins = db.prepare("SELECT id FROM users WHERE role = 'admin'").all() as any[];
+             for (const a of admins) {
+                  createNotification(a.id, 'Nova Venda', `Usuário @${buyer?.username || 'desconhecido'} comprou o Plano ${planId.toUpperCase()}`, 'admin_store');
+             }
+          } else if (payment.item_type === 'tickets' || payment.tickets > 0) {
              db.prepare('UPDATE users SET tickets = tickets + ? WHERE id = ?').run(payment.tickets, payment.user_id);
+             createNotification(payment.user_id, 'Compra Aprovada!', `Seus ${payment.tickets} tickets foram adicionados na conta.`, 'store');
           } else {
              db.prepare('UPDATE users SET credits = credits + ? WHERE id = ?').run(payment.credits, payment.user_id);
+             createNotification(payment.user_id, 'Compra Aprovada!', `Suas ${payment.credits} moedas foram adicionadas na conta.`, 'store');
              
              // Comissão para o referenciador (10% das moedas compradas)
              const userForComm = db.prepare('SELECT referred_by FROM users WHERE id = ?').get(payment.user_id) as any;
              if (userForComm && userForComm.referred_by) {
-                const comm = Math.floor(payment.credits * 0.1);
+                let commissionRate = 0.1;
+                const referrer = db.prepare('SELECT plan_type FROM users WHERE id = ?').get(userForComm.referred_by) as any;
+                if (referrer) {
+                   if (referrer.plan_type === 'pro') commissionRate = 0.2;
+                   else if (referrer.plan_type === 'premium') commissionRate = 0.3;
+                   else if (referrer.plan_type === 'ultra') commissionRate = 0.5;
+                }
+                const comm = Math.floor(payment.credits * commissionRate);
                 db.prepare('UPDATE users SET credits = credits + ? WHERE id = ?').run(comm, userForComm.referred_by);
                 db.prepare('INSERT INTO commissions (referrer_id, referred_id, amount, action_type) VALUES (?, ?, ?, ?)').run(userForComm.referred_by, payment.user_id, comm, 'purchase');
+                createNotification(userForComm.referred_by, 'Comissão Recebida!', `Você ganhou ${comm} moedas de comissão.`, 'profile');
              }
           }
         });
@@ -948,6 +1114,8 @@ apiRouter.post('/rewards/daily/claim', authMiddleware, (req: any, res) => {
         db.prepare('INSERT INTO daily_claims (user_id, claim_date, device_hash) VALUES (?, ?, ?)').run(req.userId, todayStr, deviceHash);
         db.prepare('INSERT INTO device_daily_claims (device_hash, claim_date, user_id) VALUES (?, ?, ?)').run(deviceHash, todayStr, req.userId);
 
+        createNotification(req.userId, 'Recompensa Diária', `Você resgatou ${todayReward.coins} moedas e ${todayReward.tickets} tickets hoje!`, 'mission');
+
         return todayReward;
     });
 
@@ -1050,6 +1218,10 @@ apiRouter.post('/missions/progress', authMiddleware, (req: any, res) => {
     if (currentProgress < goal) {
         db.prepare('UPDATE missions_progress SET progress = MIN(progress + ?, ?), updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND mission_type = ?')
           .run(amount, goal, req.userId, type);
+          
+        if (currentProgress + amount >= goal) {
+             createNotification(req.userId, 'Missão Completada', 'Você completou uma missão! Resgate suas recompensas.', 'mission');
+        }
     }
 
     res.json({ success: true, newProgress: Math.min(currentProgress + amount, goal) });
@@ -1063,11 +1235,20 @@ apiRouter.post('/missions/claim', authMiddleware, (req: any, res) => {
         const row = db.prepare('SELECT level, progress FROM missions_progress WHERE user_id = ? AND mission_type = ?').get(req.userId, type) as any;
         if (!row) throw new Error('NOT_FOUND');
 
+        const userRecord = db.prepare('SELECT plan_type FROM users WHERE id = ?').get(req.userId) as any;
+        const planType = userRecord?.plan_type || 'basic';
+
         const config = MISSION_CONFIG[type as keyof typeof MISSION_CONFIG];
         const realLevel = Math.min(row.level, 5);
         const goal = config.goals[realLevel - 1];
-        const reward = config.rewards[realLevel - 1];
-        const tickets = config.tickets ? config.tickets[realLevel - 1] : 0;
+        let reward = config.rewards[realLevel - 1];
+        let tickets = config.tickets ? config.tickets[realLevel - 1] : 0;
+        
+        if (planType === 'pro' || planType === 'premium') {
+            reward *= 2;
+        } else if (planType === 'ultra') {
+            reward *= 2.5; // Dobro + 50% extra
+        }
 
         if (row.progress < goal) throw new Error('NOT_COMPLETED');
 

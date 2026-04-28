@@ -1,34 +1,23 @@
-import React from 'react';
-import { NavLink, Outlet } from 'react-router';
-import { Home, PlusSquare, Store, User, Sun, Moon, Volume2, VolumeX, ShieldAlert, Target } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { NavLink, Outlet, useNavigate } from 'react-router';
+import { Home, PlusSquare, Store, User, Sun, Moon, Volume2, VolumeX, ShieldAlert, Target, LifeBuoy, AlertTriangle, Bell, CheckCircle2 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { useAppSound } from '../context/SoundContext';
 import { useAuth } from '../context/AuthContext';
+import { UserSupportModal } from './UserSupportModal';
+import { NotificationsDropdown } from './NotificationsDropdown';
 
 export function Layout() {
   const { theme, toggleTheme } = useTheme();
   const { soundEnabled, toggleSound } = useAppSound();
   const { user } = useAuth();
+  const [supportOpen, setSupportOpen] = useState(false);
+  const navigate = useNavigate();
 
   const isAdmin = user?.role === 'admin';
 
-  const handleToggleSound = () => {
-    // If we're turning it ON, it's nice to hear exactly what sound just turned on
-    if (!soundEnabled) {
-       toggleSound();
-       // we can't reliably play the sound immediately here because toggleSound applies to react state which renders asynchronously
-       // but we will do our best.
-    } else {
-       toggleSound();
-    }
-  };
-
-  const handleToggleTheme = () => {
-    if (soundEnabled) {
-      // Not strictly necessary since we do it elsewhere, but sure, maybe a little feedback
-    }
-    toggleTheme();
-  };
+  const handleToggleSound = () => toggleSound();
+  const handleToggleTheme = () => toggleTheme();
 
   return (
     <div className="flex flex-col min-h-screen pb-20 md:pb-0 md:pl-20 bg-background text-foreground transition-colors duration-300">
@@ -38,7 +27,11 @@ export function Layout() {
         <h1 className="text-xl font-extrabold tracking-tight">
           InstaBoost <span className="text-primary">PRO</span>
         </h1>
-        <div className="flex gap-4">
+        <div className="flex gap-2 items-center">
+          <NotificationsDropdown />
+          <button onClick={() => setSupportOpen(true)} className="p-2 rounded-full hover:bg-secondary text-blue-500">
+             <LifeBuoy size={20} />
+          </button>
           <button onClick={handleToggleSound} className="p-2 rounded-full hover:bg-secondary">
             {soundEnabled ? <Volume2 size={20} /> : <VolumeX size={20} />}
           </button>
@@ -63,7 +56,11 @@ export function Layout() {
             {isAdmin && <NavItem to="/admin" icon={<ShieldAlert />} label="Admin" />}
           </nav>
         </div>
-        <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-6 items-center">
+          <NotificationsDropdown />
+          <button onClick={() => setSupportOpen(true)} className="p-3 rounded-xl hover:bg-secondary text-blue-500 hover:scale-110 transition-transform">
+             <LifeBuoy size={24} />
+          </button>
           <button onClick={handleToggleSound} className="p-3 rounded-xl hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors">
             {soundEnabled ? <Volume2 size={24} /> : <VolumeX size={24} />}
           </button>
@@ -74,7 +71,7 @@ export function Layout() {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 w-full max-w-lg mx-auto p-4 md:p-8">
+      <main className="flex-1 w-full max-w-6xl mx-auto p-4 md:p-8">
         <Outlet />
       </main>
 
@@ -87,6 +84,8 @@ export function Layout() {
         <NavItem to="/profile" icon={<User />} label="Perfil" />
         {isAdmin && <NavItem to="/admin" icon={<ShieldAlert />} label="Admin" />}
       </nav>
+
+      <UserSupportModal open={supportOpen} onClose={() => setSupportOpen(false)} />
     </div>
   );
 }

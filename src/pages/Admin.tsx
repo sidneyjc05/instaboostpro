@@ -1,171 +1,102 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Navigate } from 'react-router';
-import { Shield, Users, Activity, Lock, Unlock, ShieldAlert } from 'lucide-react';
-import { showNotification } from '../context/NotificationContext';
-import { Button } from '../components/ui/Button';
+import { AdminUsers } from '../components/admin/AdminUsers';
+import { AdminSupport } from '../components/admin/AdminSupport';
+import { AdminSettings } from '../components/admin/AdminSettings';
+import AdminStore from '../components/admin/AdminStore';
+import { motion, AnimatePresence } from 'motion/react';
+import { Shield, Users, Activity, Settings as SettingsIcon, MessageSquare, Store, Zap } from 'lucide-react';
+
+
 
 export default function Admin() {
-  const { user } = useAuth();
-  const [users, setUsers] = useState<any[]>([]);
-  const [logs, setLogs] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+    const { user } = useAuth();
+    const [stats, setStats] = useState<any>({});
+    const [users, setUsers] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [activeTab, setActiveTab] = useState('dashboard');
 
-  if (!user || user.role !== 'admin') {
-     return <Navigate to="/" />;
-  }
+    if (!user || user.role !== 'admin') return <Navigate to="/" />;
 
-  useEffect(() => {
-     fetchAdminData();
-  }, []);
+    const fetchAdminData = async () => {
+        try {
+            const [usersRes, statsRes] = await Promise.all([
+                fetch('/api/admin/users/all'),
+                fetch('/api/admin/stats')
+            ]);
+            if (usersRes.ok) setUsers(await usersRes.json());
+            if (statsRes.ok) setStats(await statsRes.json());
+        } catch(e) {}
+        setLoading(false);
+    };
 
-  const fetchAdminData = async () => {
-     setLoading(true);
-     try {
-       const [usersRes, logsRes] = await Promise.all([
-         fetch('/api/admin/users'),
-         fetch('/api/admin/logs')
-       ]);
-       if (usersRes.ok) setUsers(await usersRes.json());
-       if (logsRes.ok) setLogs(await logsRes.json());
-     } catch {
-       showNotification.error('Erro ao carregar dados do admin');
-     }
-     setLoading(false);
-  };
+    useEffect(() => {
+        fetchAdminData();
+    }, []);
 
-  const handleBlockUser = async (userId: number, currentStatus: number) => {
-     try {
-        const res = await fetch(`/api/admin/users/${userId}/block`, {
-           method: 'POST',
-           headers: { 'Content-Type': 'application/json' },
-           body: JSON.stringify({ blocked: !currentStatus })
-        });
-        if (res.ok) {
-           showNotification.success(currentStatus ? 'Usuário desbloqueado' : 'Usuário bloqueado');
-           fetchAdminData();
-        }
-     } catch {
-        showNotification.error('Erro ao conectar ao servidor');
-     }
-  };
+    const tabs = [
+        { id: 'dashboard', label: 'Dashboard', icon: Activity },
+        { id: 'users', label: 'Usuários', icon: Users },
+        { id: 'store', label: 'Loja PRO', icon: Zap },
+        { id: 'support', label: 'Suporte', icon: MessageSquare },
+        { id: 'settings', label: 'Config. & Backup', icon: SettingsIcon },
+    ];
 
-  const handlePromoteRole = async (userId: number, currentRole: string) => {
-     const newRole = currentRole === 'admin' ? 'user' : 'admin';
-     try {
-        const res = await fetch(`/api/admin/users/${userId}/role`, {
-           method: 'POST',
-           headers: { 'Content-Type': 'application/json' },
-           body: JSON.stringify({ role: newRole })
-        });
-        if (res.ok) {
-           showNotification.success(`Usuário atualizado para ${newRole}`);
-           fetchAdminData();
-        }
-     } catch {
-        showNotification.error('Erro ao conectar ao servidor');
-     }
-  };
+    if (loading) return <div className="p-8 text-center animate-pulse">Carregando painel...</div>;
 
-  if (loading) {
-     return <div className="p-8 text-center animate-pulse text-muted-foreground">Carregando painel de administração...</div>;
-  }
+    return (
+        <div className="flex flex-col gap-6 pb-20 max-w-7xl mx-auto w-full">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border pb-6">
+                <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 bg-red-500/10 text-red-500 rounded-xl flex items-center justify-center">
+                        <Shield size={24} />
+                    </div>
+                    <div>
+                        <h1 className="text-2xl font-black text-red-500 flex items-center gap-2">Admin PRO</h1>
+                        <p className="text-sm text-muted-foreground">Sistema de Gerenciamento Avançado</p>
+                    </div>
+                </div>
 
-  return (
-    <div className="flex flex-col gap-8 pb-20">
-      <div className="flex items-center gap-3 border-b border-border pb-4">
-         <div className="w-12 h-12 bg-red-500/10 text-red-500 rounded-xl flex items-center justify-center">
-            <Shield size={24} />
-         </div>
-         <div>
-            <h1 className="text-2xl font-bold text-red-500">Admin Dashboard</h1>
-            <p className="text-sm text-muted-foreground">Gerenciamento de Segurança Avançado</p>
-         </div>
-      </div>
+                <div className="flex gap-2 overflow-x-auto custom-scrollbar pb-2">
+                    {tabs.map(t => {
+                        const Icon = t.icon;
+                        return (
+                            <button key={t.id} onClick={() => setActiveTab(t.id)} className={`flex items-center gap-2 px-4 py-2 rounded-xl whitespace-nowrap transition-colors ${activeTab === t.id ? 'bg-red-500/20 text-red-500 font-bold border border-red-500/30' : 'bg-secondary text-muted-foreground hover:bg-secondary/80 border border-transparent'}`}>
+                                <Icon size={16} /> {t.label}
+                            </button>
+                        );
+                    })}
+                </div>
+            </div>
 
-      <div className="bg-card w-full border border-border rounded-3xl p-6 overflow-x-auto">
-         <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-            <Users className="text-primary" /> Gestão de Usuários
-         </h2>
-         <table className="w-full text-left text-sm whitespace-nowrap">
-            <thead className="bg-secondary/30">
-               <tr>
-                  <th className="p-3 rounded-tl-xl">ID</th>
-                  <th className="p-3">Usuário</th>
-                  <th className="p-3">Email</th>
-                  <th className="p-3">Cargo</th>
-                  <th className="p-3">Moedas</th>
-                  <th className="p-3">Autenticado</th>
-                  <th className="p-3 text-right rounded-tr-xl">Ações</th>
-               </tr>
-            </thead>
-            <tbody>
-               {users.map(u => (
-                  <tr key={u.id} className="border-b border-border/50 last:border-0 hover:bg-secondary/10">
-                     <td className="p-3 text-muted-foreground">#{u.id}</td>
-                     <td className="p-3 font-medium">@{u.username}</td>
-                     <td className="p-3 text-muted-foreground">{u.email || '-'}</td>
-                     <td className="p-3">
-                        <span className={`px-2 py-1 text-xs rounded-md ${u.role === 'admin' ? 'bg-red-500/20 text-red-500' : 'bg-secondary/50'}`}>
-                           {u.role}
-                        </span>
-                     </td>
-                     <td className="p-3 font-mono">{u.credits}</td>
-                     <td className="p-3">
-                        <span className={`px-2 py-1 text-xs rounded-md ${!u.is_blocked ? 'bg-green-500/20 text-green-500' : 'bg-red-500/20 text-red-500'}`}>
-                           {!u.is_blocked ? 'Liberado' : 'Bloqueado'}
-                        </span>
-                     </td>
-                     <td className="p-3 flex justify-end gap-2">
-                        <Button 
-                           variant="outline" 
-                           size="sm" 
-                           onClick={() => handlePromoteRole(u.id, u.role)}
-                           className="h-8 text-xs"
-                        >
-                           <ShieldAlert size={14} className="mr-1" /> {u.role === 'admin' ? 'Remover Admin' : 'Admin'}
-                        </Button>
-                        <Button 
-                           variant={u.is_blocked ? "primary" : "destructive"} 
-                           size="sm" 
-                           onClick={() => handleBlockUser(u.id, u.is_blocked)}
-                           className="h-8 text-xs"
-                        >
-                           {u.is_blocked ? <><Unlock size={14} className="mr-1"/> Desbloquear</> : <><Lock size={14} className="mr-1"/> Bloquear</>}
-                        </Button>
-                     </td>
-                  </tr>
-               ))}
-            </tbody>
-         </table>
-      </div>
+            <div className="mt-4">
+                {activeTab === 'dashboard' && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div className="bg-card border border-border p-6 rounded-3xl">
+                            <p className="text-sm text-muted-foreground">Total de Usuários</p>
+                            <h3 className="text-3xl font-black mt-1">{stats.totalUsers || 0}</h3>
+                        </div>
+                        <div className="bg-card border border-border p-6 rounded-3xl">
+                            <p className="text-sm text-muted-foreground">Moedas Distribuídas</p>
+                            <h3 className="text-3xl font-black mt-1 text-primary">{Math.floor(stats.totalCoins || 0).toLocaleString()} <span className="text-sm">🪙</span></h3>
+                        </div>
+                        <div className="bg-card border border-border p-6 rounded-3xl">
+                            <p className="text-sm text-muted-foreground">Planos Ativos</p>
+                            <h3 className="text-3xl font-black mt-1 text-green-500">{stats.activePlans || 0}</h3>
+                        </div>
+                        <div className="bg-card border border-border p-6 rounded-3xl">
+                            <p className="text-sm text-muted-foreground">Receita PIX (Aprovada)</p>
+                            <h3 className="text-3xl font-black mt-1 text-blue-500">R$ {(stats.totalPixValue || 0).toFixed(2)}</h3>
+                        </div>
+                    </div>
+                )}
 
-      <div className="bg-card w-full border border-border rounded-3xl p-6 overflow-x-auto">
-         <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-            <Activity className="text-blue-500" /> Logs de Acesso Recentes
-         </h2>
-         <table className="w-full text-left text-sm whitespace-nowrap">
-            <thead className="bg-secondary/30">
-               <tr>
-                  <th className="p-3 rounded-tl-xl">Data / Hora</th>
-                  <th className="p-3">Usuário</th>
-                  <th className="p-3">Endereço IP</th>
-                  <th className="p-3 rounded-tr-xl">Dispositivo / Agente</th>
-               </tr>
-            </thead>
-            <tbody>
-               {logs.map(l => (
-                  <tr key={l.id} className="border-b border-border/50 last:border-0 hover:bg-secondary/10">
-                     <td className="p-3 text-muted-foreground font-mono">{new Date(l.created_at).toLocaleString()}</td>
-                     <td className="p-3 font-medium">@{l.username}</td>
-                     <td className="p-3 font-mono text-xs">{l.ip}</td>
-                     <td className="p-3 text-xs text-muted-foreground max-w-xs truncate" title={l.device}>{l.device}</td>
-                  </tr>
-               ))}
-            </tbody>
-         </table>
-      </div>
-
-    </div>
-  );
+                {activeTab === 'users' && <AdminUsers users={users} refresh={fetchAdminData} />}
+                {activeTab === 'store' && <AdminStore />}
+                {activeTab === 'support' && <AdminSupport />}
+                {activeTab === 'settings' && <AdminSettings />}
+            </div>
+        </div>
+    );
 }

@@ -4,10 +4,11 @@ import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { OTPInput } from '../components/ui/OTPInput';
 import { showNotification } from '../context/NotificationContext';
-import { LogOut, Rocket, Clock, History, AlertTriangle, RefreshCw, Eye, QrCode, Copy, X, Users, Share2, Award, ChevronDown, ChevronUp } from 'lucide-react';
+import { LogOut, Rocket, Clock, History, AlertTriangle, RefreshCw, Eye, QrCode, Copy, X, Users, Share2, Award, ChevronDown, ChevronUp, CheckCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate } from 'react-router';
 import { useAppSound } from '../context/SoundContext';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 export default function Profile() {
   const { user, logout, refreshUser } = useAuth();
@@ -19,6 +20,7 @@ export default function Profile() {
   const [reboostLoading, setReboostLoading] = useState<number | null>(null);
   const [checkingPayment, setCheckingPayment] = useState<string | null>(null);
   const [activeQrModal, setActiveQrModal] = useState<any>(null); // { qrCode, pixCode, etc }
+  const [activePlanModal, setActivePlanModal] = useState<string | null>(null);
   const navigate = useNavigate();
 
   const [emailInput, setEmailInput] = useState('');
@@ -31,6 +33,9 @@ export default function Profile() {
   const [showCommissions, setShowCommissions] = useState(false);
   const [referralInput, setReferralInput] = useState('');
   const [claimLoading, setClaimLoading] = useState(false);
+
+  // Lock scroll if any modal is open
+  useBodyScrollLock(!!(activeQrModal || activePlanModal || showEmailVerify || showPasswordChange));
 
   const handleClaimReferral = async () => {
     if (!referralInput) return showNotification.error('Digite um código');
@@ -293,8 +298,101 @@ export default function Profile() {
   if (!user) return null;
 
   return (
-    <div className="flex flex-col gap-8 pb-20">
+    <div className="flex flex-col gap-8 pb-20 max-w-3xl mx-auto w-full">
       
+      <AnimatePresence>
+         {activePlanModal && (
+            <motion.div 
+               initial={{ opacity: 0 }} 
+               animate={{ opacity: 1 }} 
+               exit={{ opacity: 0 }}
+               className="fixed inset-0 z-[60] bg-background/80 backdrop-blur-md flex items-center justify-center p-4"
+               onClick={() => setActivePlanModal(null)}
+            >
+               <motion.div 
+                  initial={{ scale: 0.9, y: 20 }}
+                  animate={{ scale: 1, y: 0 }}
+                  exit={{ scale: 0.9, y: 20 }}
+                  className={`bg-card w-full max-w-sm border shadow-2xl rounded-3xl p-6 flex flex-col gap-4 relative ${
+                     activePlanModal === 'pro' ? 'border-green-500/50 shadow-green-500/10' :
+                     activePlanModal === 'premium' ? 'border-purple-500/50 shadow-purple-500/10' :
+                     'border-yellow-500/50 shadow-yellow-500/10'
+                  }`}
+                  onClick={(e) => e.stopPropagation()}
+               >
+                  <button onClick={() => { playClick(); setActivePlanModal(null); }} className="absolute top-4 right-4 p-2 bg-secondary rounded-full hover:bg-secondary/80">
+                    <X size={20} />
+                  </button>
+
+                  <div className="text-center">
+                    <h3 className={`text-2xl font-black uppercase ${
+                       activePlanModal === 'pro' ? 'text-green-500' :
+                       activePlanModal === 'premium' ? 'text-purple-500' :
+                       'text-yellow-500'
+                    }`}>
+                       Plano {activePlanModal}
+                    </h3>
+                    <p className="text-sm text-muted-foreground mt-1">Conheça todos os benefícios deste plano.</p>
+                  </div>
+
+                  <div className="flex-1 flex flex-col gap-3 mt-2 overflow-y-auto max-h-[50vh] pr-2 custom-scrollbar">
+                     {(activePlanModal === 'pro' ? [
+                        'Dobro de moedas em todas as missões',
+                        '+20% chances na roleta',
+                        '10 publicações por dia',
+                        'Prioridade no Feed Geral',
+                        'Análise de desempenho básica',
+                        '+500 moedas de bônus mensal',
+                        '+10% de comissão extra'
+                     ] : activePlanModal === 'premium' ? [
+                        'Dobro de moedas nas missões',
+                        '+40% chances na roleta',
+                        '15 publicações por dia (24h limite)',
+                        '+4 tickets de roleta diários',
+                        'Stories com duração +24h',
+                        'Análise de desempenho avançada',
+                        'Redução de cooldown em missões',
+                        'Remoção de anúncios / Ultra clean',
+                        '+1.500 moedas de bônus mensal',
+                        '+20% de comissão extra'
+                     ] : [
+                        'Dobro + 50% extra de moedas',
+                        '+80% chances na roleta',
+                        '30 publicações por dia (48h limite)',
+                        '+8 tickets de roleta diários',
+                        'Stories com duração +48h',
+                        'Suporte VIP 24h',
+                        'Maior prioridade no Feed Geral',
+                        'Acesso Beta a novos recursos',
+                        'Remoção de anúncios / Ultra clean',
+                        '+4.000 moedas de bônus mensal',
+                        '+40% de comissão extra'
+                     ]).map((b, i) => (
+                        <div key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
+                           <CheckCircle className={`shrink-0 mt-0.5 ${
+                               activePlanModal === 'pro' ? 'text-green-500' :
+                               activePlanModal === 'premium' ? 'text-purple-500' :
+                               'text-yellow-500'
+                           }`} size={16} />
+                           <span className="leading-tight">{b}</span>
+                        </div>
+                     ))}
+                  </div>
+
+                  <Button 
+                     className="w-full mt-2" 
+                     onClick={() => {
+                        playClick();
+                        navigate(`/store?tab=plans`);
+                     }}
+                  >
+                     Assinar Plano
+                  </Button>
+               </motion.div>
+            </motion.div>
+         )}
+      </AnimatePresence>
+
       <AnimatePresence>
          {activeQrModal && (
             <motion.div 
@@ -346,15 +444,70 @@ export default function Profile() {
          )}
       </AnimatePresence>
 
+      {/* Profile Header */}
       <div className="flex flex-col items-center text-center">
-        <div className="w-24 h-24 rounded-full bg-gradient-to-tr from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold text-3xl shadow-lg mb-4">
+        <div className={`w-24 h-24 rounded-full flex items-center justify-center text-white font-bold text-3xl shadow-lg mb-4 ring-4 ${user.plan_type === 'ultra' ? 'bg-gradient-to-tr from-yellow-500 to-orange-600 ring-yellow-500/50 shadow-yellow-500/50' : user.plan_type === 'premium' ? 'bg-gradient-to-tr from-purple-500 to-pink-500 ring-purple-500/50 shadow-purple-500/50' : user.plan_type === 'pro' ? 'bg-gradient-to-tr from-green-500 to-teal-500 ring-green-500/50 shadow-green-500/50' : 'bg-gradient-to-tr from-gray-700 to-gray-500 ring-border'}`}>
           {user.username.substring(0, 2).toUpperCase()}
         </div>
-        <h2 className="text-2xl font-bold">@{user.username}</h2>
+        <h2 className="text-2xl font-bold flex items-center gap-2">
+           @{user.username}
+           {user.plan_type === 'ultra' && <span className="text-yellow-500" title="Plano Ultra">💎</span>}
+           {user.plan_type === 'premium' && <span className="text-purple-500" title="Plano Premium">✨</span>}
+           {user.plan_type === 'pro' && <span className="text-green-500" title="Plano Pro">⚡</span>}
+        </h2>
+        
+        {user.plan_type !== 'basic' && user.plan_expires_at && (
+           <div className="text-xs text-muted-foreground mt-1">
+              Plano {user.plan_type.toUpperCase()} ativo até {new Date(user.plan_expires_at).toLocaleDateString('pt-BR')}
+           </div>
+        )}
+
         <div className="mt-4 px-4 py-2 bg-yellow-500/15 border border-yellow-500/30 text-yellow-500 rounded-full font-semibold flex items-center gap-2">
-          <span>💎</span>
+          <span>💰</span>
           <span>{Number((user.credits || 0).toFixed(1))} Moedas</span>
         </div>
+      </div>
+
+      {/* Planos Disponiveis Section */}
+      <div className="bg-card border border-border rounded-3xl p-5 md:p-6 flex flex-col gap-4">
+          <div className="border-b border-border pb-3 flex items-center justify-between">
+             <h3 className="font-bold flex items-center gap-2 text-primary">
+                💎 Planos de Assinatura
+             </h3>
+          </div>
+          
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+             <div className="bg-secondary/50 border border-border rounded-2xl p-4 flex flex-col items-center justify-center text-center gap-2">
+                <span className="font-bold uppercase text-muted-foreground text-xs">Básico</span>
+                <span className="font-bold text-foreground">Gratuito</span>
+                {user.plan_type === 'basic' ? (
+                   <span className="text-[10px] text-green-500 font-bold bg-green-500/10 px-2 py-1 rounded-full mt-1">ATIVO</span>
+                ) : null}
+             </div>
+             
+             <div onClick={() => { playClick(); setActivePlanModal('pro'); }} className="cursor-pointer hover:ring-2 ring-green-500/50 transition-all bg-gradient-to-br from-green-500/10 to-green-900/10 border border-green-500/30 rounded-2xl p-4 flex flex-col items-center justify-center text-center gap-2">
+                <span className="font-bold uppercase text-green-500 text-xs">Pro</span>
+                <span className="font-bold text-foreground">R$ 50</span>
+                {user.plan_type === 'pro' ? <span className="text-[10px] text-green-500 font-bold bg-green-500/10 px-2 py-1 rounded-full mt-1">ATIVO</span> : null}
+             </div>
+             
+             <div onClick={() => { playClick(); setActivePlanModal('premium'); }} className="cursor-pointer hover:ring-2 ring-purple-500/50 transition-all bg-gradient-to-br from-purple-500/10 to-purple-900/10 border border-purple-500/30 rounded-2xl p-4 flex flex-col items-center justify-center text-center gap-2">
+                <span className="font-bold uppercase text-purple-500 text-xs">Premium</span>
+                <span className="font-bold text-foreground">R$ 100</span>
+                {user.plan_type === 'premium' ? <span className="text-[10px] text-purple-500 font-bold bg-purple-500/10 px-2 py-1 rounded-full mt-1">ATIVO</span> : null}
+             </div>
+
+             <div onClick={() => { playClick(); setActivePlanModal('ultra'); }} className="cursor-pointer hover:ring-2 ring-yellow-500/50 transition-all bg-gradient-to-br from-yellow-400/10 to-orange-600/10 border border-yellow-500/30 rounded-2xl p-4 flex flex-col items-center justify-center text-center gap-2 relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-8 h-8 bg-yellow-500/20 rotate-45 transform translate-x-2 -translate-y-2" />
+                <span className="font-bold uppercase text-yellow-500 text-xs">Ultra</span>
+                <span className="font-bold text-foreground">R$ 150</span>
+                {user.plan_type === 'ultra' ? <span className="text-[10px] text-yellow-500 font-bold bg-yellow-500/10 px-2 py-1 rounded-full mt-1">ATIVO</span> : null}
+             </div>
+          </div>
+          
+          <Button variant="outline" className="w-full mt-2" onClick={() => { playClick(); navigate('/store?tab=plans'); }}>
+             Ver Benefícios e Comparar Planos
+          </Button>
       </div>
 
       {/* Indique e Ganhe Section */}

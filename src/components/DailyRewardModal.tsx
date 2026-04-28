@@ -6,6 +6,7 @@ import { showNotification } from '../context/NotificationContext';
 import { useAuth } from '../context/AuthContext';
 import { useAppSound } from '../context/SoundContext';
 import confetti from 'canvas-confetti';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 interface DailyRewardModalProps {
   open: boolean;
@@ -18,6 +19,8 @@ export function DailyRewardModal({ open, onClose }: DailyRewardModalProps) {
   const [loading, setLoading] = useState(true);
   const [claiming, setClaiming] = useState(false);
   const [data, setData] = useState<any>(null);
+
+  useBodyScrollLock(open);
 
   useEffect(() => {
     if (open) {

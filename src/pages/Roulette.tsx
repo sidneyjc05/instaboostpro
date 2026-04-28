@@ -146,7 +146,7 @@ export default function Roulette() {
   };
 
   return (
-    <div className="flex flex-col gap-6 pb-10">
+    <div className="flex flex-col gap-6 pb-20 max-w-2xl mx-auto w-full">
       <div>
         <h2 className="text-2xl font-bold flex items-center gap-2">
           <Target className="text-primary" /> Roleta da Sorte

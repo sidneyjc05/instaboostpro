@@ -53,7 +53,7 @@ export default function Create() {
   };
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-6 max-w-xl mx-auto w-full pb-20">
       <div>
         <h2 className="text-2xl font-bold flex items-center gap-2">
           <Rocket className="text-primary" /> Impulsionar

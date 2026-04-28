@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Heart, UserPlus, Play, CheckCircle2 } from 'lucide-react';
 import { Button } from './ui/Button';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 interface InstaViewerProps {
   open: boolean;
@@ -19,6 +20,8 @@ export function InstaViewerModal({ open, onClose, url, type, username, onInterac
   const [watchedSecs, setWatchedSecs] = useState(0);
   const [completed, setCompleted] = useState(false);
   const REQUIRED_SECS = 12;
+
+  useBodyScrollLock(open);
 
   useEffect(() => {
     if (!open) {

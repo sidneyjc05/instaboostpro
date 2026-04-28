@@ -64,17 +64,28 @@ const hasReferredBy = userCols.some(c => c.name === 'referred_by');
 
 const paymentCols = db.prepare('PRAGMA table_info(payments)').all() as any[];
 const hasPaymentTickets = paymentCols.some(c => c.name === 'tickets');
+const hasPaymentItemType = paymentCols.some(c => c.name === 'item_type');
+const hasPaymentPlanId = paymentCols.some(c => c.name === 'plan_id');
 
 if (!hasLastActiveAt) db.exec('ALTER TABLE users ADD COLUMN last_active_at DATETIME DEFAULT CURRENT_TIMESTAMP;');
 if (!hasEmail) db.exec('ALTER TABLE users ADD COLUMN email TEXT;');
-if (!hasRole) db.exec('ALTER TABLE users ADD COLUMN role TEXT DEFAULT "user";');
+if (!hasRole) db.exec(`ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user';`);
 if (!hasIsVerified) db.exec('ALTER TABLE users ADD COLUMN is_verified INTEGER DEFAULT 0;');
 if (!hasIsBlocked) db.exec('ALTER TABLE users ADD COLUMN is_blocked INTEGER DEFAULT 0;');
+const hasIsBanned = userCols.some(c => c.name === 'is_banned');
+const hasSuspensionEnd = userCols.some(c => c.name === 'suspension_end');
+if (!hasIsBanned) db.exec('ALTER TABLE users ADD COLUMN is_banned INTEGER DEFAULT 0;');
+if (!hasSuspensionEnd) db.exec('ALTER TABLE users ADD COLUMN suspension_end DATETIME;');
 if (!hasTickets) db.exec('ALTER TABLE users ADD COLUMN tickets INTEGER DEFAULT 0;');
 if (!hasSessionVersion) db.exec('ALTER TABLE users ADD COLUMN session_version INTEGER DEFAULT 1;');
 if (!hasDeviceChangeCount) db.exec('ALTER TABLE users ADD COLUMN device_change_count INTEGER DEFAULT 0;');
 if (!hasActiveDeviceHash) db.exec('ALTER TABLE users ADD COLUMN active_device_hash TEXT;');
 if (!hasReferredBy) db.exec('ALTER TABLE users ADD COLUMN referred_by INTEGER;');
+
+const hasPlanType = userCols.some(c => c.name === 'plan_type');
+const hasPlanExpiresAt = userCols.some(c => c.name === 'plan_expires_at');
+if (!hasPlanType) db.exec(`ALTER TABLE users ADD COLUMN plan_type TEXT DEFAULT 'basic';`);
+if (!hasPlanExpiresAt) db.exec('ALTER TABLE users ADD COLUMN plan_expires_at DATETIME;');
 
 if (!hasReferralCode) {
    db.exec('ALTER TABLE users ADD COLUMN referral_code TEXT;');
@@ -91,6 +102,8 @@ if (!hasReferralCode) {
 }
 
 if (!hasPaymentTickets) db.exec('ALTER TABLE payments ADD COLUMN tickets INTEGER DEFAULT 0;');
+if (!hasPaymentItemType) db.exec(`ALTER TABLE payments ADD COLUMN item_type TEXT DEFAULT 'credits';`);
+if (!hasPaymentPlanId) db.exec('ALTER TABLE payments ADD COLUMN plan_id TEXT;');
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS login_logs (
@@ -135,6 +148,51 @@ db.exec(`
     user_id INTEGER NOT NULL,
     device_hash TEXT NOT NULL,
     claimed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS audit_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    admin_id INTEGER,
+    target_user_id INTEGER,
+    action TEXT NOT NULL,
+    details TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS support_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    description TEXT,
+    status TEXT DEFAULT 'pending',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS support_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    request_id INTEGER NOT NULL,
+    sender_id INTEGER NOT NULL,
+    message TEXT,
+    image_url TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    read_at DATETIME,
+    FOREIGN KEY(request_id) REFERENCES support_requests(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+    type TEXT,
+    is_read INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
   );
 `);
@@ -201,3 +259,15 @@ setTimeout(() => {
 }, 5000);
 
 console.log('Database initialized successfully.');
+
+export function createNotification(userId: number, title: string, message: string, type: string) {
+    try {
+        db.prepare(`
+            INSERT INTO notifications (user_id, title, message, type)
+            VALUES (?, ?, ?, ?)
+        `).run(userId, title, message, type);
+    } catch (e) {
+        console.error('Error creating notification:', e);
+    }
+}
+

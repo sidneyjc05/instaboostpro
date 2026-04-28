@@ -134,5 +134,10 @@
                 radial-gradient(circle at 80% 70%, #c4b5fd 0%, transparent 40%),
                 radial-gradient(circle at 50% 50%, #ffffff 0%, #f8fafc 100%);
   }
+
+  @keyframes wiggle {
+    0%, 100% { transform: rotate(-3deg); }
+    50% { transform: rotate(3deg); }
+  }
 }
 
