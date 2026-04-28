@@ -42,7 +42,7 @@ export function Layout() {
       </header>
 
       {/* Desktop Sidebar */}
-      <aside className="hidden md:flex flex-col items-center justify-between fixed left-0 top-0 h-screen w-20 bg-card border-r border-border py-8 z-20">
+      <aside className="hidden md:flex flex-col items-center justify-between fixed left-0 top-0 h-[100dvh] w-20 bg-card border-r border-border py-4 z-20 overflow-y-auto hidden-scrollbar">
         <div className="flex flex-col items-center gap-8">
           <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-white font-bold shadow-[0_0_15px_rgba(139,92,246,0.4)]">
             IB

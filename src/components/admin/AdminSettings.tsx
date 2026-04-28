@@ -98,6 +98,9 @@ export function AdminSettings() {
             });
             const data = await res.json();
             
+            // Add a visual delay to let the progress bar be seen
+            await new Promise(r => setTimeout(r, 2000));
+
             if (res.ok) {
                 // Simulate progressive reveal for UX
                 setCleanTotal(data.total_deleted);
@@ -115,7 +118,7 @@ export function AdminSettings() {
                             showNotification.success('O sistema já está limpo e otimizado!');
                         }
                     }
-                }, 500); // Wait 500ms between showing logs
+                }, 800); // 800ms between showing logs
             } else {
                 setCleaning(false);
                 showNotification.error(data.error || 'Erro ao executar a limpeza');
@@ -162,12 +165,18 @@ export function AdminSettings() {
                     <div className="mt-6 p-4 bg-black/40 rounded-2xl font-mono text-xs border border-border">
                         {cleaning && (
                             <div className="mb-4">
+                                <style>{`
+                                    @keyframes scanline {
+                                        0% { transform: translateX(-100%); }
+                                        100% { transform: translateX(250%); }
+                                    }
+                                `}</style>
                                 <div className="flex justify-between items-center mb-1">
                                     <span className="text-green-500 font-bold">Progresso da Varredura</span>
-                                    <span className="text-green-500 font-bold animate-pulse">Analizando...</span>
+                                    <span className="text-green-500 font-bold animate-pulse">Analisando...</span>
                                 </div>
                                 <div className="w-full bg-secondary rounded-full h-2 relative overflow-hidden">
-                                    <div className="absolute top-0 bottom-0 h-full bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.6)] rounded-full w-1/3 animate-pulse duration-1000"></div>
+                                    <div className="absolute top-0 bottom-0 h-full w-1/2 bg-green-500 shadow-[0_0_15px_rgba(34,197,94,1)] rounded-full" style={{ animation: 'scanline 1.5s linear infinite' }}></div>
                                 </div>
                             </div>
                         )}
