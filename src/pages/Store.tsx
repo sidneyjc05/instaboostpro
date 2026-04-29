@@ -258,8 +258,33 @@ export default function Store() {
           return p;
       });
 
+      const applyPromoOnly = (originalAmount: number) => {
+         let amt = originalAmount;
+         if (storeConfig.promo && storeConfig.promo.active) {
+            const now = new Date().getTime();
+            const ex = storeConfig.promo.expiresAt ? new Date(storeConfig.promo.expiresAt).getTime() : Infinity;
+            if (now < ex) {
+                if (storeConfig.promo.type === 'percent') {
+                   amt = amt - (amt * (storeConfig.promo.value / 100));
+                } else if (storeConfig.promo.type === 'fixed') {
+                   amt = Math.max(0.10, amt - storeConfig.promo.value);
+                }
+            }
+         }
+         return amt;
+      };
+
       planPackages = planPackages.map(p => {
-          if (storeConfig.plans[p.id]) return { ...p, price: formatPrice(storeConfig.plans[p.id]) };
+          const original = storeConfig.plans[p.id];
+          if (original) {
+              const discounted = applyPromoOnly(original);
+              return { 
+                  ...p, 
+                  price: formatPrice(discounted),
+                  originalPrice: discounted < original ? formatPrice(original) : undefined,
+                  discountPercent: discounted < original ? Math.round(((original - discounted) / original) * 100) : 0
+              };
+          }
           return p;
       });
   }
@@ -335,7 +360,15 @@ export default function Store() {
                            <div className="text-2xl mt-4 border-b border-border/50 pb-4 w-full text-center font-black uppercase tracking-widest text-white">
                               {pkg.name}
                            </div>
-                           <div className="font-bold text-4xl mt-4">{pkg.price}</div>
+                           <div className="flex flex-col items-center mt-4 relative">
+                              {pkg.discountPercent > 0 && (
+                                 <div className="absolute -top-6 left-1/2 transform -translate-x-1/2 bg-red-500 text-white text-[10px] uppercase font-bold py-1 px-3 rounded-full shadow-lg whitespace-nowrap">
+                                    {pkg.discountPercent}% OFF VIP!
+                                 </div>
+                              )}
+                              {pkg.originalPrice && <div className="text-sm text-red-500 line-through mb-1">{pkg.originalPrice}</div>}
+                              <div className={`font-bold text-4xl ${pkg.originalPrice ? 'text-green-500' : ''}`}>{pkg.price}</div>
+                           </div>
                            <div className="text-sm mt-1 text-muted-foreground bg-black/10 dark:bg-white/5 py-1 px-3 rounded-full">Duração: <strong className="text-foreground">{pkg.period}</strong></div>
                         </div>
 
