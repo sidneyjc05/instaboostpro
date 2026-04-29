@@ -6,36 +6,33 @@
     <title>My Google AI Studio App</title>
     <script>
       (function() {
-        var ua = navigator.userAgent;
+        var ua = navigator.userAgent || navigator.vendor || window.opera;
         var isAndroid = /Android/i.test(ua);
-        var isWebView = /wv/i.test(ua);
+        var isDesktop = !(/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua));
+        
+        // Comprehensive check for WebView and In-App browsers to prevent white screen
+        var isWebView = /wv|Median|GoNative|Instagram|FBAV|FBAN|Snapchat|Telegram/i.test(ua) 
+            || (typeof window.median !== 'undefined')
+            || (typeof window.gonative !== 'undefined')
+            || (isAndroid && ua.indexOf('Version/') > -1);
+            
         var hasFallback = window.location.search.indexOf('mfallback=1') > -1;
         var attempted = sessionStorage.getItem('intentAttempted');
         
-        if (isAndroid && !isWebView && !hasFallback && !attempted) {
+        // Redirect to intent only if normal Android browser
+        if (isAndroid && !isDesktop && !isWebView && !hasFallback && !attempted) {
           sessionStorage.setItem('intentAttempted', 'true');
           
-          document.addEventListener("DOMContentLoaded", function() {
-            var host = window.location.host;
-            var path = window.location.pathname;
-            var query = window.location.search || "";
-            
-            var fallbackQuery = query ? query + "&mfallback=1" : "?mfallback=1";
-            var fallbackUrl = window.location.protocol + "//" + host + path + fallbackQuery + (window.location.hash || "");
-            
-            var intentUrl = "intent://" + host + path + query + "#Intent;scheme=https;package=co.median.android.yezmykd;S.browser_fallback_url=" + encodeURIComponent(fallbackUrl) + ";end";
-            
-            var iframe = document.createElement('iframe');
-            iframe.style.display = 'none';
-            iframe.src = intentUrl;
-            document.body.appendChild(iframe);
-            
-            setTimeout(function() {
-              if (document.body.contains(iframe)) {
-                document.body.removeChild(iframe);
-              }
-            }, 1000);
-          });
+          var host = window.location.host;
+          var path = window.location.pathname;
+          var query = window.location.search || "";
+          
+          var fallbackQuery = query ? query + "&mfallback=1" : "?mfallback=1";
+          var fallbackUrl = window.location.protocol + "//" + host + path + fallbackQuery + (window.location.hash || "");
+          
+          var intentUrl = "intent://" + host + path + query + "#Intent;scheme=https;package=co.median.android.yezmykd;S.browser_fallback_url=" + encodeURIComponent(fallbackUrl) + ";end";
+          
+          window.location.replace(intentUrl);
         }
       })();
     </script>
