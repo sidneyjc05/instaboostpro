@@ -587,11 +587,12 @@ apiRouter.post('/promotions', authMiddleware, (req: any, res) => {
   const planType = userRecord?.plan_type || 'basic';
 
   let maxActive = 5;
-  if (planType === 'pro') maxActive = 10;
-  if (planType === 'premium') maxActive = 15;
-  if (planType === 'ultra') maxActive = 30;
+  if (planType === 'pro') maxActive = 12;
+  if (planType === 'premium') maxActive = 22;
+  if (planType === 'ultra') maxActive = 40;
 
   let maxDurationHours = 24;
+  if (planType === 'premium') maxDurationHours = 36;
   if (planType === 'ultra') maxDurationHours = 48;
 
   if (durationMinutes > maxDurationHours * 60) {
@@ -628,9 +629,21 @@ apiRouter.post('/promotions', authMiddleware, (req: any, res) => {
 
 apiRouter.post('/promotions/:id/interact', authMiddleware, (req: any, res) => {
   const promotionId = req.params.id;
-  const reward = 0.2; // 0.2 credits per interact
+  
+  let finalReward = 0.2; // 0.2 credits per interact
 
   const tx = db.transaction(() => {
+    const userMe = db.prepare('SELECT plan_type FROM users WHERE id = ?').get(req.userId) as any;
+    
+    // Multipliers for interactions (likes, follows)
+    let pType = userMe?.plan_type || 'basic';
+    let mult = 1;
+    if (pType === 'pro') mult = 1.5;
+    if (pType === 'premium') mult = 2.0;
+    if (pType === 'ultra') mult = 2.6;
+    
+    finalReward = finalReward * mult;
+
     const promo = db.prepare('SELECT * FROM promotions WHERE id = ?').get(promotionId) as any;
     if (!promo) throw new Error('NOT_FOUND');
     if (promo.user_id === req.userId) throw new Error('CANT_INTERACT_OWN');
@@ -641,7 +654,7 @@ apiRouter.post('/promotions/:id/interact', authMiddleware, (req: any, res) => {
       throw new Error('ALREADY_INTERACTED');
     }
 
-    db.prepare('UPDATE users SET credits = credits + ? WHERE id = ?').run(reward, req.userId);
+    db.prepare('UPDATE users SET credits = credits + ? WHERE id = ?').run(finalReward, req.userId);
 
     // Comissão de 10% para o indicador (0.02)
     const user = db.prepare('SELECT referred_by FROM users WHERE id = ?').get(req.userId) as any;
@@ -674,7 +687,7 @@ apiRouter.post('/promotions/:id/interact', authMiddleware, (req: any, res) => {
 
   try {
     tx();
-    res.json({ success: true, reward });
+    res.json({ success: true, reward: finalReward });
   } catch (err: any) {
     res.status(400).json({ error: err.message });
   }
@@ -725,9 +738,9 @@ apiRouter.post('/roulette/claim', authMiddleware, (req: any, res) => {
   const pType = userRecord?.plan_type || 'basic';
   
   let ticketsToGive = 3;
-  if (pType === 'pro') ticketsToGive += 2;
-  if (pType === 'premium') ticketsToGive += 4;
-  if (pType === 'ultra') ticketsToGive += 8;
+  if (pType === 'pro') ticketsToGive = 6;
+  if (pType === 'premium') ticketsToGive = 9;
+  if (pType === 'ultra') ticketsToGive = 15;
 
   try {
      const tx = db.transaction(() => {
@@ -748,43 +761,78 @@ apiRouter.post('/roulette/spin', authMiddleware, (req: any, res) => {
       return res.status(400).json({ error: 'Você não tem tickets suficientes.' });
    }
 
-   // 10 prizes definitions and exact probability mapping
-   // Total must be 100
-   const prizes = [
-      { prize: 0.5, prob: 90 },
-      { prize: 1, prob: 5 },
-      { prize: 5, prob: 2.5 },
-      { prize: 10, prob: 1.2 },
-      { prize: 20, prob: 0.8 },
-      { prize: 50, prob: 0.3 },
-      { prize: 100, prob: 0.15 },
-      { prize: 150, prob: 0.04 },
-      { prize: 200, prob: 0.009 },
-      { prize: 300, prob: 0.001 }
-   ];
-
-   let multiplier = 1;
+   // exact probability mapping depending on plan
    const pType = user.plan_type || 'basic';
-   if (pType === 'pro') multiplier = 1.2;
-   if (pType === 'premium') multiplier = 1.4;
-   if (pType === 'ultra') multiplier = 1.8;
-
-   const updatedPrizes = prizes.map(p => {
-      if (p.prize === 0.5) return p;
-      return { prize: p.prize, prob: p.prob * multiplier };
-   });
    
-   let higherPrizesProbSum = 0;
-   for (const p of updatedPrizes) {
-       if (p.prize !== 0.5) higherPrizesProbSum += p.prob;
+   let probabilities;
+   switch (pType) {
+      case 'ultra':
+         probabilities = [
+            { prize: 0.5, prob: 20 },
+            { prize: 1, prob: 10 },
+            { prize: 5, prob: 12 },
+            { prize: 10, prob: 13 },
+            { prize: 20, prob: 12 },
+            { prize: 50, prob: 10 },
+            { prize: 100, prob: 8 },
+            { prize: 150, prob: 6 },
+            { prize: 200, prob: 4 },
+            { prize: 300, prob: 5 }
+         ];
+         break;
+      case 'premium':
+         probabilities = [
+            { prize: 0.5, prob: 35 },
+            { prize: 1, prob: 12 },
+            { prize: 5, prob: 13 },
+            { prize: 10, prob: 12 },
+            { prize: 20, prob: 10 },
+            { prize: 50, prob: 7 },
+            { prize: 100, prob: 5 },
+            { prize: 150, prob: 3 },
+            { prize: 200, prob: 2 },
+            { prize: 300, prob: 3 }
+         ];
+         break;
+      case 'pro':
+         probabilities = [
+            { prize: 0.5, prob: 50 },
+            { prize: 1, prob: 15 },
+            { prize: 5, prob: 12 },
+            { prize: 10, prob: 8 },
+            { prize: 20, prob: 6 },
+            { prize: 50, prob: 4 },
+            { prize: 100, prob: 2.5 },
+            { prize: 150, prob: 1.2 },
+            { prize: 200, prob: 0.8 },
+            { prize: 300, prob: 1 }
+         ];
+         break;
+      case 'basic':
+      default:
+         probabilities = [
+            { prize: 0.5, prob: 68 },
+            { prize: 1, prob: 18 },
+            { prize: 5, prob: 8 },
+            { prize: 10, prob: 3.5 },
+            { prize: 20, prob: 1.5 },
+            { prize: 50, prob: 0.5 },
+            { prize: 100, prob: 0.2 },
+            { prize: 150, prob: 0.1 },
+            { prize: 200, prob: 0.05 },
+            { prize: 300, prob: 0.001 } // wait, this sums to 99.851? Let's check: 68+18+8+3.5+1.5+0.5+0.2+0.1+0.05+0.001 = 99.851. Let's make it up to 100 on 0.5 by subtracting the rest or just rolling random up to total prob.
+         ];
+         break;
    }
-   updatedPrizes[0].prob = Math.max(0, 100 - higherPrizesProbSum);
 
-   const rand = Math.random() * 100; // 0 to 100
+   let totalProb = 0;
+   for (const p of probabilities) totalProb += p.prob;
+
+   const rand = Math.random() * totalProb;
    let accumulatedProb = 0;
    let wonPrize = 0.5;
 
-   for (const p of updatedPrizes) {
+   for (const p of probabilities) {
       accumulatedProb += p.prob;
       if (rand <= accumulatedProb) {
          wonPrize = p.prize;
@@ -860,7 +908,16 @@ apiRouter.post('/payments/pix', authMiddleware, async (req: any, res) => {
   }
 
   try {
-    const user = db.prepare('SELECT username FROM users WHERE id = ?').get(req.userId) as any;
+    const user = db.prepare('SELECT username, plan_type FROM users WHERE id = ?').get(req.userId) as any;
+
+    // Apply plan discount on coins and tickets
+    if (type === 'tickets' || type === 'credits') {
+       let planDiscount = 0;
+       if (user.plan_type === 'pro') planDiscount = 0.12;
+       if (user.plan_type === 'premium') planDiscount = 0.25;
+       if (user.plan_type === 'ultra') planDiscount = 0.40;
+       amount = amount - (amount * planDiscount);
+    }
 
     const expiresAtDate = new Date(Date.now() + 15 * 60 * 1000);
     const dateOfExpirationString = expiresAtDate.toISOString();
@@ -926,9 +983,9 @@ apiRouter.get('/payments/:id', authMiddleware, async (req: any, res) => {
                const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
                
                let bonus = 0;
-               if (planId === 'pro') bonus = 500;
-               else if (planId === 'premium') bonus = 1500;
-               else if (planId === 'ultra') bonus = 4000;
+               if (planId === 'pro') bonus = 1000;
+               else if (planId === 'premium') bonus = 2500;
+               else if (planId === 'ultra') bonus = 6000;
   
                db.prepare('UPDATE users SET plan_type = ?, plan_expires_at = ?, credits = credits + ? WHERE id = ?').run(planId, expiresAt, bonus, payment.user_id);
                createNotification(payment.user_id, 'Plano Ativado!', `Seu Plano ${planId.toUpperCase()} foi ativado com sucesso.`, 'profile');
@@ -1005,9 +1062,9 @@ apiRouter.post('/webhook/mercadopago', async (req, res) => {
                const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
                
                let bonus = 0;
-               if (planId === 'pro') bonus = 500;
-               else if (planId === 'premium') bonus = 1500;
-               else if (planId === 'ultra') bonus = 4000;
+               if (planId === 'pro') bonus = 1000;
+               else if (planId === 'premium') bonus = 2500;
+               else if (planId === 'ultra') bonus = 6000;
   
                db.prepare('UPDATE users SET plan_type = ?, plan_expires_at = ?, credits = credits + ? WHERE id = ?').run(planId, expiresAt, bonus, payment.user_id);
                createNotification(payment.user_id, 'Plano Ativado!', `Seu Plano ${planId.toUpperCase()} foi ativado com sucesso.`, 'profile');
@@ -1299,10 +1356,12 @@ apiRouter.post('/missions/claim', authMiddleware, (req: any, res) => {
         let reward = config.rewards[realLevel - 1];
         let tickets = config.tickets ? config.tickets[realLevel - 1] : 0;
         
-        if (planType === 'pro' || planType === 'premium') {
-            reward *= 2;
+        if (planType === 'pro') {
+            reward *= 1.8;
+        } else if (planType === 'premium') {
+            reward *= 2.3;
         } else if (planType === 'ultra') {
-            reward *= 2.5; // Dobro + 50% extra
+            reward *= 2.8;
         }
 
         if (row.progress < goal) throw new Error('NOT_COMPLETED');

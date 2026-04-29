@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useAppSound } from '../context/SoundContext';
 
 export default function Store() {
-  const { refreshUser } = useAuth();
+  const { user, refreshUser } = useAuth();
   const { playSuccess, playClick } = useAppSound();
   const [loading, setLoading] = useState(false);
   const [paymentData, setPaymentData] = useState<{ id: string, qrCode: string, pixCode: string, tickets: number, credits: number, exactExpiry: number, pendingPlan?: string } | null>(null);
@@ -148,12 +148,14 @@ export default function Store() {
        borderColor: 'border-green-500/50',
        ringColor: 'ring-green-500/30',
        benefits: [
-          'Dobro de moedas em todas as missões',
-          '+20% chances na roleta',
-          '10 publicações por dia',
-          'Prioridade no Feed Geral',
-          'Análise de desempenho básica',
-          '+500 moedas de bônus mensal',
+          '1.8x moedas nas missões',
+          '1.5x moedas ao curtir e seguir',
+          '12% de desconto na loja',
+          '12 publicações por dia',
+          'Tempo máximo de destaque: 24h',
+          '6 Tickets grátis diários',
+          '1% chance no Mega Jackpot (300 moedas)',
+          '+1.000 moedas de bônus mensal',
           '+10% de comissão extra'
        ]
     },
@@ -167,15 +169,15 @@ export default function Store() {
        ringColor: 'ring-purple-500/30',
        pop: true,
        benefits: [
-          'Dobro de moedas nas missões',
-          '+40% chances na roleta',
-          '15 publicações por dia (24h limite)',
-          '+4 tickets de roleta diários',
-          'Stories com duração +24h',
-          'Análise de desempenho avançada',
-          'Redução de cooldown em missões',
+          '2.3x moedas nas missões',
+          '2x moedas ao curtir e seguir',
+          '25% de desconto na loja',
+          '22 publicações por dia',
+          'Tempo máximo de destaque: 36h',
+          '9 Tickets grátis diários',
+          '3% chance no Mega Jackpot (300 moedas)',
+          '+2.500 moedas de bônus mensal',
           'Remoção de anúncios / Ultra clean',
-          '+1.500 moedas de bônus mensal',
           '+20% de comissão extra'
        ]
     },
@@ -188,16 +190,16 @@ export default function Store() {
        borderColor: 'border-yellow-500/50',
        ringColor: 'ring-yellow-500/30',
        benefits: [
-          'Dobro + 50% extra de moedas',
-          '+80% chances na roleta',
-          '30 publicações por dia (48h limite)',
-          '+8 tickets de roleta diários',
-          'Stories com duração +48h',
-          'Suporte VIP 24h',
-          'Maior prioridade no Feed Geral',
-          'Acesso Beta a novos recursos',
+          '2.8x moedas nas missões',
+          '2.6x moedas ao curtir e seguir',
+          '40% de desconto na loja',
+          '40 publicações por dia',
+          'Tempo máximo de destaque: 48h',
+          '15 Tickets grátis diários',
+          '5% chance no Mega Jackpot (300 moedas)',
+          '+6.000 moedas de bônus mensal',
+          'Suporte VIP 24h & Maior prioridade no Feed',
           'Remoção de anúncios / Ultra clean',
-          '+4.000 moedas de bônus mensal',
           '+40% de comissão extra'
        ]
     }
@@ -205,9 +207,32 @@ export default function Store() {
 
   if (storeConfig) {
       const formatPrice = (num: number) => `R$ ${num.toFixed(2).replace('.', ',')}`;
-      packages = packages.map(p => ({ ...p, price: storeConfig.coins[p.c] ? formatPrice(storeConfig.coins[p.c]) : p.price }));
-      ticketPackages = ticketPackages.map(p => ({ ...p, price: storeConfig.tickets[p.c] ? formatPrice(storeConfig.tickets[p.c]) : p.price }));
-      planPackages = planPackages.map(p => ({ ...p, price: storeConfig.plans[p.id] ? formatPrice(storeConfig.plans[p.id]) : p.price }));
+
+      let planDiscount = 0;
+      if (user?.plan_type === 'pro') planDiscount = 0.12;
+      if (user?.plan_type === 'premium') planDiscount = 0.25;
+      if (user?.plan_type === 'ultra') planDiscount = 0.40;
+
+      const applyPromoAndPlan = (originalAmount: number) => {
+         let amt = originalAmount;
+         if (storeConfig.promo && storeConfig.promo.active) {
+            const now = new Date().getTime();
+            const ex = storeConfig.promo.expiresAt ? new Date(storeConfig.promo.expiresAt).getTime() : Infinity;
+            if (now < ex) {
+                if (storeConfig.promo.type === 'percent') {
+                   amt = amt - (amt * (storeConfig.promo.value / 100));
+                } else if (storeConfig.promo.type === 'fixed') {
+                   amt = Math.max(0.10, amt - storeConfig.promo.value);
+                }
+            }
+         }
+         amt = amt - (amt * planDiscount);
+         return amt;
+      };
+
+      packages = packages.map(p => ({ ...p, price: storeConfig.coins[p.c] ? formatPrice(applyPromoAndPlan(storeConfig.coins[p.c])) : p.price }));
+      ticketPackages = ticketPackages.map(p => ({ ...p, price: storeConfig.tickets[p.c] ? formatPrice(applyPromoAndPlan(storeConfig.tickets[p.c])) : p.price }));
+      planPackages = planPackages.map(p => ({ ...p, price: storeConfig.plans[p.id] ? formatPrice(storeConfig.plans[p.id]) : p.price })); // Note: no planDiscount on plans!
   }
 
   return (

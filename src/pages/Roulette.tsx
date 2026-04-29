@@ -247,9 +247,11 @@ export default function Roulette() {
                  <Ticket size={100} className="text-yellow-500" />
               </div>
               <h3 className="text-xl font-extrabold text-amber-500 mb-2 relative z-10">Tickets Diários Grátis!</h3>
-              <p className="text-sm text-foreground/80 mb-6 relative z-10 max-w-sm">Você tem 3 tickets gratuitos aguardando para rodar a roleta. Resgate agora mesmo!</p>
+              <p className="text-sm text-foreground/80 mb-6 relative z-10 max-w-sm">
+                 Você tem {user?.plan_type === 'ultra' ? 15 : user?.plan_type === 'premium' ? 9 : user?.plan_type === 'pro' ? 6 : 3} tickets gratuitos aguardando para rodar a roleta. Resgate agora mesmo!
+              </p>
               <Button onClick={claimFreeTickets} isLoading={claimingFree} variant="primary" size="lg" className="w-full relative z-10 shadow-[0_0_15px_rgba(245,158,11,0.5)] bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 border-none font-bold">
-                 RESGATAR 3 TICKETS GRÁTIS
+                 RESGATAR TICKETS GRÁTIS
               </Button>
            </div>
         ) : (
