@@ -112,7 +112,7 @@ export default function Store() {
     return `${min.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
   };
 
-  let packages = [
+  let packages: any[] = [
     { c: 110, price: 'R$ 0,50', time: '22 minutos' },
     { c: 230, price: 'R$ 1,00', time: '46 minutos' },
     { c: 480, price: 'R$ 2,00', time: '1h 36m' },
@@ -125,7 +125,7 @@ export default function Store() {
     { c: 7200, price: 'R$ 250,00', time: '24 horas', pop: true }
   ];
 
-  let ticketPackages = [
+  let ticketPackages: any[] = [
     { c: 5, price: 'R$ 1,50' },
     { c: 12, price: 'R$ 3,00' },
     { c: 22, price: 'R$ 5,00' },
@@ -230,9 +230,38 @@ export default function Store() {
          return amt;
       };
 
-      packages = packages.map(p => ({ ...p, price: storeConfig.coins[p.c] ? formatPrice(applyPromoAndPlan(storeConfig.coins[p.c])) : p.price }));
-      ticketPackages = ticketPackages.map(p => ({ ...p, price: storeConfig.tickets[p.c] ? formatPrice(applyPromoAndPlan(storeConfig.tickets[p.c])) : p.price }));
-      planPackages = planPackages.map(p => ({ ...p, price: storeConfig.plans[p.id] ? formatPrice(storeConfig.plans[p.id]) : p.price })); // Note: no planDiscount on plans!
+      packages = packages.map(p => {
+          const original = storeConfig.coins[p.c];
+          if (original) {
+              const discounted = applyPromoAndPlan(original);
+              return { 
+                  ...p, 
+                  price: formatPrice(discounted),
+                  originalPrice: discounted < original ? formatPrice(original) : undefined,
+                  discountPercent: discounted < original ? Math.round(((original - discounted) / original) * 100) : 0
+              };
+          }
+          return p;
+      });
+
+      ticketPackages = ticketPackages.map(p => {
+          const original = storeConfig.tickets[p.c];
+          if (original) {
+              const discounted = applyPromoAndPlan(original);
+              return { 
+                  ...p, 
+                  price: formatPrice(discounted),
+                  originalPrice: discounted < original ? formatPrice(original) : undefined,
+                  discountPercent: discounted < original ? Math.round(((original - discounted) / original) * 100) : 0
+              };
+          }
+          return p;
+      });
+
+      planPackages = planPackages.map(p => {
+          if (storeConfig.plans[p.id]) return { ...p, price: formatPrice(storeConfig.plans[p.id]) };
+          return p;
+      });
   }
 
   return (
@@ -335,7 +364,15 @@ export default function Store() {
                       <span className="font-bold">{pkg.c.toLocaleString('pt-BR')}</span> <span className="text-lg">💰</span>
                     </div>
                     <div className="text-xs text-muted-foreground text-center">Destaque por <br/> <strong className="text-foreground">{pkg.time}</strong></div>
-                    <div className="font-bold text-lg mt-1">{pkg.price}</div>
+                    <div className="flex flex-col items-center mt-1">
+                       {pkg.originalPrice && <div className="text-xs text-red-500 line-through mb-0.5">{pkg.originalPrice}</div>}
+                       <div className={`font-bold text-lg ${pkg.originalPrice ? 'text-green-500' : ''}`}>{pkg.price}</div>
+                    </div>
+                    {pkg.discountPercent > 0 && (
+                       <div className="absolute top-0 left-0 transform -translate-x-2 -translate-y-2 bg-red-500 text-white text-[10px] uppercase font-bold py-1 px-2 rounded-lg shadow-lg z-20">
+                          -{pkg.discountPercent}% OFF
+                       </div>
+                    )}
                     <Button className="w-full mt-2" variant={pkg.pop ? 'primary' : 'secondary'} onClick={() => handleBuy(pkg.c, 'credits')} isLoading={loading}>
                       Comprar
                     </Button>
@@ -352,7 +389,15 @@ export default function Store() {
                            <span className="font-bold">{pkg.c.toLocaleString('pt-BR')}</span> <span className="text-lg">🎟️</span>
                         </div>
                         <div className="text-xs text-muted-foreground text-center">Gire a roleta e <br/> <strong className="text-foreground">ganhe moedas</strong></div>
-                        <div className="font-bold text-lg mt-1">{pkg.price}</div>
+                        <div className="flex flex-col items-center mt-1">
+                           {pkg.originalPrice && <div className="text-xs text-red-500 line-through mb-0.5">{pkg.originalPrice}</div>}
+                           <div className={`font-bold text-lg ${pkg.originalPrice ? 'text-green-500' : ''}`}>{pkg.price}</div>
+                        </div>
+                        {pkg.discountPercent > 0 && (
+                           <div className="absolute top-0 left-0 transform -translate-x-2 -translate-y-2 bg-red-500 text-white text-[10px] uppercase font-bold py-1 px-2 rounded-lg shadow-lg z-20">
+                              -{pkg.discountPercent}% OFF
+                           </div>
+                        )}
                         <Button className="w-full mt-2" variant={pkg.pop ? 'primary' : 'secondary'} onClick={() => handleBuy(pkg.c, 'tickets')} isLoading={loading}>
                            Comprar
                         </Button>
