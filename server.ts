@@ -15,6 +15,12 @@ async function startServer() {
   // API routing
   app.use('/api', apiRouter);
 
+  // Explicit route for assetlinks.json
+  app.get('/.well-known/assetlinks.json', (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.sendFile(path.join(process.cwd(), 'public/.well-known/assetlinks.json'));
+  });
+
   // Vite Integration
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
