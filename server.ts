@@ -18,7 +18,18 @@ async function startServer() {
   // Explicit route for assetlinks.json
   app.get('/.well-known/assetlinks.json', (req, res) => {
     res.setHeader('Content-Type', 'application/json');
-    res.sendFile(path.join(process.cwd(), 'public/.well-known/assetlinks.json'));
+    res.json([
+      {
+        "relation": ["delegate_permission/common.handle_all_urls"],
+        "target": {
+          "namespace": "android_app",
+          "package_name": "co.median.android.lpwdoqp",
+          "sha256_cert_fingerprints": [
+            "10:97:08:37:78:B5:9D:DA:E4:55:CE:FE:4C:F9:46:E9:A5:08:E3:46:54:22:3E:B4:FF:B0:69:6D:A3:F2:13:38"
+          ]
+        }
+      }
+    ]);
   });
 
   // Vite Integration
