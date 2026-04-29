@@ -26,9 +26,9 @@ async function startServer() {
         "relation": ["delegate_permission/common.handle_all_urls"],
         "target": {
           "namespace": "android_app",
-          "package_name": "com.mycompany.instaboostpro",
+          "package_name": "co.median.android.yezmykd",
           "sha256_cert_fingerprints": [
-            "B5:80:24:BD:FC:AE:7A:39:3D:DD:7C:71:D4:2C:36:26:AA:3B:BF:01:21:98:3B:4D:2E:3B:A3:A8:7F:C2:8B:49"
+            "8F:85:92:F0:37:7D:5B:1F:F9:97:22:8F:DF:D4:14:43:3B:25:DC:5E:15:9F:F0:44:C3:04:F4:26:5D:BE:B3:63"
           ]
         }
       }
