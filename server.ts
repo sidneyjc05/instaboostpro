@@ -25,7 +25,7 @@ async function startServer() {
           "namespace": "android_app",
           "package_name": "co.median.android.lpwdoqp",
           "sha256_cert_fingerprints": [
-            "10:97:08:37:78:B5:9D:DA:E4:55:CE:FE:4C:F9:46:E9:A5:08:E3:46:54:22:3E:B4:FF:B0:69:6D:A3:F2:13:38"
+            "A4:0D:A8:0A:59:D1:70:CA:A9:50:CF:15:C1:8C:45:4D:47:A3:9B:26:98:9D:8B:64:0E:CD:74:5B:A7:1B:F5:DC"
           ]
         }
       }
