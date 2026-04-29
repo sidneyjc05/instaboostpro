@@ -18,7 +18,10 @@ async function startServer() {
   // Explicit route for assetlinks.json
   app.get('/.well-known/assetlinks.json', (req, res) => {
     res.setHeader('Content-Type', 'application/json');
-    res.json([
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.send(Buffer.from(JSON.stringify([
       {
         "relation": ["delegate_permission/common.handle_all_urls"],
         "target": {
@@ -29,7 +32,7 @@ async function startServer() {
           ]
         }
       }
-    ]);
+    ], null, 2), 'utf8'));
   });
 
   // Vite Integration
