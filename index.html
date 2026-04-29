@@ -6,23 +6,36 @@
     <title>My Google AI Studio App</title>
     <script>
       (function() {
-        var isAndroid = /Android/i.test(navigator.userAgent);
+        var ua = navigator.userAgent;
+        var isAndroid = /Android/i.test(ua);
+        var isWebView = /wv/i.test(ua);
         var hasFallback = window.location.search.indexOf('mfallback=1') > -1;
         var attempted = sessionStorage.getItem('intentAttempted');
         
-        if (isAndroid && !hasFallback && !attempted) {
+        if (isAndroid && !isWebView && !hasFallback && !attempted) {
           sessionStorage.setItem('intentAttempted', 'true');
           
-          var host = window.location.host;
-          var path = window.location.pathname;
-          var query = window.location.search || "";
-          
-          var fallbackQuery = query ? query + "&mfallback=1" : "?mfallback=1";
-          var fallbackUrl = window.location.protocol + "//" + host + path + fallbackQuery + (window.location.hash || "");
-          
-          var intentUrl = "intent://" + host + path + query + "#Intent;scheme=https;package=com.mycompany.instaboostpro;S.browser_fallback_url=" + encodeURIComponent(fallbackUrl) + ";end";
-          
-          window.location.replace(intentUrl);
+          document.addEventListener("DOMContentLoaded", function() {
+            var host = window.location.host;
+            var path = window.location.pathname;
+            var query = window.location.search || "";
+            
+            var fallbackQuery = query ? query + "&mfallback=1" : "?mfallback=1";
+            var fallbackUrl = window.location.protocol + "//" + host + path + fallbackQuery + (window.location.hash || "");
+            
+            var intentUrl = "intent://" + host + path + query + "#Intent;scheme=https;package=com.mycompany.instaboostpro;S.browser_fallback_url=" + encodeURIComponent(fallbackUrl) + ";end";
+            
+            var iframe = document.createElement('iframe');
+            iframe.style.display = 'none';
+            iframe.src = intentUrl;
+            document.body.appendChild(iframe);
+            
+            setTimeout(function() {
+              if (document.body.contains(iframe)) {
+                document.body.removeChild(iframe);
+              }
+            }, 1000);
+          });
         }
       })();
     </script>
