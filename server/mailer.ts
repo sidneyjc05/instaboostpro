@@ -2,7 +2,7 @@ import { MailerSend, EmailParams, Sender, Recipient } from "mailersend";
 
 // The Mailersend API token from the user - defaults to empty string so new MailerSend doesn't crash here if empty
 // although we check it later.
-const API_TOKEN = process.env.MAILERSEND_API_TOKEN || process.env.API_KEY || ''; 
+const API_TOKEN = process.env.MAILERSEND_API_TOKEN || ''; 
 const FROM_DOMAIN = process.env.MAILERSEND_DOMAIN || 'test-eqvygm07v7zl0p7w.mlsender.net';
 const FROM_EMAIL = process.env.FROM_EMAIL || `suporte@${FROM_DOMAIN}`;
 
@@ -49,7 +49,7 @@ export async function sendVerificationEmail(toEmail: string, code: string, type:
     }
 
     // Fallback: print to console and bypass if no KEY is found.
-    console.warn(`[Mailer] Nenhuma configuração de servidor de E-mail fornecida (API_KEY ou MAILERSEND_API_TOKEN). Bypass ativado. O Código gerado foi: ${code}`);
+    console.warn(`[Mailer] Nenhuma configuração de servidor de E-mail fornecida (MAILERSEND_API_TOKEN). Bypass ativado. O Código gerado foi: ${code}`);
     return { success: true, bypassed: true };
 
   } catch (err) {
