@@ -172,9 +172,67 @@ export default function AdminStore() {
                                     />
                                     <Input 
                                         type="datetime-local" 
-                                        value={config.promo?.expiresAt ? new Date(config.promo.expiresAt).toISOString().slice(0, 16) : ''}
-                                        onChange={e => setConfig((p: any) => ({ ...p, promo: { ...p.promo, expiresAt: e.target.value } }))}
+                                        value={config.promo?.expiresAt ? new Date(new Date(config.promo.expiresAt).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ''}
+                                        onChange={e => {
+                                            if (!e.target.value) {
+                                                setConfig((p: any) => ({ ...p, promo: { ...p.promo, expiresAt: null } }));
+                                            } else {
+                                                const d = new Date(e.target.value);
+                                                if (!isNaN(d.getTime())) {
+                                                    setConfig((p: any) => ({ ...p, promo: { ...p.promo, expiresAt: d.toISOString() } }));
+                                                }
+                                            }
+                                        }}
                                     />
+                                    <div className="flex flex-col gap-2 mt-2">
+                                        <p className="text-sm font-semibold mb-1">Aplicar promoção em:</p>
+                                        <label className="flex items-center gap-2 cursor-pointer">
+                                            <input 
+                                                type="checkbox" 
+                                                checked={config.promo?.applyCoins ?? true}
+                                                onChange={e => setConfig((p: any) => ({ ...p, promo: { ...p.promo, applyCoins: e.target.checked } }))}
+                                                className="rounded border-border bg-secondary"
+                                            />
+                                            <span className="text-sm">Moedas</span>
+                                        </label>
+                                        <label className="flex items-center gap-2 cursor-pointer">
+                                            <input 
+                                                type="checkbox" 
+                                                checked={config.promo?.applyTickets ?? true}
+                                                onChange={e => setConfig((p: any) => ({ ...p, promo: { ...p.promo, applyTickets: e.target.checked } }))}
+                                                className="rounded border-border bg-secondary"
+                                            />
+                                            <span className="text-sm">Tickets</span>
+                                        </label>
+                                        <p className="text-sm font-semibold mb-1 mt-2">Aplicar promoção em Planos:</p>
+                                        <label className="flex items-center gap-2 cursor-pointer">
+                                            <input 
+                                                type="checkbox" 
+                                                checked={config.promo?.applyPlanPro ?? true}
+                                                onChange={e => setConfig((p: any) => ({ ...p, promo: { ...p.promo, applyPlanPro: e.target.checked } }))}
+                                                className="rounded border-border bg-secondary"
+                                            />
+                                            <span className="text-sm">Plano Pro</span>
+                                        </label>
+                                        <label className="flex items-center gap-2 cursor-pointer">
+                                            <input 
+                                                type="checkbox" 
+                                                checked={config.promo?.applyPlanPremium ?? true}
+                                                onChange={e => setConfig((p: any) => ({ ...p, promo: { ...p.promo, applyPlanPremium: e.target.checked } }))}
+                                                className="rounded border-border bg-secondary"
+                                            />
+                                            <span className="text-sm">Plano Premium</span>
+                                        </label>
+                                        <label className="flex items-center gap-2 cursor-pointer">
+                                            <input 
+                                                type="checkbox" 
+                                                checked={config.promo?.applyPlanUltra ?? true}
+                                                onChange={e => setConfig((p: any) => ({ ...p, promo: { ...p.promo, applyPlanUltra: e.target.checked } }))}
+                                                className="rounded border-border bg-secondary"
+                                            />
+                                            <span className="text-sm">Plano Ultra</span>
+                                        </label>
+                                    </div>
                                 </>
                             )}
                         </div>

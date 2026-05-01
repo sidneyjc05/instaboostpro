@@ -4,11 +4,12 @@ import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { OTPInput } from '../components/ui/OTPInput';
 import { showNotification } from '../context/NotificationContext';
-import { LogOut, Rocket, Clock, History, AlertTriangle, RefreshCw, Eye, QrCode, Copy, X, Users, Share2, Award, ChevronDown, ChevronUp, CheckCircle } from 'lucide-react';
+import { LogOut, Rocket, Clock, History, AlertTriangle, RefreshCw, Eye, QrCode, Copy, X, Users, Share2, Award, ChevronDown, ChevronUp, CheckCircle, CreditCard, Trash2, Plus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate } from 'react-router';
 import { useAppSound } from '../context/SoundContext';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
+import { AddCardForm } from '../components/checkout/AddCardForm';
 
 export default function Profile() {
   const { user, logout, refreshUser } = useAuth();
@@ -16,9 +17,11 @@ export default function Profile() {
   const [promotions, setPromotions] = useState<any[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
   const [referral, setReferral] = useState<any>(null);
+  const [savedCards, setSavedCards] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [reboostLoading, setReboostLoading] = useState<number | null>(null);
   const [checkingPayment, setCheckingPayment] = useState<string | null>(null);
+  const [showAddCard, setShowAddCard] = useState(false);
   const [activeQrModal, setActiveQrModal] = useState<any>(null); // { qrCode, pixCode, etc }
   const [activePlanModal, setActivePlanModal] = useState<string | null>(null);
   const navigate = useNavigate();
@@ -211,16 +214,38 @@ export default function Profile() {
 
   const fetchData = async () => {
     try {
-      const [promoRes, payRes, refRes] = await Promise.all([
+      const [promoRes, payRes, refRes, cardsRes] = await Promise.all([
         fetch('/api/users/me/promotions'),
         fetch('/api/users/me/payments'),
-        fetch('/api/me/referral')
+        fetch('/api/me/referral'),
+        fetch('/api/payments/cards')
       ]);
       if (promoRes.ok) setPromotions(await promoRes.json());
       if (payRes.ok) setPayments(await payRes.json());
       if (refRes.ok) setReferral(await refRes.json());
+      if (cardsRes.ok) {
+         try {
+             const data = await cardsRes.json();
+             if (Array.isArray(data)) setSavedCards(data);
+         } catch(e) {}
+      }
     } catch {}
     setLoading(false);
+  };
+
+  const handleRemoveCard = async (id: number) => {
+      try {
+          const res = await fetch(`/api/payments/cards/${id}`, { method: 'DELETE' });
+          if (res.ok) {
+              setSavedCards(prev => prev.filter(c => c.id !== id));
+              showNotification.success('Cartão removido com sucesso!');
+          } else {
+              const data = await res.json();
+              showNotification.error(data.error || 'Erro ao remover cartão');
+          }
+      } catch {
+          showNotification.error('Erro de conexão');
+      }
   };
 
   const handleReboost = async (id: number) => {
@@ -664,6 +689,48 @@ export default function Profile() {
          </div>
       </div>
 
+      {/* Block Cartões always visible to allow adding */}
+      <div className="bg-card w-full border border-border rounded-3xl p-5 md:p-6 flex flex-col gap-4">
+         <h3 className="font-bold border-b border-border pb-3 flex items-center justify-between gap-2">
+            <span className="flex items-center gap-2"><CreditCard size={18} className="text-primary" /> Meus Cartões Salvos</span>
+            <Button variant="ghost" size="sm" onClick={() => setShowAddCard(true)} className="h-8 px-3 ml-auto shrink-0 flex items-center gap-1.5 text-xs text-primary bg-primary/10 hover:bg-primary/20">
+              <Plus size={14} /> Novo
+            </Button>
+         </h3>
+         <div className="flex flex-col gap-3">
+            {savedCards.length > 0 ? savedCards.map(card => (
+               <div key={card.id} className="bg-secondary/40 p-4 rounded-2xl flex justify-between items-center border border-border gap-3">
+                  <div className="flex items-center gap-3">
+                     <div className="bg-background flex flex-col items-center justify-center w-12 h-10 rounded border border-border shadow-sm p-1">
+                        <span className="text-[10px] font-black uppercase text-primary leading-none">{card.brand?.replace('deb', '')}</span>
+                     </div>
+                     <div className="flex flex-col">
+                        <div className="flex items-center gap-2">
+                           <span className="font-bold border px-1.5 py-0.5 rounded text-[10px] border-border text-muted-foreground bg-secondary">
+                              {card.brand?.startsWith('deb') ? 'DÉBITO' : 'CRÉDITO'}
+                           </span>
+                           <span className="font-bold tracking-widest text-sm">•••• {card.last_four}</span>
+                        </div>
+                        <span className="text-xs text-muted-foreground mt-0.5">Vencimento: {card.expiration_month}/{card.expiration_year}</span>
+                     </div>
+                  </div>
+                  <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10" onClick={() => {
+                     if(window.confirm('Tem certeza que deseja remover este cartão?')) {
+                        handleRemoveCard(card.id);
+                     }
+                  }}>
+                     <Trash2 size={16} />
+                  </Button>
+               </div>
+            )) : (
+               <div className="text-center text-sm py-4 text-muted-foreground flex flex-col items-center gap-2">
+                   <CreditCard size={32} className="opacity-20 mb-1" />
+                   Nenhum cartão salvo.
+               </div>
+            )}
+         </div>
+      </div>
+
       {payments.length > 0 && (
         <div className="bg-card w-full border border-border rounded-3xl p-5 md:p-6 flex flex-col gap-4">
           <h3 className="font-bold border-b border-border pb-3 flex items-center gap-2">
@@ -864,6 +931,26 @@ export default function Profile() {
           <LogOut size={18} /> Sair da conta
         </Button>
       </div>
+
+      <AnimatePresence>
+        {showAddCard && (
+           <motion.div 
+              initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
+              className="fixed inset-0 z-[100] bg-black/60 flex items-center justify-center p-4"
+           >
+              <div className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+                 <AddCardForm 
+                    onSuccess={() => {
+                        setShowAddCard(false);
+                        fetchData();
+                    }}
+                    onCancel={() => setShowAddCard(false)}
+                 />
+              </div>
+           </motion.div>
+        )}
+      </AnimatePresence>
+
     </div>
   );
 }

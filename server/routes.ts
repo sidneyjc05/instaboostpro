@@ -5,7 +5,7 @@ import { db, createNotification } from './db.js';
 import { authMiddleware, adminMiddleware } from './auth.js';
 import crypto from 'crypto';
 import qrcode from 'qrcode';
-import { MercadoPagoConfig, Payment } from 'mercadopago';
+import { MercadoPagoConfig, Payment, Customer, CustomerCard } from 'mercadopago';
 import { sendVerificationEmail } from './mailer.js';
 
 import { adminRouter } from './admin.js';
@@ -14,8 +14,10 @@ export const apiRouter = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecret';
 
 // Initialize MP (fallback to empty token to avoid crash, but will fail requests if not set in .env)
-const mpClient = new MercadoPagoConfig({ accessToken: process.env.MERCADOPAGO_ACCESS_TOKEN || '' });
-const mpPayment = new Payment(mpClient);
+export const mpClient = new MercadoPagoConfig({ accessToken: process.env.MERCADOPAGO_ACCESS_TOKEN || '' });
+export const mpPayment = new Payment(mpClient);
+export const mpCustomer = new Customer(mpClient);
+export const mpCustomerCard = new CustomerCard(mpClient);
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS weekly_reward_plans (
@@ -508,7 +510,7 @@ apiRouter.get('/users/me/payments', authMiddleware, (req: any, res) => {
   const payments = db.prepare(`
     SELECT id, amount, credits, status, created_at 
     FROM payments 
-    WHERE user_id = ? AND status = 'pending'
+    WHERE user_id = ? AND status = 'pending' AND payment_method = 'pix'
     ORDER BY created_at DESC
   `).all(req.userId);
   res.json(payments);
@@ -666,8 +668,8 @@ apiRouter.post('/promotions/:id/interact', authMiddleware, (req: any, res) => {
           else if (referrer.plan_type === 'premium') commissionRate = 0.3;
           else if (referrer.plan_type === 'ultra') commissionRate = 0.5;
        }
-       db.prepare('UPDATE users SET credits = credits + ? WHERE id = ?').run(reward * commissionRate, user.referred_by);
-       db.prepare('INSERT INTO commissions (referrer_id, referred_id, amount, action_type) VALUES (?, ?, ?, ?)').run(user.referred_by, req.userId, reward * commissionRate, 'interact');
+       db.prepare('UPDATE users SET credits = credits + ? WHERE id = ?').run(finalReward * commissionRate, user.referred_by);
+       db.prepare('INSERT INTO commissions (referrer_id, referred_id, amount, action_type) VALUES (?, ?, ?, ?)').run(user.referred_by, req.userId, finalReward * commissionRate, 'interact');
     }
 
     // Progresso das missões
@@ -867,6 +869,55 @@ apiRouter.get('/store/config', (req, res) => {
    });
 });
 
+export function calculatePaymentAmount(type: string, credits: string | number, user: any, storeConfig: any) {
+  let originalAmount = 0;
+  if (type === 'tickets') originalAmount = storeConfig.tickets[credits as string];
+  else if (type === 'plan') originalAmount = storeConfig.plans[credits as string];
+  else originalAmount = storeConfig.coins[credits as number];
+
+  if (!originalAmount) return { amount: 0, originalAmount: 0 };
+
+  let amount = originalAmount;
+
+  let applyPromo = false;
+  const pCoins = storeConfig.promo?.applyCoins ?? true;
+  const pTickets = storeConfig.promo?.applyTickets ?? true;
+
+  if (type === 'credits' && pCoins) applyPromo = true;
+  if (type === 'tickets' && pTickets) applyPromo = true;
+  if (type === 'plan') {
+     if (credits === 'pro' && (storeConfig.promo?.applyPlanPro ?? true)) applyPromo = true;
+     if (credits === 'premium' && (storeConfig.promo?.applyPlanPremium ?? true)) applyPromo = true;
+     if (credits === 'ultra' && (storeConfig.promo?.applyPlanUltra ?? true)) applyPromo = true;
+  }
+
+  if ((type === 'tickets' || type === 'credits') && user.plan_type && user.plan_type !== 'basic') {
+      applyPromo = false; 
+  }
+
+  if (applyPromo && storeConfig.promo && storeConfig.promo.active) {
+      const now = new Date().getTime();
+      const ex = storeConfig.promo.expiresAt ? new Date(storeConfig.promo.expiresAt).getTime() : Infinity;
+      if (now < ex) {
+          if (storeConfig.promo.type === 'percent') {
+              amount = Math.max(0.10, amount - (amount * (storeConfig.promo.value / 100)));
+          } else if (storeConfig.promo.type === 'fixed') {
+              amount = Math.max(0.10, amount - storeConfig.promo.value);
+          }
+      }
+  }
+
+  if (type === 'tickets' || type === 'credits') {
+     let planDiscount = 0;
+     if (user.plan_type === 'pro') planDiscount = 0.12;
+     if (user.plan_type === 'premium') planDiscount = 0.25;
+     if (user.plan_type === 'ultra') planDiscount = 0.40;
+     amount = Math.max(0.10, amount - (amount * planDiscount));
+  }
+  
+  return { amount, originalAmount };
+}
+
 apiRouter.post('/payments/pix', authMiddleware, async (req: any, res) => {
   const { credits, type } = req.body;
   if (!credits) return res.status(400).json({ error: 'Invalid amount' });
@@ -886,39 +937,12 @@ apiRouter.post('/payments/pix', authMiddleware, async (req: any, res) => {
       try { storeConfig = JSON.parse(dbConfig.value); } catch(e){}
   }
 
-  // Handle prices and promo logic
-  let originalAmount = 0;
-  if (type === 'tickets') originalAmount = storeConfig.tickets[credits];
-  else if (type === 'plan') originalAmount = storeConfig.plans[credits];
-  else originalAmount = storeConfig.coins[credits];
+  const user = db.prepare('SELECT username, plan_type FROM users WHERE id = ?').get(req.userId) as any;
+  const { amount } = calculatePaymentAmount(type, credits, user, storeConfig);
 
-  if (!originalAmount) return res.status(400).json({ error: 'Pacote inválido' });
-
-  let amount = originalAmount;
-  if (storeConfig.promo && storeConfig.promo.active) {
-      const now = new Date().getTime();
-      const ex = storeConfig.promo.expiresAt ? new Date(storeConfig.promo.expiresAt).getTime() : Infinity;
-      if (now < ex) {
-          if (storeConfig.promo.type === 'percent') {
-              amount = amount - (amount * (storeConfig.promo.value / 100));
-          } else if (storeConfig.promo.type === 'fixed') {
-              amount = Math.max(0.10, amount - storeConfig.promo.value);
-          }
-      }
-  }
+  if (!amount) return res.status(400).json({ error: 'Pacote inválido' });
 
   try {
-    const user = db.prepare('SELECT username, plan_type FROM users WHERE id = ?').get(req.userId) as any;
-
-    // Apply plan discount on coins and tickets
-    if (type === 'tickets' || type === 'credits') {
-       let planDiscount = 0;
-       if (user.plan_type === 'pro') planDiscount = 0.12;
-       if (user.plan_type === 'premium') planDiscount = 0.25;
-       if (user.plan_type === 'ultra') planDiscount = 0.40;
-       amount = amount - (amount * planDiscount);
-    }
-
     const expiresAtDate = new Date(Date.now() + 15 * 60 * 1000);
     const dateOfExpirationString = expiresAtDate.toISOString();
 
@@ -934,7 +958,9 @@ apiRouter.post('/payments/pix', authMiddleware, async (req: any, res) => {
         payment_method_id: 'pix',
         date_of_expiration: dateOfExpirationString,
         payer: {
-          email: `${user.username.replace(/[^a-zA-Z0-9]/g, '')}@instaboost.com.br`
+          email: `${user.username.replace(/[^a-zA-Z0-9]/g, '') || 'cliente'}@instaboost.com.br`,
+          first_name: user.username.replace(/[^a-zA-Z]/g, '').substring(0, 50) || 'Cliente',
+          last_name: 'Instaboost'
         },
         notification_url: 'https://instaboostpro-production.up.railway.app/api/webhook/mercadopago'
       }
@@ -947,11 +973,11 @@ apiRouter.post('/payments/pix', authMiddleware, async (req: any, res) => {
     const pixCode = paymentResponse.point_of_interaction?.transaction_data?.qr_code;
     
     if (type === 'tickets') {
-      db.prepare("INSERT INTO payments (id, user_id, amount, credits, tickets, item_type) VALUES (?, ?, ?, 0, ?, 'tickets')").run(paymentId, req.userId, amount, credits);
+      db.prepare("INSERT INTO payments (id, user_id, amount, credits, tickets, item_type, payment_method) VALUES (?, ?, ?, 0, ?, 'tickets', 'pix')").run(paymentId, req.userId, amount, credits);
     } else if (type === 'plan') {
-      db.prepare("INSERT INTO payments (id, user_id, amount, credits, tickets, item_type, plan_id) VALUES (?, ?, ?, 0, 0, 'plan', ?)").run(paymentId, req.userId, amount, credits);
+      db.prepare("INSERT INTO payments (id, user_id, amount, credits, tickets, item_type, plan_id, payment_method) VALUES (?, ?, ?, 0, 0, 'plan', ?, 'pix')").run(paymentId, req.userId, amount, credits);
     } else {
-      db.prepare("INSERT INTO payments (id, user_id, amount, credits, tickets, item_type) VALUES (?, ?, ?, ?, 0, 'credits')").run(paymentId, req.userId, amount, credits);
+      db.prepare("INSERT INTO payments (id, user_id, amount, credits, tickets, item_type, payment_method) VALUES (?, ?, ?, ?, 0, 'credits', 'pix')").run(paymentId, req.userId, amount, credits);
     }
 
     res.json({ 
@@ -1384,3 +1410,253 @@ apiRouter.post('/missions/claim', authMiddleware, (req: any, res) => {
         res.status(400).json({ error: err.message });
     }
 });
+
+// --- CREDIT CARD ROUTES ---
+
+apiRouter.post('/payments/cc', authMiddleware, async (req: any, res) => {
+  const { credits, type, token, cardId, installments, payerEmail, payerDocument, capture, paymentMethodId } = req.body;
+  if (!credits) return res.status(400).json({ error: 'Invalid amount' });
+
+  if (!process.env.MERCADOPAGO_ACCESS_TOKEN) {
+    return res.status(500).json({ error: 'Mercado Pago token não foi configurado (.env).' });
+  }
+
+  const dbConfig = db.prepare(`SELECT value FROM settings WHERE key = 'store_config'`).get() as any;
+  let storeConfig = {
+      coins: { 110: 0.50, 230: 1.00, 480: 2.00, 1150: 5.00, 2300: 10.00, 4200: 20.00, 5100: 50.00, 5800: 100.00, 6500: 200.00, 7200: 250.00 },
+      tickets: { 5: 1.50, 12: 3.00, 22: 5.00, 50: 10.00, 110: 20.00, 300: 50.00, 650: 100.00, 1050: 150.00, 1900: 250.00, 2400: 300.00 },
+      plans: { pro: 50.00, premium: 100.00, ultra: 150.00 },
+      promo: { active: false, type: 'percent', value: 0, expiresAt: null }
+  } as any;
+  if (dbConfig) {
+      try { storeConfig = JSON.parse(dbConfig.value); } catch(e){}
+  }
+
+  const user = db.prepare('SELECT username, plan_type, email, mp_customer_id, automatic_payment FROM users WHERE id = ?').get(req.userId) as any;
+  const { amount } = calculatePaymentAmount(type, credits, user, storeConfig);
+
+  if (!amount) return res.status(400).json({ error: 'Pacote inválido' });
+
+  try {
+    let descriptionText = '';
+    if (type === 'tickets') descriptionText = `${credits} Tickets InstaBoost`;
+    else if (type === 'plan') descriptionText = `Plano ${String(credits).toUpperCase()} (30 dias)`;
+    else descriptionText = `${credits} Créditos InstaBoost`;
+
+    let activeCustomerId = user.mp_customer_id;
+    
+    // Create customer if taking token and no customer ID (for saved cards support later)
+    if (!activeCustomerId) {
+      let safeName = 'Cliente';
+      if (user.username) safeName = user.username.replace(/[^a-zA-Z]/g, '').substring(0, 50) || 'Cliente';
+      const custEmail = user.email || payerEmail || `${safeName.toLowerCase()}@instaboost.com.br`;
+      if (custEmail) {
+         try {
+           const cResponse = await mpCustomer.create({ body: { email: custEmail, first_name: safeName, last_name: 'Instaboost' }});
+           activeCustomerId = cResponse.id;
+           db.prepare('UPDATE users SET mp_customer_id = ? WHERE id = ?').run(activeCustomerId, req.userId);
+         } catch(e: any) {
+           const isExist = JSON.stringify(e?.cause || e).includes('already exist');
+           if (isExist) {
+               try {
+                   const searchResponse = await mpCustomer.search({ options: { email: custEmail } });
+                   if (searchResponse?.results && searchResponse.results.length > 0) {
+                       activeCustomerId = searchResponse.results[0].id;
+                       db.prepare('UPDATE users SET mp_customer_id = ? WHERE id = ?').run(activeCustomerId, req.userId);
+                   }
+               } catch (se) {
+                   console.error('Failed to search MP customer', se);
+               }
+           } else {
+               console.error('Failed to create MP customer', e?.message, e?.cause || e);
+           }
+         }
+      }
+    }
+    
+    let safePaymentName = 'Cliente';
+    if (user.username) safePaymentName = user.username.replace(/[^a-zA-Z]/g, '').substring(0, 50) || 'Cliente';
+    
+    const paymentBody: any = {
+      transaction_amount: Number(amount.toFixed(2)),
+      description: `${descriptionText} (${user.username})`,
+      installments: installments || 1,
+      payer: {
+        email: payerEmail || user.email || `${safePaymentName.toLowerCase()}@instaboost.com.br`,
+        first_name: safePaymentName,
+        last_name: 'Instaboost'
+      },
+      notification_url: 'https://instaboostpro-production.up.railway.app/api/webhook/mercadopago'
+    };
+    
+    if (cardId && activeCustomerId) {
+       // use saved card
+       paymentBody.payer.id = activeCustomerId;
+       // The Card token wasn't provided, use payment_method_id? Actually you can't just pass cardId to payment if you don't use token, unless you pass token=card_id or use customer payment endpoint.
+       // But MP v2 says you pass token: 'card_token_id'. 
+       // Wait, MP allows token = card_id. Or we can just let frontend generate token from cardId and pass the token.
+       // Actually MercadoPago accepts token! We should assume `token` is passed for both new cards and saved cards. For saved cards, frontend passes token generated from cardId + securityCode.
+       // However, if we receive `token`, use it.
+    }
+    if (payerDocument) {
+       paymentBody.payer.identification = {
+          type: 'CPF',
+          number: payerDocument.replace(/\D/g, '')
+       };
+    }
+    
+    if (paymentMethodId) {
+        paymentBody.payment_method_id = paymentMethodId;
+    }
+    
+    // Always use token from frontend since it handles CVV validation even for saved cards.
+    // Or if CardId is sent and no token (automatic renewal), you may omit token if customer pays. No, MP requires token or an active customer with token.
+    if (token) paymentBody.token = token;
+
+    const paymentResponse = await mpPayment.create({ body: paymentBody });
+
+    const paymentId = paymentResponse.id?.toString();
+    if (!paymentId) throw new Error("Erro ao processar pagamento com cartão.");
+
+    if (type === 'tickets') {
+      db.prepare("INSERT INTO payments (id, user_id, amount, credits, tickets, item_type, payment_method) VALUES (?, ?, ?, 0, ?, 'tickets', 'cc')").run(paymentId, req.userId, amount, credits);
+    } else if (type === 'plan') {
+      db.prepare("INSERT INTO payments (id, user_id, amount, credits, tickets, item_type, plan_id, payment_method) VALUES (?, ?, ?, 0, 0, 'plan', ?, 'cc')").run(paymentId, req.userId, amount, credits);
+    } else {
+      db.prepare("INSERT INTO payments (id, user_id, amount, credits, tickets, item_type, payment_method) VALUES (?, ?, ?, ?, 0, 'credits', 'cc')").run(paymentId, req.userId, amount, credits);
+    }
+
+    if (capture && token && activeCustomerId && ['approved', 'in_process', 'pending'].includes(paymentResponse.status || '')) {
+       try {
+           const cardData: any = await mpCustomerCard.create({ customerId: activeCustomerId, body: { token }});
+           if (cardData && cardData.id) {
+               db.prepare(`INSERT INTO saved_cards (user_id, mp_card_id, last_four, brand, expiration_month, expiration_year, is_default)
+                           VALUES (?, ?, ?, ?, ?, ?, 0)`).run(
+                   req.userId, cardData.id, cardData.last_four_digits, cardData.payment_method?.id || 'unknown',
+                   cardData.expiration_month, cardData.expiration_year
+               );
+           }
+       } catch (e) {
+           console.error('Failed to save card:', e);
+       }
+    }
+
+    if (paymentResponse.status === 'approved') {
+       db.transaction(() => {
+          const updateRes = db.prepare("UPDATE payments SET status = 'approved' WHERE id = ? AND status = 'pending'").run(paymentId);
+          if (updateRes.changes > 0) {
+             if (type === 'plan') {
+                 const planId = credits.toString();
+                 const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+                 let bonus = 0;
+                 if (planId === 'pro') bonus = 1000;
+                 else if (planId === 'premium') bonus = 2500;
+                 else if (planId === 'ultra') bonus = 6000;
+                 
+                 db.prepare('UPDATE users SET plan_type = ?, plan_expires_at = ?, credits = credits + ? WHERE id = ?').run(planId, expiresAt, bonus, req.userId);
+                 createNotification(req.userId, 'Plano Ativado!', `Seu Plano ${planId.toUpperCase()} foi ativado com sucesso.`, 'profile');
+             } else if (type === 'tickets') {
+                 db.prepare('UPDATE users SET tickets = tickets + ? WHERE id = ?').run(credits, req.userId);
+                 createNotification(req.userId, 'Compra Aprovada!', `Seus ${credits} tickets foram adicionados na conta.`, 'store');
+             } else {
+                 db.prepare('UPDATE users SET credits = credits + ? WHERE id = ?').run(credits, req.userId);
+                 createNotification(req.userId, 'Compra Aprovada!', `Suas ${credits} moedas foram adicionadas na conta.`, 'store');
+                 
+                 const userForComm = db.prepare('SELECT referred_by FROM users WHERE id = ?').get(req.userId) as any;
+                 if (userForComm && userForComm.referred_by) {
+                    let commissionRate = 0.1;
+                    const referrer = db.prepare('SELECT plan_type FROM users WHERE id = ?').get(userForComm.referred_by) as any;
+                    if (referrer) {
+                       if (referrer.plan_type === 'pro') commissionRate = 0.2;
+                       else if (referrer.plan_type === 'premium') commissionRate = 0.3;
+                       else if (referrer.plan_type === 'ultra') commissionRate = 0.5;
+                    }
+                    const comm = Math.floor(credits * commissionRate);
+                    db.prepare('UPDATE users SET credits = credits + ? WHERE id = ?').run(comm, userForComm.referred_by);
+                    db.prepare('INSERT INTO commissions (referrer_id, referred_id, amount, action_type) VALUES (?, ?, ?, ?)').run(userForComm.referred_by, req.userId, comm, 'purchase');
+                    createNotification(userForComm.referred_by, 'Comissão Recebida!', `Você ganhou ${comm} moedas de comissão.`, 'profile');
+                 }
+             }
+          }
+       })();
+    }
+
+    res.json({ id: paymentId, status: paymentResponse.status, status_detail: paymentResponse.status_detail });
+  } catch (err: any) {
+    console.error('MercadoPago CC Error:', err.message || err);
+    res.status(500).json({ error: 'Falha ao processar pagamento' });
+  }
+});
+
+apiRouter.post('/payments/cards', authMiddleware, async (req: any, res) => {
+   const { token, payerEmail } = req.body;
+   if (!token) return res.status(400).json({ error: 'Token is required' });
+
+   try {
+       const user = db.prepare('SELECT username, plan_type, email, mp_customer_id, automatic_payment FROM users WHERE id = ?').get(req.userId) as any;
+       let activeCustomerId = user.mp_customer_id;
+       
+       if (!activeCustomerId) {
+         let safeName = 'Cliente';
+         if (user.username) safeName = user.username.replace(/[^a-zA-Z]/g, '').substring(0, 50) || 'Cliente';
+         const custEmail = user.email || payerEmail || `${safeName.toLowerCase()}@instaboost.com.br`;
+         try {
+             const cResponse = await mpCustomer.create({ body: { email: custEmail, first_name: safeName, last_name: 'Instaboost' }});
+             activeCustomerId = cResponse.id;
+             db.prepare('UPDATE users SET mp_customer_id = ? WHERE id = ?').run(activeCustomerId, req.userId);
+         } catch(e: any) {
+             const isExist = JSON.stringify(e?.cause || e).includes('already exist');
+             if (isExist) {
+                 try {
+                     const searchResponse = await mpCustomer.search({ options: { email: custEmail } });
+                     if (searchResponse?.results && searchResponse.results.length > 0) {
+                         activeCustomerId = searchResponse.results[0].id;
+                         db.prepare('UPDATE users SET mp_customer_id = ? WHERE id = ?').run(activeCustomerId, req.userId);
+                     }
+                 } catch (se) {
+                     console.error('Failed to search MP customer locally', se);
+                 }
+             } else {
+                 console.error('Failed to create MP customer locally', e?.cause || e);
+                 throw new Error('Falha ao criar perfil de cliente no Mercado Pago.');
+             }
+         }
+       }
+
+       const cardData: any = await mpCustomerCard.create({ customerId: activeCustomerId, body: { token }});
+       if (cardData && cardData.id) {
+           db.prepare(`INSERT INTO saved_cards (user_id, mp_card_id, last_four, brand, expiration_month, expiration_year, is_default)
+                       VALUES (?, ?, ?, ?, ?, ?, 0)`).run(
+               req.userId, cardData.id, cardData.last_four_digits, cardData.payment_method?.id || 'unknown',
+               cardData.expiration_month, cardData.expiration_year
+           );
+       }
+       res.json({ success: true });
+   } catch (err: any) {
+       console.error('Failed to save card directly:', err);
+       res.status(500).json({ error: 'Falha ao salvar o cartão' });
+   }
+});
+
+apiRouter.get('/payments/cards', authMiddleware, (req: any, res) => {
+   const cards = db.prepare('SELECT id, mp_card_id, last_four, brand, expiration_month, expiration_year, is_default FROM saved_cards WHERE user_id = ?').all(req.userId);
+   res.json(cards);
+});
+
+apiRouter.delete('/payments/cards/:id', authMiddleware, async (req: any, res) => {
+   const card = db.prepare('SELECT id, mp_card_id FROM saved_cards WHERE user_id = ? AND id = ?').get(req.userId, req.params.id) as any;
+   if (!card) return res.status(404).json({ error: 'Card not found' });
+
+   const user = db.prepare('SELECT mp_customer_id FROM users WHERE id = ?').get(req.userId) as any;
+   if (user?.mp_customer_id) {
+       try {
+           await mpCustomerCard.remove({ customerId: user.mp_customer_id, cardId: card.mp_card_id });
+       } catch (e) {
+           console.error('Failed to remove card from MP:', e);
+       }
+   }
+   
+   db.prepare('DELETE FROM saved_cards WHERE id = ?').run(card.id);
+   res.json({ success: true });
+});
+

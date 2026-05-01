@@ -2,23 +2,35 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/Button';
 import { showNotification } from '../context/NotificationContext';
-import { QrCode, Copy, Zap, CheckCircle } from 'lucide-react';
+import { QrCode, Copy, Zap, CheckCircle, CreditCard } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAppSound } from '../context/SoundContext';
+
+import { CreditCardForm } from '../components/checkout/CreditCardForm';
 
 export default function Store() {
   const { user, refreshUser } = useAuth();
   const { playSuccess, playClick } = useAppSound();
   const [loading, setLoading] = useState(false);
-  const [paymentData, setPaymentData] = useState<{ id: string, qrCode: string, pixCode: string, tickets: number, credits: number, exactExpiry: number, pendingPlan?: string } | null>(null);
+  const [paymentData, setPaymentData] = useState<{ id: string, paymentMethod: string, qrCode: string, pixCode: string, tickets: number, credits: number, exactExpiry: number, pendingPlan?: string } | null>(null);
   const [polling, setPolling] = useState(false);
   const [timeLeft, setTimeLeft] = useState(15 * 60);
   const [paymentSuccess, setPaymentSuccess] = useState(false);
   const [tab, setTab] = useState<'credits' | 'tickets' | 'plans'>('plans');
   const [storeConfig, setStoreConfig] = useState<any>(null);
 
+  const [paymentMethodSelect, setPaymentMethodSelect] = useState<{ credits: number|string, type: 'credits'|'tickets'|'plan', rawPrice: number } | null>(null);
+  const [showCCForm, setShowCCForm] = useState<'credit_card' | 'debit_card' | 'select_type' | false>(false);
+  const [savedCards, setSavedCards] = useState<any[]>([]);
+
   useEffect(() => {
     fetch('/api/store/config').then(res => res.json()).then(data => setStoreConfig(data)).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetch('/api/payments/cards').then(res => res.json()).then(data => {
+       if (Array.isArray(data)) setSavedCards(data);
+    }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -64,10 +76,14 @@ export default function Store() {
             const data = await res.json();
             if (data.status === 'approved') {
                playSuccess();
-               showNotification.success('Pagamento PIX Aprovado!');
+               showNotification.success(paymentData.paymentMethod === 'cc' ? 'Pagamento com Cartão Aprovado!' : 'Pagamento PIX Aprovado!');
                setPolling(false);
                setPaymentSuccess(true);
                refreshUser();
+            } else if (data.status === 'rejected' || data.status === 'cancelled') {
+               showNotification.error('Pagamento recusado ou cancelado.');
+               setPolling(false);
+               setPaymentData(null);
             }
           }
         } catch {}
@@ -76,8 +92,15 @@ export default function Store() {
     return () => clearInterval(interval);
   }, [polling, paymentData]);
 
-  const handleBuy = async (credits: number | string, type: 'credits' | 'tickets' | 'plan' = 'credits') => {
+  const handleBuy = (credits: number | string, type: 'credits' | 'tickets' | 'plan' = 'credits', rawPrice: number) => {
+      setPaymentMethodSelect({ credits, type, rawPrice });
+  };
+
+  const handleBuyPix = async () => {
+    if (!paymentMethodSelect) return;
+    const { credits, type } = paymentMethodSelect;
     setLoading(true);
+    setPaymentMethodSelect(null);
     try {
       const res = await fetch('/api/payments/pix', {
         method: 'POST',
@@ -88,6 +111,7 @@ export default function Store() {
       if (res.ok) {
         setPaymentData({ 
             ...data, 
+            paymentMethod: 'pix',
             exactExpiry: Date.now() + 15 * 60 * 1000, 
             pendingPlan: type === 'plan' ? credits.toString() : undefined,
             tickets: type === 'tickets' ? Number(credits) : 0,
@@ -138,7 +162,7 @@ export default function Store() {
     { c: 2400, price: 'R$ 300,00', pop: true }
   ];
 
-  let planPackages = [
+  let planPackages: any[] = [
     { 
        id: 'pro', 
        name: 'Pro', 
@@ -213,32 +237,55 @@ export default function Store() {
       if (user?.plan_type === 'premium') planDiscount = 0.25;
       if (user?.plan_type === 'ultra') planDiscount = 0.40;
 
-      const applyPromoAndPlan = (originalAmount: number) => {
+      const applyPromoAndPlan = (originalAmount: number, type: 'credits' | 'tickets' | 'plan', itemId?: string | number) => {
          let amt = originalAmount;
-         if (storeConfig.promo && storeConfig.promo.active) {
+         const hasPlan = user?.plan_type && user.plan_type !== 'basic';
+         
+         let applyPromo = false;
+         const pCoins = storeConfig.promo?.applyCoins ?? true;
+         const pTickets = storeConfig.promo?.applyTickets ?? true;
+
+         if (type === 'credits' && pCoins) applyPromo = true;
+         if (type === 'tickets' && pTickets) applyPromo = true;
+         if (type === 'plan') {
+             if (itemId === 'pro' && (storeConfig.promo?.applyPlanPro ?? true)) applyPromo = true;
+             if (itemId === 'premium' && (storeConfig.promo?.applyPlanPremium ?? true)) applyPromo = true;
+             if (itemId === 'ultra' && (storeConfig.promo?.applyPlanUltra ?? true)) applyPromo = true;
+         }
+
+         if ((type === 'tickets' || type === 'credits') && hasPlan) {
+            applyPromo = false; 
+         }
+         
+         if (applyPromo && storeConfig.promo && storeConfig.promo.active) {
             const now = new Date().getTime();
             const ex = storeConfig.promo.expiresAt ? new Date(storeConfig.promo.expiresAt).getTime() : Infinity;
             if (now < ex) {
                 if (storeConfig.promo.type === 'percent') {
-                   amt = amt - (amt * (storeConfig.promo.value / 100));
+                   amt = Math.max(0.10, amt - (amt * (storeConfig.promo.value / 100)));
                 } else if (storeConfig.promo.type === 'fixed') {
                    amt = Math.max(0.10, amt - storeConfig.promo.value);
                 }
             }
          }
-         amt = amt - (amt * planDiscount);
+         
+         if (type !== 'plan') {
+             amt = Math.max(0.10, amt - (amt * planDiscount));
+         }
+         
          return amt;
       };
 
       packages = packages.map(p => {
           const original = storeConfig.coins[p.c];
           if (original) {
-              const discounted = applyPromoAndPlan(original);
+              const discounted = applyPromoAndPlan(original, 'credits', p.c);
               return { 
                   ...p, 
                   price: formatPrice(discounted),
                   originalPrice: discounted < original ? formatPrice(original) : undefined,
-                  discountPercent: discounted < original ? Math.round(((original - discounted) / original) * 100) : 0
+                  discountPercent: discounted < original ? Math.round(((original - discounted) / original) * 100) : 0,
+                  rawPrice: discounted
               };
           }
           return p;
@@ -247,42 +294,28 @@ export default function Store() {
       ticketPackages = ticketPackages.map(p => {
           const original = storeConfig.tickets[p.c];
           if (original) {
-              const discounted = applyPromoAndPlan(original);
+              const discounted = applyPromoAndPlan(original, 'tickets', p.c);
               return { 
                   ...p, 
                   price: formatPrice(discounted),
                   originalPrice: discounted < original ? formatPrice(original) : undefined,
-                  discountPercent: discounted < original ? Math.round(((original - discounted) / original) * 100) : 0
+                  discountPercent: discounted < original ? Math.round(((original - discounted) / original) * 100) : 0,
+                  rawPrice: discounted
               };
           }
           return p;
       });
 
-      const applyPromoOnly = (originalAmount: number) => {
-         let amt = originalAmount;
-         if (storeConfig.promo && storeConfig.promo.active) {
-            const now = new Date().getTime();
-            const ex = storeConfig.promo.expiresAt ? new Date(storeConfig.promo.expiresAt).getTime() : Infinity;
-            if (now < ex) {
-                if (storeConfig.promo.type === 'percent') {
-                   amt = amt - (amt * (storeConfig.promo.value / 100));
-                } else if (storeConfig.promo.type === 'fixed') {
-                   amt = Math.max(0.10, amt - storeConfig.promo.value);
-                }
-            }
-         }
-         return amt;
-      };
-
       planPackages = planPackages.map(p => {
           const original = storeConfig.plans[p.id];
           if (original) {
-              const discounted = applyPromoOnly(original);
+              const discounted = applyPromoAndPlan(original, 'plan', p.id);
               return { 
                   ...p, 
                   price: formatPrice(discounted),
                   originalPrice: discounted < original ? formatPrice(original) : undefined,
-                  discountPercent: discounted < original ? Math.round(((original - discounted) / original) * 100) : 0
+                  discountPercent: discounted < original ? Math.round(((original - discounted) / original) * 100) : 0,
+                  rawPrice: discounted
               };
           }
           return p;
@@ -302,7 +335,10 @@ export default function Store() {
             <motion.div 
               initial={{ scale: 0 }} 
               animate={{ scale: 1, rotate: [0, 20, -20, 0] }}
-              transition={{ type: "spring", stiffness: 200, damping: 10 }}
+              transition={{ 
+                scale: { type: "spring", stiffness: 200, damping: 10 },
+                rotate: { type: "tween", duration: 0.5, ease: "easeInOut" }
+              }}
               className="text-green-500"
             >
               <CheckCircle size={80} />
@@ -320,7 +356,7 @@ export default function Store() {
               Voltar para Loja
             </Button>
           </motion.div>
-        ) : !paymentData ? (
+        ) : !paymentData && !paymentMethodSelect && !showCCForm ? (
           <motion.div key="store" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col gap-6">
             <div>
               <h2 className="text-2xl font-bold flex items-center gap-2">
@@ -362,8 +398,8 @@ export default function Store() {
                            </div>
                            <div className="flex flex-col items-center mt-4 relative">
                               {pkg.discountPercent > 0 && (
-                                 <div className="absolute -top-6 left-1/2 transform -translate-x-1/2 bg-red-500 text-white text-[10px] uppercase font-bold py-1 px-3 rounded-full shadow-lg whitespace-nowrap">
-                                    {pkg.discountPercent}% OFF VIP!
+                                 <div className="absolute -top-6 left-1/2 transform -translate-x-1/2 bg-red-500 text-white text-[10px] uppercase font-bold py-1 px-3 rounded-full shadow-lg whitespace-nowrap flex items-center gap-1">
+                                    <Zap size={10} className="fill-white" /> -{pkg.discountPercent}% OFF VIP!
                                  </div>
                               )}
                               {pkg.originalPrice && <div className="text-sm text-red-500 line-through mb-1">{pkg.originalPrice}</div>}
@@ -381,7 +417,7 @@ export default function Store() {
                            ))}
                         </div>
 
-                        <Button className="w-full mt-4 h-12 text-lg shadow-lg" variant={pkg.pop ? 'primary' : 'secondary'} onClick={() => handleBuy(pkg.id, 'plan')} isLoading={loading}>
+                        <Button className="w-full mt-4 h-12 text-lg shadow-lg" variant={pkg.pop ? 'primary' : 'secondary'} onClick={() => handleBuy(pkg.id, 'plan', pkg.rawPrice)} isLoading={loading}>
                            Assinar {pkg.name}
                         </Button>
                      </div>
@@ -402,11 +438,11 @@ export default function Store() {
                        <div className={`font-bold text-lg ${pkg.originalPrice ? 'text-green-500' : ''}`}>{pkg.price}</div>
                     </div>
                     {pkg.discountPercent > 0 && (
-                       <div className="absolute top-0 left-0 transform -translate-x-2 -translate-y-2 bg-red-500 text-white text-[10px] uppercase font-bold py-1 px-2 rounded-lg shadow-lg z-20">
-                          -{pkg.discountPercent}% OFF
+                       <div className="absolute top-0 left-0 transform -translate-x-2 -translate-y-2 bg-red-500 text-white text-[10px] uppercase font-bold py-1 px-2 rounded-lg shadow-lg z-20 flex items-center gap-1">
+                          <Zap size={10} className="fill-white" /> -{pkg.discountPercent}% OFF
                        </div>
                     )}
-                    <Button className="w-full mt-2" variant={pkg.pop ? 'primary' : 'secondary'} onClick={() => handleBuy(pkg.c, 'credits')} isLoading={loading}>
+                    <Button className="w-full mt-2" variant={pkg.pop ? 'primary' : 'secondary'} onClick={() => handleBuy(pkg.c, 'credits', pkg.rawPrice)} isLoading={loading}>
                       Comprar
                     </Button>
                   </div>
@@ -427,17 +463,62 @@ export default function Store() {
                            <div className={`font-bold text-lg ${pkg.originalPrice ? 'text-green-500' : ''}`}>{pkg.price}</div>
                         </div>
                         {pkg.discountPercent > 0 && (
-                           <div className="absolute top-0 left-0 transform -translate-x-2 -translate-y-2 bg-red-500 text-white text-[10px] uppercase font-bold py-1 px-2 rounded-lg shadow-lg z-20">
-                              -{pkg.discountPercent}% OFF
+                           <div className="absolute top-0 left-0 transform -translate-x-2 -translate-y-2 bg-red-500 text-white text-[10px] uppercase font-bold py-1 px-2 rounded-lg shadow-lg z-20 flex items-center gap-1">
+                              <Zap size={10} className="fill-white" /> -{pkg.discountPercent}% OFF
                            </div>
                         )}
-                        <Button className="w-full mt-2" variant={pkg.pop ? 'primary' : 'secondary'} onClick={() => handleBuy(pkg.c, 'tickets')} isLoading={loading}>
+                        <Button className="w-full mt-2" variant={pkg.pop ? 'primary' : 'secondary'} onClick={() => handleBuy(pkg.c, 'tickets', pkg.rawPrice)} isLoading={loading}>
                            Comprar
                         </Button>
                      </div>
                   ))}
                </div>
             )}
+          </motion.div>
+        ) : paymentMethodSelect && !showCCForm && !paymentData ? (
+          <motion.div 
+            key="method-select"
+            initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}
+            className="flex flex-col items-center justify-center pt-10"
+          >
+             <div className="bg-card w-full max-w-md p-6 rounded-3xl border shadow-xl text-center">
+                <h3 className="text-2xl font-bold mb-2">Forma de Pagamento</h3>
+                <p className="text-muted-foreground text-sm mb-6">Como você deseja pagar os {paymentMethodSelect.type === 'plan' ? 'Plano ' + String(paymentMethodSelect.credits).toUpperCase() : paymentMethodSelect.credits + (paymentMethodSelect.type === 'tickets' ? ' Tickets' : ' Moedas')}?</p>
+                
+                <div className="flex flex-col gap-3">
+                   <Button variant="outline" className="h-16 text-lg justify-start px-6 border-2 hover:border-primary hover:bg-primary/5 transition-all" onClick={() => setShowCCForm('credit_card')}>
+                      <CreditCard className="mr-4 text-primary" size={24} /> Cartões
+                   </Button>
+                   <Button variant="outline" className="h-16 text-lg justify-start px-6 border-2 hover:border-green-500 hover:bg-green-500/5 transition-all outline-none" onClick={handleBuyPix} isLoading={loading}>
+                      <QrCode className="mr-4 text-green-500" size={24} /> PIX (Aprovação Imediata)
+                   </Button>
+                </div>
+                
+                <Button variant="ghost" className="mt-6 w-full" onClick={() => setPaymentMethodSelect(null)}>
+                   Cancelar
+                </Button>
+             </div>
+          </motion.div>
+        ) : (showCCForm === 'credit_card' || showCCForm === 'debit_card') && paymentMethodSelect && !paymentData ? (
+          <motion.div key="cc-form" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+             <CreditCardForm
+                 amount={paymentMethodSelect.rawPrice}
+                 itemC={paymentMethodSelect.credits}
+                 itemType={paymentMethodSelect.type}
+                 savedCards={savedCards}
+                 initialMethodType={showCCForm}
+                 onSuccess={(pid, status) => {
+                     if (status === 'approved') {
+                         setPaymentData({ id: pid, paymentMethod: 'cc', qrCode: '', pixCode: '', tickets: paymentMethodSelect.type === 'tickets' ? Number(paymentMethodSelect.credits) : 0, credits: paymentMethodSelect.type === 'credits' ? Number(paymentMethodSelect.credits) : 0, exactExpiry: Date.now() + 15 * 60 * 1000, pendingPlan: paymentMethodSelect.type === 'plan' ? String(paymentMethodSelect.credits) : undefined });
+                         setPaymentSuccess(true);
+                         refreshUser();
+                     } else {
+                         setPaymentData({ id: pid, paymentMethod: 'cc', qrCode: '', pixCode: '', tickets: paymentMethodSelect.type === 'tickets' ? Number(paymentMethodSelect.credits) : 0, credits: paymentMethodSelect.type === 'credits' ? Number(paymentMethodSelect.credits) : 0, exactExpiry: Date.now() + 15 * 60 * 1000, pendingPlan: paymentMethodSelect.type === 'plan' ? String(paymentMethodSelect.credits) : undefined });
+                         setPolling(true);
+                     }
+                 }}
+                 onCancel={() => { setShowCCForm(false); setPaymentMethodSelect(null); }}
+             />
           </motion.div>
         ) : (
           <motion.div 
@@ -471,34 +552,45 @@ export default function Store() {
               )}
             </div>
             
-            {paymentData.qrCode ? (
-              <div className="p-2 bg-white rounded-xl">
-                <img src={paymentData.qrCode} alt="PIX QR Code" className="w-48 h-48" />
+            {paymentData.paymentMethod === 'cc' ? (
+              <div className="p-6 bg-secondary/30 rounded-xl my-4">
+                <p className="text-muted-foreground font-medium mb-4">Seu cartão de crédito/débito está sendo processado.</p>
+                <div className="flex items-center justify-center gap-2 text-sm text-primary animate-pulse font-bold">
+                  <Loader2 className="animate-spin" size={24} /> Processando...
+                </div>
               </div>
             ) : (
-              <div className="p-2 bg-white rounded-xl w-48 h-48 flex items-center justify-center text-xs text-black/50 text-center font-medium">
-                QR Code apenas via app MercadoPago
-              </div>
+              <>
+                {paymentData.qrCode ? (
+                  <div className="p-2 bg-white rounded-xl">
+                    <img src={paymentData.qrCode} alt="PIX QR Code" className="w-48 h-48" />
+                  </div>
+                ) : (
+                  <div className="p-2 bg-white rounded-xl w-48 h-48 flex items-center justify-center text-xs text-black/50 text-center font-medium">
+                    QR Code apenas via app MercadoPago
+                  </div>
+                )}
+    
+                <div className="w-full flex gap-2">
+                  <div className="flex-1 bg-secondary rounded-xl px-3 py-2 text-xs truncate border border-border flex items-center text-left">
+                    {paymentData.pixCode?.substring(0, 30)}...
+                  </div>
+                  <Button 
+                     variant="outline"
+                     onClick={() => {
+                       navigator.clipboard.writeText(paymentData.pixCode);
+                       showNotification.success('Código PIX copiado!');
+                     }}
+                  >
+                    <Copy size={16} /> Copiar
+                  </Button>
+                </div>
+    
+                <div className="flex items-center gap-2 text-sm text-primary animate-pulse">
+                  <Loader2 className="animate-spin" size={16} /> Aguardando pagamento do PIX...
+                </div>
+              </>
             )}
-
-            <div className="w-full flex gap-2">
-              <div className="flex-1 bg-secondary rounded-xl px-3 py-2 text-xs truncate border border-border flex items-center text-left">
-                {paymentData.pixCode?.substring(0, 30)}...
-              </div>
-              <Button 
-                 variant="outline"
-                 onClick={() => {
-                   navigator.clipboard.writeText(paymentData.pixCode);
-                   showNotification.success('Código PIX copiado!');
-                 }}
-              >
-                <Copy size={16} /> Copiar
-              </Button>
-            </div>
-
-            <div className="flex items-center gap-2 text-sm text-primary animate-pulse">
-              <Loader2 className="animate-spin" size={16} /> Aguardando pagamento do PIX...
-            </div>
             
             <Button variant="secondary" className="mt-4" onClick={() => setPaymentData(null)}>
               Cancelar Operação

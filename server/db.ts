@@ -66,6 +66,7 @@ const paymentCols = db.prepare('PRAGMA table_info(payments)').all() as any[];
 const hasPaymentTickets = paymentCols.some(c => c.name === 'tickets');
 const hasPaymentItemType = paymentCols.some(c => c.name === 'item_type');
 const hasPaymentPlanId = paymentCols.some(c => c.name === 'plan_id');
+const hasPaymentMethodCol = paymentCols.some(c => c.name === 'payment_method');
 
 if (!hasLastActiveAt) db.exec('ALTER TABLE users ADD COLUMN last_active_at DATETIME DEFAULT CURRENT_TIMESTAMP;');
 if (!hasEmail) db.exec('ALTER TABLE users ADD COLUMN email TEXT;');
@@ -87,6 +88,11 @@ const hasPlanExpiresAt = userCols.some(c => c.name === 'plan_expires_at');
 if (!hasPlanType) db.exec(`ALTER TABLE users ADD COLUMN plan_type TEXT DEFAULT 'basic';`);
 if (!hasPlanExpiresAt) db.exec('ALTER TABLE users ADD COLUMN plan_expires_at DATETIME;');
 
+const hasMpCustomerId = userCols.some(c => c.name === 'mp_customer_id');
+const hasAutomaticPayment = userCols.some(c => c.name === 'automatic_payment');
+if (!hasMpCustomerId) db.exec('ALTER TABLE users ADD COLUMN mp_customer_id TEXT;');
+if (!hasAutomaticPayment) db.exec('ALTER TABLE users ADD COLUMN automatic_payment INTEGER DEFAULT 1;');
+
 if (!hasReferralCode) {
    db.exec('ALTER TABLE users ADD COLUMN referral_code TEXT;');
    db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_referral_code ON users(referral_code);');
@@ -104,6 +110,7 @@ if (!hasReferralCode) {
 if (!hasPaymentTickets) db.exec('ALTER TABLE payments ADD COLUMN tickets INTEGER DEFAULT 0;');
 if (!hasPaymentItemType) db.exec(`ALTER TABLE payments ADD COLUMN item_type TEXT DEFAULT 'credits';`);
 if (!hasPaymentPlanId) db.exec('ALTER TABLE payments ADD COLUMN plan_id TEXT;');
+if (!hasPaymentMethodCol) db.exec(`ALTER TABLE payments ADD COLUMN payment_method TEXT DEFAULT 'pix';`);
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS login_logs (
@@ -192,6 +199,19 @@ db.exec(`
     message TEXT NOT NULL,
     type TEXT,
     is_read INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS saved_cards (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    mp_card_id TEXT NOT NULL,
+    last_four TEXT NOT NULL,
+    brand TEXT,
+    expiration_month INTEGER,
+    expiration_year INTEGER,
+    is_default INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
   );
