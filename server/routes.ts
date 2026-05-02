@@ -918,6 +918,82 @@ export function calculatePaymentAmount(type: string, credits: string | number, u
   return { amount, originalAmount };
 }
 
+apiRouter.post('/payments/cc', authMiddleware, async (req: any, res) => {
+  const { credits, type, token, paymentMethodId, installments, payerDocument } = req.body;
+  if (!credits) return res.status(400).json({ error: 'Invalid amount' });
+
+  if (!process.env.MERCADOPAGO_ACCESS_TOKEN) {
+    return res.status(500).json({ error: 'Mercado Pago token não foi configurado (.env).' });
+  }
+
+  const dbConfig = db.prepare(`SELECT value FROM settings WHERE key = 'store_config'`).get() as any;
+  let storeConfig = {
+      coins: { 110: 0.50, 230: 1.00, 480: 2.00, 1150: 5.00, 2300: 10.00, 4200: 20.00, 5100: 50.00, 5800: 100.00, 6500: 200.00, 7200: 250.00 },
+      tickets: { 5: 1.50, 12: 3.00, 22: 5.00, 50: 10.00, 110: 20.00, 300: 50.00, 650: 100.00, 1050: 150.00, 1900: 250.00, 2400: 300.00 },
+      plans: { pro: 50.00, premium: 100.00, ultra: 150.00 },
+      promo: { active: false, type: 'percent', value: 0, expiresAt: null }
+  } as any;
+  if (dbConfig) {
+      try { storeConfig = JSON.parse(dbConfig.value); } catch(e){}
+  }
+
+  const user = db.prepare('SELECT username, plan_type FROM users WHERE id = ?').get(req.userId) as any;
+  const { amount } = calculatePaymentAmount(type, credits, user, storeConfig);
+
+  if (!amount) return res.status(400).json({ error: 'Pacote inválido' });
+
+  try {
+    let descriptionText = '';
+    if (type === 'tickets') descriptionText = `${credits} Tickets InstaBoost`;
+    else if (type === 'plan') descriptionText = `Plano ${String(credits).toUpperCase()} (30 dias)`;
+    else descriptionText = `${credits} Créditos InstaBoost`;
+
+    const paymentResponse = await mpPayment.create({
+      body: {
+        transaction_amount: amount,
+        description: `${descriptionText} (${user.username})`,
+        payment_method_id: paymentMethodId,
+        token: token,
+        installments: installments || 1,
+         payer: {
+          email: `${user.username.replace(/[^a-zA-Z0-9]/g, '') || 'cliente'}@instaboost.com.br`,
+          first_name: user.username.replace(/[^a-zA-Z]/g, '').substring(0, 50) || 'Cliente',
+          last_name: 'Instaboost',
+          identification: payerDocument ? {
+              type: 'CPF',
+              number: payerDocument.replace(/\D/g, '')
+          } : undefined
+        },
+        notification_url: 'https://instaboostpro-production.up.railway.app/api/webhook/mercadopago'
+      }
+    });
+
+    const paymentId = paymentResponse.id?.toString();
+    if (!paymentId) throw new Error("ID do PIX/CC não retornado.");
+
+    const rawStatus = paymentResponse.status;
+    let dbStatus = 'pending';
+
+    if (type === 'tickets') {
+      db.prepare("INSERT INTO payments (id, user_id, amount, credits, tickets, item_type, payment_method, status) VALUES (?, ?, ?, 0, ?, 'tickets', 'cc', ?)").run(paymentId, req.userId, amount, credits, dbStatus);
+    } else if (type === 'plan') {
+      db.prepare("INSERT INTO payments (id, user_id, amount, credits, tickets, item_type, plan_id, payment_method, status) VALUES (?, ?, ?, 0, 0, 'plan', ?, 'cc', ?)").run(paymentId, req.userId, amount, credits, dbStatus);
+    } else {
+      db.prepare("INSERT INTO payments (id, user_id, amount, credits, tickets, item_type, payment_method, status) VALUES (?, ?, ?, ?, 0, 'credits', 'cc', ?)").run(paymentId, req.userId, amount, credits, dbStatus);
+    }
+
+    if (rawStatus === 'rejected') {
+       db.prepare("UPDATE payments SET status = 'rejected' WHERE id = ?").run(paymentId);
+       return res.status(400).json({ status: 'rejected', status_detail: paymentResponse.status_detail });
+    }
+
+    res.json({ id: paymentId, status: 'pending', status_detail: paymentResponse.status_detail });
+  } catch (err: any) {
+    console.error('MercadoPago CC Error:', err);
+    res.status(500).json({ error: 'Falha ao processar pagamento.', message: err.message });
+  }
+});
+
 apiRouter.post('/payments/pix', authMiddleware, async (req: any, res) => {
   const { credits, type } = req.body;
   if (!credits) return res.status(400).json({ error: 'Invalid amount' });
@@ -1414,7 +1490,7 @@ apiRouter.post('/missions/claim', authMiddleware, (req: any, res) => {
 // --- CREDIT CARD ROUTES ---
 
 apiRouter.post('/payments/cc', authMiddleware, async (req: any, res) => {
-  const { credits, type, token, cardId, installments, payerEmail, payerDocument, capture, paymentMethodId } = req.body;
+  const { credits, type, token, installments, payerEmail, payerDocument, paymentMethodId } = req.body;
   if (!credits) return res.status(400).json({ error: 'Invalid amount' });
 
   if (!process.env.MERCADOPAGO_ACCESS_TOKEN) {
@@ -1489,15 +1565,6 @@ apiRouter.post('/payments/cc', authMiddleware, async (req: any, res) => {
       notification_url: 'https://instaboostpro-production.up.railway.app/api/webhook/mercadopago'
     };
     
-    if (cardId && activeCustomerId) {
-       // use saved card
-       paymentBody.payer.id = activeCustomerId;
-       // The Card token wasn't provided, use payment_method_id? Actually you can't just pass cardId to payment if you don't use token, unless you pass token=card_id or use customer payment endpoint.
-       // But MP v2 says you pass token: 'card_token_id'. 
-       // Wait, MP allows token = card_id. Or we can just let frontend generate token from cardId and pass the token.
-       // Actually MercadoPago accepts token! We should assume `token` is passed for both new cards and saved cards. For saved cards, frontend passes token generated from cardId + securityCode.
-       // However, if we receive `token`, use it.
-    }
     if (payerDocument) {
        paymentBody.payer.identification = {
           type: 'CPF',
@@ -1524,21 +1591,6 @@ apiRouter.post('/payments/cc', authMiddleware, async (req: any, res) => {
       db.prepare("INSERT INTO payments (id, user_id, amount, credits, tickets, item_type, plan_id, payment_method) VALUES (?, ?, ?, 0, 0, 'plan', ?, 'cc')").run(paymentId, req.userId, amount, credits);
     } else {
       db.prepare("INSERT INTO payments (id, user_id, amount, credits, tickets, item_type, payment_method) VALUES (?, ?, ?, ?, 0, 'credits', 'cc')").run(paymentId, req.userId, amount, credits);
-    }
-
-    if (capture && token && activeCustomerId && ['approved', 'in_process', 'pending'].includes(paymentResponse.status || '')) {
-       try {
-           const cardData: any = await mpCustomerCard.create({ customerId: activeCustomerId, body: { token }});
-           if (cardData && cardData.id) {
-               db.prepare(`INSERT INTO saved_cards (user_id, mp_card_id, last_four, brand, expiration_month, expiration_year, is_default)
-                           VALUES (?, ?, ?, ?, ?, ?, 0)`).run(
-                   req.userId, cardData.id, cardData.last_four_digits, cardData.payment_method?.id || 'unknown',
-                   cardData.expiration_month, cardData.expiration_year
-               );
-           }
-       } catch (e) {
-           console.error('Failed to save card:', e);
-       }
     }
 
     if (paymentResponse.status === 'approved') {
@@ -1586,77 +1638,5 @@ apiRouter.post('/payments/cc', authMiddleware, async (req: any, res) => {
     console.error('MercadoPago CC Error:', err.message || err);
     res.status(500).json({ error: 'Falha ao processar pagamento' });
   }
-});
-
-apiRouter.post('/payments/cards', authMiddleware, async (req: any, res) => {
-   const { token, payerEmail } = req.body;
-   if (!token) return res.status(400).json({ error: 'Token is required' });
-
-   try {
-       const user = db.prepare('SELECT username, plan_type, email, mp_customer_id, automatic_payment FROM users WHERE id = ?').get(req.userId) as any;
-       let activeCustomerId = user.mp_customer_id;
-       
-       if (!activeCustomerId) {
-         let safeName = 'Cliente';
-         if (user.username) safeName = user.username.replace(/[^a-zA-Z]/g, '').substring(0, 50) || 'Cliente';
-         const custEmail = user.email || payerEmail || `${safeName.toLowerCase()}@instaboost.com.br`;
-         try {
-             const cResponse = await mpCustomer.create({ body: { email: custEmail, first_name: safeName, last_name: 'Instaboost' }});
-             activeCustomerId = cResponse.id;
-             db.prepare('UPDATE users SET mp_customer_id = ? WHERE id = ?').run(activeCustomerId, req.userId);
-         } catch(e: any) {
-             const isExist = JSON.stringify(e?.cause || e).includes('already exist');
-             if (isExist) {
-                 try {
-                     const searchResponse = await mpCustomer.search({ options: { email: custEmail } });
-                     if (searchResponse?.results && searchResponse.results.length > 0) {
-                         activeCustomerId = searchResponse.results[0].id;
-                         db.prepare('UPDATE users SET mp_customer_id = ? WHERE id = ?').run(activeCustomerId, req.userId);
-                     }
-                 } catch (se) {
-                     console.error('Failed to search MP customer locally', se);
-                 }
-             } else {
-                 console.error('Failed to create MP customer locally', e?.cause || e);
-                 throw new Error('Falha ao criar perfil de cliente no Mercado Pago.');
-             }
-         }
-       }
-
-       const cardData: any = await mpCustomerCard.create({ customerId: activeCustomerId, body: { token }});
-       if (cardData && cardData.id) {
-           db.prepare(`INSERT INTO saved_cards (user_id, mp_card_id, last_four, brand, expiration_month, expiration_year, is_default)
-                       VALUES (?, ?, ?, ?, ?, ?, 0)`).run(
-               req.userId, cardData.id, cardData.last_four_digits, cardData.payment_method?.id || 'unknown',
-               cardData.expiration_month, cardData.expiration_year
-           );
-       }
-       res.json({ success: true });
-   } catch (err: any) {
-       console.error('Failed to save card directly:', err);
-       res.status(500).json({ error: 'Falha ao salvar o cartão' });
-   }
-});
-
-apiRouter.get('/payments/cards', authMiddleware, (req: any, res) => {
-   const cards = db.prepare('SELECT id, mp_card_id, last_four, brand, expiration_month, expiration_year, is_default FROM saved_cards WHERE user_id = ?').all(req.userId);
-   res.json(cards);
-});
-
-apiRouter.delete('/payments/cards/:id', authMiddleware, async (req: any, res) => {
-   const card = db.prepare('SELECT id, mp_card_id FROM saved_cards WHERE user_id = ? AND id = ?').get(req.userId, req.params.id) as any;
-   if (!card) return res.status(404).json({ error: 'Card not found' });
-
-   const user = db.prepare('SELECT mp_customer_id FROM users WHERE id = ?').get(req.userId) as any;
-   if (user?.mp_customer_id) {
-       try {
-           await mpCustomerCard.remove({ customerId: user.mp_customer_id, cardId: card.mp_card_id });
-       } catch (e) {
-           console.error('Failed to remove card from MP:', e);
-       }
-   }
-   
-   db.prepare('DELETE FROM saved_cards WHERE id = ?').run(card.id);
-   res.json({ success: true });
 });
 

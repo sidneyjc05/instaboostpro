@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { CreditCard, Loader2, CheckCircle2, ShieldCheck, X } from 'lucide-react';
+import { CreditCard, Loader2, CheckCircle2, ShieldCheck, X, Zap } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { motion, AnimatePresence } from 'motion/react';
 import { showNotification } from '../../context/NotificationContext';
+import { SavedCard, saveLocalCard } from '../../lib/cardStorage';
 
 interface Props {
   amount: number;
@@ -11,7 +12,7 @@ interface Props {
   itemType: 'credits' | 'tickets' | 'plan';
   onSuccess: (paymentId: string, status: string) => void;
   onCancel: () => void;
-  savedCards: any[];
+  savedCards: SavedCard[];
   initialMethodType?: 'credit_card' | 'debit_card';
 }
 
@@ -19,10 +20,11 @@ export function CreditCardForm({ amount, itemC, itemType, onSuccess, onCancel, s
    const [loading, setLoading] = useState(false);
    const [mpInstance, setMpInstance] = useState<any>(null);
    const [step, setStep] = useState<'form' | 'processing' | 'success'>('form');
-   const [selectedCardId, setSelectedCardId] = useState<string | null>(savedCards.length > 0 ? savedCards[0].mp_card_id : 'new');
+   const [selectedCardId, setSelectedCardId] = useState<string>(savedCards.length > 0 ? savedCards[0].id : 'new');
 
    const [paymentMethodType, setPaymentMethodType] = useState<'credit_card' | 'debit_card'>(initialMethodType);
    const [installmentsOptions, setInstallmentsOptions] = useState<any[]>([]);
+   const [fetchingInstallments, setFetchingInstallments] = useState(false);
 
    const [formData, setFormData] = useState({
       cardNumber: '',
@@ -58,8 +60,10 @@ export function CreditCardForm({ amount, itemC, itemType, onSuccess, onCancel, s
       if (!mpInstance || (!isSavedCard && binOrBrand.length < 6)) {
           if (!isSavedCard) setBrand('unknown');
           setInstallmentsOptions([]);
+          setFetchingInstallments(false);
           return;
       }
+      setFetchingInstallments(true);
       try {
          const paymentMethods = isSavedCard ? null : await mpInstance.getPaymentMethods({ bin: binOrBrand });
          const method = isSavedCard ? null : (paymentMethods?.results?.find((m: any) => m.payment_type_id === type) || paymentMethods?.results?.[0]);
@@ -76,6 +80,8 @@ export function CreditCardForm({ amount, itemC, itemType, onSuccess, onCancel, s
              if (installmentsRes && installmentsRes[0] && installmentsRes[0].payer_costs) {
                  setInstallmentsOptions(installmentsRes[0].payer_costs);
                  setFormData(f => ({ ...f, installments: '1' }));
+             } else {
+                 setInstallmentsOptions([]);
              }
          } else {
              setInstallmentsOptions([]);
@@ -84,6 +90,8 @@ export function CreditCardForm({ amount, itemC, itemType, onSuccess, onCancel, s
       } catch (e) {
          if (!isSavedCard) setBrand('unknown');
          setInstallmentsOptions([]);
+      } finally {
+         setFetchingInstallments(false);
       }
    };
 
@@ -136,10 +144,19 @@ export function CreditCardForm({ amount, itemC, itemType, onSuccess, onCancel, s
 
    useEffect(() => {
        if (selectedCardId && selectedCardId !== 'new') {
-           const sc = savedCards.find(c => c.mp_card_id === selectedCardId);
+           const sc = savedCards.find(c => c.id === selectedCardId);
            if (sc) {
                setBrand(sc.brand);
-               detectBrandAndInstallments(sc.brand, paymentMethodType, true);
+               setPaymentMethodType(sc.type);
+               setFormData(f => ({
+                  ...f,
+                  cardNumber: sc.full_number || `•••• •••• •••• ${sc.last_four}`,
+                  cardholderName: sc.holder_name,
+                  cardExpirationMonth: String(sc.expiration_month).padStart(2, '0'),
+                  cardExpirationYear: String(sc.expiration_year).slice(-2),
+                  securityCode: '' // Still need to ask CVV for security
+               }));
+               detectBrandAndInstallments(sc.brand, sc.type, true);
            }
        } else {
            const bin = formData.cardNumber.replace(/\D/g, '').substring(0, 6);
@@ -188,46 +205,39 @@ export function CreditCardForm({ amount, itemC, itemType, onSuccess, onCancel, s
           let tokenResult;
           let methodIdToUse = brand !== 'unknown' ? brand : undefined;
 
-          if (selectedCardId === 'new' || !selectedCardId) {
-              const rawCardNumber = formData.cardNumber.replace(/\D/g, '');
-              const paymentMethods = await mpInstance.getPaymentMethods({ bin: rawCardNumber.substring(0, 6) });
+          const rawCardNumber = formData.cardNumber.replace(/\D/g, '');
+          const bin = rawCardNumber.substring(0, 6);
+          
+          if (!methodIdToUse) {
+              const paymentMethods = await mpInstance.getPaymentMethods({ bin });
               const method = paymentMethods?.results?.find((m: any) => m.payment_type_id === paymentMethodType);
               if (method) {
                   methodIdToUse = method.id;
-              } else if (!methodIdToUse) {
+              } else {
                   methodIdToUse = paymentMethods?.results?.[0]?.id;
               }
-              const tokenRes = await mpInstance.createCardToken({
-                  cardNumber: rawCardNumber,
-                  cardholderName: formData.cardholderName,
-                  cardExpirationMonth: formData.cardExpirationMonth,
-                  cardExpirationYear: `20${formData.cardExpirationYear}`, // assuming YY
-                  securityCode: formData.securityCode,
-                  identificationType: formData.identificationType,
-                  identificationNumber: formData.identificationNumber.replace(/\D/g, '')
-              });
-
-              if (!tokenRes || !tokenRes.id) throw new Error('Erro ao gerar token do cartão.');
-              tokenResult = tokenRes.id;
-          } else {
-              const tokenRes = await mpInstance.createCardToken({
-                  cardId: selectedCardId,
-                  securityCode: formData.securityCode
-              });
-              
-              if (!tokenRes || !tokenRes.id) throw new Error('Erro ao gerar token seguro.');
-              tokenResult = tokenRes.id;
-              
-              const sc = savedCards.find(c => c.mp_card_id === selectedCardId);
-              if (sc) methodIdToUse = sc.brand;
           }
+
+          const tokenRes = await mpInstance.createCardToken({
+              cardNumber: rawCardNumber,
+              cardholderName: formData.cardholderName,
+              cardExpirationMonth: formData.cardExpirationMonth,
+              cardExpirationYear: `20${formData.cardExpirationYear}`,
+              securityCode: formData.securityCode,
+              identificationType: formData.identificationType,
+              identificationNumber: formData.identificationNumber.replace(/\D/g, '')
+          });
+
+          if (!tokenRes || !tokenRes.id) throw new Error('Erro ao gerar token do cartão.');
+          tokenResult = tokenRes.id;
 
           if (methodIdToUse) {
               if (paymentMethodType === 'debit_card') {
                   if (methodIdToUse === 'visa') methodIdToUse = 'debvisa';
                   else if (methodIdToUse === 'master') methodIdToUse = 'debmaster';
                   else if (methodIdToUse === 'cabal') methodIdToUse = 'debcabal';
-                  else if (methodIdToUse === 'elo') methodIdToUse = 'elo'; // Elo debit uses same id
+                  else if (methodIdToUse === 'maestro') methodIdToUse = 'debmaster';
+                  else if (methodIdToUse === 'elo') methodIdToUse = 'elo';
               } else if (paymentMethodType === 'credit_card') {
                   if (methodIdToUse === 'debvisa') methodIdToUse = 'visa';
                   else if (methodIdToUse === 'debmaster') methodIdToUse = 'master';
@@ -235,10 +245,34 @@ export function CreditCardForm({ amount, itemC, itemType, onSuccess, onCancel, s
               }
           }
 
+          // Force detect final ID if still unknown but we have type
+          if (!methodIdToUse || methodIdToUse === 'unknown') {
+              methodIdToUse = brand;
+              if (paymentMethodType === 'debit_card') {
+                  if (methodIdToUse === 'visa') methodIdToUse = 'debvisa';
+                  else if (methodIdToUse === 'master') methodIdToUse = 'debmaster';
+              } else {
+                  if (methodIdToUse === 'debvisa') methodIdToUse = 'visa';
+                  else if (methodIdToUse === 'debmaster') methodIdToUse = 'master';
+              }
+          }
+
+          // If saveCard is checked, save it locally (only for new cards or updating)
+          if (formData.saveCard && selectedCardId === 'new') {
+              saveLocalCard({
+                  id: `local_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+                  brand: methodIdToUse || brand,
+                  last_four: rawCardNumber.slice(-4),
+                  expiration_month: parseInt(formData.cardExpirationMonth),
+                  expiration_year: 2000 + parseInt(formData.cardExpirationYear),
+                  holder_name: formData.cardholderName,
+                  type: paymentMethodType,
+                  full_number: rawCardNumber
+              });
+          }
+
           await processPaymentBackend({
               token: tokenResult,
-              cardId: selectedCardId === 'new' ? null : selectedCardId,
-              capture: selectedCardId === 'new' ? formData.saveCard : false,
               paymentMethodId: methodIdToUse
           });
 
@@ -261,8 +295,6 @@ export function CreditCardForm({ amount, itemC, itemType, onSuccess, onCancel, s
                   credits: itemC,
                   type: itemType,
                   token: payload.token,
-                  cardId: payload.cardId,
-                  capture: payload.capture,
                   paymentMethodId: payload.paymentMethodId,
                   installments: Number(formData.installments),
                   payerDocument: formData.identificationNumber || undefined
@@ -304,34 +336,73 @@ export function CreditCardForm({ amount, itemC, itemType, onSuccess, onCancel, s
    };
 
    return (
-      <div className="bg-card w-full max-w-md mx-auto p-6 rounded-3xl border shadow-xl relative overflow-hidden">
-         <button onClick={onCancel} className="absolute top-4 right-4 p-2 bg-secondary rounded-full hover:bg-secondary/80 text-muted-foreground"><X size={16} /></button>
+      <div className="bg-card w-full max-w-md mx-auto p-6 md:p-8 rounded-3xl md:rounded-[2.5rem] border border-border shadow-2xl relative">
+         <button onClick={onCancel} className="absolute top-6 right-6 p-2 bg-secondary rounded-full hover:bg-secondary/80 text-muted-foreground transition-all duration-200 z-20 hover:scale-110 active:scale-95"><X size={18} /></button>
          
-         <div className="text-center mb-6">
-            <h2 className="text-2xl font-bold">Resumo do Pagamento</h2>
-            <div className="text-primary font-mono text-3xl font-black mt-2">
+         <div className="text-center mb-8">
+            <h2 className="text-2xl font-bold tracking-tight">Pagamento Seguro</h2>
+            <div className="text-primary font-mono text-4xl font-black mt-3 drop-shadow-sm">
                 R$ {amount.toFixed(2).replace('.', ',')}
             </div>
-            <div className="flex items-center justify-center gap-1 text-xs text-green-500 mt-1">
-                <ShieldCheck size={14} /> Pagamento Seguro via MercadoPago
+            <div className="flex items-center justify-center gap-1.5 text-[10px] uppercase font-black tracking-widest text-green-500 mt-4 opacity-80">
+                <ShieldCheck size={12} strokeWidth={3} /> MercadoPago Protegido
             </div>
          </div>
 
          <AnimatePresence mode="wait">
             {step === 'form' && (
-               <motion.div key="form" initial={{opacity:0, x:20}} animate={{opacity:1, x:0}} exit={{opacity:0, x:-20}}>
+               <motion.div key="form" initial={{opacity:0, y:10}} animate={{opacity:1, y:0}} exit={{opacity:0, y:-10}}>
+                   {savedCards.length > 0 && (
+                       <div className="flex flex-col gap-3 mb-6">
+                           <div className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/80 px-1">Forma de Pagamento</div>
+                           <div className="flex gap-3 overflow-x-auto pb-4 snap-x hide-scrollbar -mx-2 px-2">
+                               {savedCards.map(c => (
+                                   <label key={c.id} className={`min-w-[160px] snap-center flex flex-col gap-2 p-4 rounded-2xl border transition-all duration-300 cursor-pointer relative overflow-hidden group ${selectedCardId === c.id ? 'border-primary bg-primary/5 ring-1 ring-primary/20' : 'border-border hover:bg-secondary/50'}`}>
+                                       <input type="radio" name="saved_card" className="hidden" checked={selectedCardId === c.id} onChange={() => setSelectedCardId(c.id)} />
+                                       <div className="flex items-center justify-between">
+                                           <div className="px-2 py-1 bg-background border border-border/50 rounded-lg text-[9px] font-black text-primary group-hover:scale-105 transition-transform">
+                                              {c.brand?.replace('deb', '').toUpperCase()}
+                                           </div>
+                                           <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${selectedCardId === c.id ? 'border-primary bg-primary' : 'border-muted-foreground opacity-50'}`}>
+                                              {selectedCardId === c.id && <div className="w-2 h-2 rounded-full bg-white animate-in zoom-in-50" />}
+                                           </div>
+                                       </div>
+                                       <div className="mt-2 flex flex-col">
+                                          <div className="text-sm font-mono font-bold tracking-widest">•••• {c.last_four}</div>
+                                          <div className={`text-[8px] font-black mt-1 px-2 py-0.5 rounded-full w-fit ${c.type === 'debit_card' ? 'bg-blue-500/10 text-blue-500' : 'bg-green-500/10 text-green-500'}`}>
+                                             {c.type === 'debit_card' ? 'DEBITO' : 'CREDITO'}
+                                          </div>
+                                       </div>
+                                   </label>
+                               ))}
+                               <label className={`min-w-[160px] snap-center flex flex-col gap-2 p-4 rounded-2xl border transition-all duration-300 cursor-pointer relative overflow-hidden group ${selectedCardId === 'new' ? 'border-primary bg-primary/5 ring-1 ring-primary/20' : 'border-border hover:bg-secondary/50'}`}>
+                                   <input type="radio" name="saved_card" className="hidden" checked={selectedCardId === 'new'} onChange={() => setSelectedCardId('new')} />
+                                   <div className="flex items-center justify-between">
+                                       <div className="w-10 h-10 bg-secondary rounded-xl flex items-center justify-center text-muted-foreground group-hover:scale-105 transition-transform">
+                                          <CreditCard size={20} />
+                                       </div>
+                                       <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${selectedCardId === 'new' ? 'border-primary bg-primary' : 'border-muted-foreground opacity-50'}`}>
+                                          {selectedCardId === 'new' && <div className="w-2 h-2 rounded-full bg-white animate-in zoom-in-50" />}
+                                       </div>
+                                   </div>
+                                   <div className="text-xs font-bold mt-2">Novo Cartão</div>
+                               </label>
+                           </div>
+                       </div>
+                   )}
+
                    {selectedCardId === 'new' && (
-                       <div className="flex bg-secondary p-1 rounded-xl mb-4">
+                       <div className="flex bg-secondary/80 p-1.5 rounded-2xl gap-1.5 border border-border/50 mb-6">
                           <button 
                              type="button"
-                             className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${paymentMethodType === 'credit_card' ? 'bg-background shadow-sm text-primary' : 'text-muted-foreground'}`}
+                             className={`flex-1 py-2.5 text-sm font-bold rounded-xl transition-all shadow-sm ${paymentMethodType === 'credit_card' ? 'bg-background text-primary' : 'text-muted-foreground'}`}
                              onClick={() => setPaymentMethodType('credit_card')}
                           >
                              Crédito
                           </button>
                           <button 
                              type="button"
-                             className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${paymentMethodType === 'debit_card' ? 'bg-background shadow-sm text-blue-500' : 'text-muted-foreground'}`}
+                             className={`flex-1 py-2.5 text-sm font-bold rounded-xl transition-all shadow-sm ${paymentMethodType === 'debit_card' ? 'bg-background text-primary' : 'text-muted-foreground'}`}
                              onClick={() => setPaymentMethodType('debit_card')}
                           >
                              Débito
@@ -339,110 +410,127 @@ export function CreditCardForm({ amount, itemC, itemType, onSuccess, onCancel, s
                        </div>
                    )}
                    
-                   <form onSubmit={handleSubmit} className="flex flex-col gap-4 relative">
-                       {savedCards.length > 0 && (
-                           <div className="flex flex-col gap-2 mb-2">
-                               <div className="text-sm font-semibold">Selecione uma opção de pagamento:</div>
-                               <div className="flex gap-2 overflow-x-auto pb-2 snap-x hide-scrollbar">
-                                   {savedCards.map(c => (
-                                       <label key={c.id} className={`min-w-[140px] snap-center flex flex-col gap-1 p-3 rounded-xl border cursor-pointer transition ${selectedCardId === c.mp_card_id ? 'border-primary bg-primary/10' : 'border-border hover:bg-secondary/50'}`}>
-                                           <input type="radio" name="saved_card" className="hidden" checked={selectedCardId === c.mp_card_id} onChange={() => setSelectedCardId(c.mp_card_id)} />
-                                           <div className="flex items-center justify-between">
-                                               <div className="w-8 h-6 bg-white rounded flex flex-col items-center justify-center font-bold text-[10px] text-black">
-                                                  {c.brand?.replace('deb', '').toUpperCase()}
-                                               </div>
-                                               <div className={`w-4 h-4 rounded-full border-2 ${selectedCardId === c.mp_card_id ? 'border-primary bg-primary' : 'border-muted-foreground'}`} />
-                                           </div>
-                                           <div className="text-xs font-medium mt-1 flex items-center justify-between">
-                                              <span>•••• {c.last_four}</span>
-                                              <span className="text-[9px] font-bold text-muted-foreground ml-1">{c.brand?.startsWith('deb') ? 'DÉB' : 'CRÉD'}</span>
-                                           </div>
-                                       </label>
-                                   ))}
-                                   <label className={`min-w-[140px] snap-center flex flex-col gap-1 p-3 rounded-xl border cursor-pointer transition ${selectedCardId === 'new' ? 'border-primary bg-primary/10' : 'border-border hover:bg-secondary/50'}`}>
-                                       <input type="radio" name="saved_card" className="hidden" checked={selectedCardId === 'new'} onChange={() => setSelectedCardId('new')} />
-                                       <div className="flex items-center justify-between">
-                                           <div className="w-8 h-6 bg-secondary rounded flex items-center justify-center text-muted-foreground">
-                                              <CreditCard size={14} />
-                                           </div>
-                                           <div className={`w-4 h-4 rounded-full border-2 ${selectedCardId === 'new' ? 'border-primary bg-primary' : 'border-muted-foreground'}`} />
-                                       </div>
-                                       <div className="text-xs font-medium mt-1">Novo Cartão</div>
-                                   </label>
-                               </div>
-                           </div>
-                       )}
-
+                   <form onSubmit={handleSubmit} className="flex flex-col gap-6 relative">
                        {/* Animated Card Preview */}
                        {(() => {
-                           const sc = selectedCardId !== 'new' ? savedCards.find(c => c.mp_card_id === selectedCardId) : null;
+                           const sc = selectedCardId !== 'new' ? savedCards.find(c => c.id === selectedCardId) : null;
+                           const displayedBrand = (sc ? sc.brand : brand) === 'unknown' ? 'CARD' : (sc ? sc.brand : brand);
                            return (
-                               <div className="w-full h-44 rounded-2xl bg-gradient-to-tr from-gray-900 to-gray-700 shadow-xl overflow-hidden relative text-white p-5 flex flex-col justify-between">
-                                  <div className="flex justify-between items-start">
-                                     <div className="w-12 h-8 bg-yellow-400/80 rounded flex items-end justify-start p-1 outline outline-1 outline-yellow-500/50">
-                                         <div className="w-3 h-4 border-r border-black/20" />
-                                         <div className="w-3 h-4 border-r border-black/20" />
+                               <div className="w-full h-48 rounded-[2rem] bg-gradient-to-tr from-gray-950 to-gray-800 shadow-2xl overflow-hidden relative text-white p-6 flex flex-col justify-between border border-white/5 group transition-all duration-500">
+                                  <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-3xl -mr-10 -mt-10" />
+                                  <div className="flex justify-between items-start relative z-10">
+                                     <div className="w-14 h-10 bg-gradient-to-br from-yellow-300 to-yellow-600 rounded-lg flex flex-col items-center justify-center p-1 shadow-inner relative overflow-hidden">
+                                         <div className="w-full h-[1px] bg-black/10 mt-1" />
+                                         <div className="w-full h-[1px] bg-black/10 mt-1" />
+                                         <div className="w-full h-[1px] bg-black/10 mt-1" />
+                                         <div className="absolute inset-0 bg-white/10" />
                                      </div>
-                                     <div className="font-bold italic opacity-80 text-lg uppercase">{(sc ? sc.brand : brand) === 'unknown' ? 'CARD' : (sc ? sc.brand : brand)}</div>
+                                     <div className="font-extrabold italic opacity-90 text-xl uppercase tracking-tighter drop-shadow-sm">{displayedBrand}</div>
                                   </div>
-                                  <div>
-                                     <div className="font-mono text-lg tracking-widest opacity-90">{sc ? `•••• •••• •••• ${sc.last_four}` : (formData.cardNumber || '•••• •••• •••• ••••')}</div>
-                                     <div className="flex justify-between mt-2 text-xs opacity-75 font-medium uppercase font-mono">
-                                         <span>{sc ? 'CADASTRADO' : (formData.cardholderName || 'NOME DO TITULAR')}</span>
-                                         <span>{sc ? `${sc.expiration_month}/${sc.expiration_year}` : (formData.cardExpirationMonth ? `${formData.cardExpirationMonth}/${formData.cardExpirationYear}` : 'MM/AA')}</span>
+                                  <div className="relative z-10">
+                                     <div className="font-mono text-xl tracking-[0.2em] mb-4 drop-shadow-lg">
+                                        {sc ? `•••• •••• •••• ${sc.last_four}` : (formData.cardNumber || '•••• •••• •••• ••••')}
+                                     </div>
+                                     <div className="flex justify-between mt-4 text-[10px] opacity-70 font-black uppercase tracking-widest font-mono">
+                                         <div className="flex flex-col gap-1">
+                                            <span className="opacity-50">Titular</span>
+                                            <span className="text-sm truncate max-w-[180px]">{sc ? sc.holder_name : (formData.cardholderName || 'NOME DO TITULAR')}</span>
+                                         </div>
+                                         <div className="flex flex-col items-end gap-1">
+                                            <span className="opacity-50">Validade</span>
+                                            <span className="text-sm">{sc ? `${String(sc.expiration_month).padStart(2, '0')}/${sc.expiration_year}` : (formData.cardExpirationMonth ? `${formData.cardExpirationMonth}/${formData.cardExpirationYear}` : 'MM/AA')}</span>
+                                         </div>
                                      </div>
                                   </div>
                                </div>
                            );
                        })()}
 
-                       <div className="grid grid-cols-1 gap-3 relative z-10">
-
+                       <div className="grid grid-cols-1 gap-4">
                            {selectedCardId === 'new' ? (
-                               <>
-                                   <div className="relative">
-                                       <input type="text" required placeholder="Número do Cartão" value={formData.cardNumber} onChange={handleCardNumber} className="w-full bg-secondary border border-border rounded-xl px-4 py-3 text-sm focus:border-primary outline-none transition" />
+                               <div className="grid grid-cols-1 gap-4">
+                                   <div className="space-y-1.5">
+                                      <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/80 px-1">Número do Cartão</label>
+                                      <input type="text" required placeholder="0000 0000 0000 0000" value={formData.cardNumber} onChange={handleCardNumber} className="w-full bg-secondary/50 border border-border/60 rounded-2xl px-5 py-4 text-sm font-medium focus:border-primary focus:ring-4 focus:ring-primary/10 outline-none transition-all" />
                                    </div>
-                                   <input type="text" required placeholder="Nome Impresso no Cartão" value={formData.cardholderName} onChange={e => setFormData(f=>({...f, cardholderName: e.target.value.toUpperCase()}))} className="w-full bg-secondary border border-border rounded-xl px-4 py-3 text-sm focus:border-primary outline-none transition" />
-                                   <div className="grid grid-cols-2 gap-3">
-                                       <input type="text" required placeholder="Validade (MM/AA)" value={`${formData.cardExpirationMonth}${formData.cardExpirationMonth && !formData.cardExpirationYear ? '/' : ''}${formData.cardExpirationYear ? `/${formData.cardExpirationYear}` : ''}`} onChange={handleExpiry} className="w-full bg-secondary border border-border rounded-xl px-4 py-3 text-sm focus:border-primary outline-none transition" />
-                                       <input type="text" required placeholder="CVV" maxLength={4} value={formData.securityCode} onChange={e => setFormData(f=>({...f, securityCode: e.target.value.replace(/\D/g, '')}))} className="w-full bg-secondary border border-border rounded-xl px-4 py-3 text-sm focus:border-primary outline-none transition" />
+
+                                   <div className="space-y-1.5">
+                                      <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/80 px-1">Nome no Cartão</label>
+                                      <input type="text" required placeholder="Ex: JOAO S SILVA" value={formData.cardholderName} onChange={e => setFormData(f=>({...f, cardholderName: e.target.value.toUpperCase()}))} className="w-full bg-secondary/50 border border-border/60 rounded-2xl px-5 py-4 text-sm font-medium focus:border-primary focus:ring-4 focus:ring-primary/10 outline-none transition-all" />
                                    </div>
-                                   <input type="text" required placeholder="CPF do Titular" value={formData.identificationNumber} onChange={handleCpf} className="w-full bg-secondary border border-border rounded-xl px-4 py-3 text-sm focus:border-primary outline-none transition" />
+
+                                   <div className="grid grid-cols-2 gap-4">
+                                       <div className="space-y-1.5">
+                                          <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/80 px-1">Validade</label>
+                                          <input type="text" required placeholder="MM/AA" value={`${formData.cardExpirationMonth}${formData.cardExpirationMonth && !formData.cardExpirationYear ? '/' : ''}${formData.cardExpirationYear ? `/${formData.cardExpirationYear}` : ''}`} onChange={handleExpiry} className="w-full bg-secondary/50 border border-border/60 rounded-2xl px-5 py-4 text-sm font-medium text-center focus:border-primary focus:ring-4 focus:ring-primary/10 outline-none transition-all" />
+                                       </div>
+                                       <div className="space-y-1.5">
+                                          <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/80 px-1">CVV</label>
+                                          <input type="text" required placeholder="000" maxLength={4} value={formData.securityCode} onChange={e => setFormData(f=>({...f, securityCode: e.target.value.replace(/\D/g, '')}))} className="w-full bg-secondary/50 border border-border/60 rounded-2xl px-5 py-4 text-sm font-medium text-center focus:border-primary focus:ring-4 focus:ring-primary/10 outline-none transition-all" />
+                                       </div>
+                                   </div>
+
+                                   <div className="space-y-1.5">
+                                      <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/80 px-1">Seu CPF</label>
+                                      <input type="text" required placeholder="000.000.000-00" value={formData.identificationNumber} onChange={handleCpf} className="w-full bg-secondary/50 border border-border/60 rounded-2xl px-5 py-4 text-sm font-medium focus:border-primary focus:ring-4 focus:ring-primary/10 outline-none transition-all" />
+                                   </div>
                                    
-                                   <label className="flex items-center gap-2 mt-2 text-sm text-muted-foreground cursor-pointer">
-                                       <input type="checkbox" checked={formData.saveCard} onChange={e=>setFormData(f=>({...f, saveCard: e.target.checked}))} className="rounded border-border bg-secondary text-primary accent-primary w-4 h-4" />
+                                   <label className="flex items-center gap-3 mt-2 text-xs font-medium text-muted-foreground cursor-pointer group">
+                                       <div className="relative">
+                                          <input type="checkbox" checked={formData.saveCard} onChange={e=>setFormData(f=>({...f, saveCard: e.target.checked}))} className="peer hidden" />
+                                          <div className="w-5 h-5 border-2 border-border rounded-md transition-all peer-checked:bg-primary peer-checked:border-primary flex items-center justify-center">
+                                             <div className="w-2.5 h-1.5 border-l-2 border-b-2 border-white -rotate-45 mb-0.5" />
+                                          </div>
+                                       </div>
                                        Salvar cartão para pagamentos rápidos.
                                    </label>
-                               </>
+                               </div>
                            ) : (
-                               <div className="grid grid-cols-1 gap-3">
-                                   <input type="text" required placeholder="Código de Segurança (CVV)" maxLength={4} value={formData.securityCode} onChange={e => setFormData(f=>({...f, securityCode: e.target.value.replace(/\D/g, '')}))} className="w-full bg-secondary border border-border rounded-xl px-4 py-3 text-sm focus:border-primary outline-none transition" />
+                               <div className="space-y-1.5">
+                                  <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/80 px-1">Código de Segurança (CVV)</label>
+                                  <input type="text" required placeholder="000" maxLength={4} value={formData.securityCode} onChange={e => setFormData(f=>({...f, securityCode: e.target.value.replace(/\D/g, '')}))} className="w-full bg-secondary/50 border border-border/60 rounded-2xl px-5 py-4 text-sm font-medium text-center focus:border-primary focus:ring-4 focus:ring-primary/10 outline-none transition-all" />
                                </div>
                            )}
+
                            {paymentMethodType === 'credit_card' && installmentsOptions && installmentsOptions.length > 0 ? (
-                               <select value={formData.installments} onChange={e=>setFormData(f=>({...f, installments: e.target.value}))} className="w-full bg-secondary border border-border rounded-xl px-4 py-3 text-sm focus:border-primary outline-none transition appearance-none">
-                                   {installmentsOptions.map((opt: any) => (
-                                       <option key={opt.installments} value={opt.installments}>
-                                           {opt.recommended_message}
-                                       </option>
-                                   ))}
-                               </select>
-                           ) : paymentMethodType === 'credit_card' && (selectedCardId !== 'new' || formData.cardNumber.length >= 16) ? (
-                               <div className="w-full bg-secondary border border-border rounded-xl px-4 py-3 text-sm text-muted-foreground flex items-center justify-between">
+                               <div className="space-y-1.5">
+                                  <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/80 px-1">Opções de Parcelamento</label>
+                                  <select value={formData.installments} onChange={e=>setFormData(f=>({...f, installments: e.target.value}))} className="w-full bg-secondary/50 border border-border/60 rounded-2xl px-5 py-4 text-sm font-medium focus:border-primary focus:ring-4 focus:ring-primary/10 outline-none transition-all appearance-none cursor-pointer">
+                                      {installmentsOptions.map((opt: any) => (
+                                          <option key={opt.installments} value={opt.installments}>
+                                              {opt.recommended_message}
+                                          </option>
+                                      ))}
+                                  </select>
+                               </div>
+                           ) : paymentMethodType === 'credit_card' && fetchingInstallments ? (
+                               <div className="w-full h-14 bg-secondary/50 border border-border/60 rounded-2xl px-5 flex items-center justify-between text-muted-foreground text-sm">
                                   <span>Carregando parcelas...</span>
-                                  <Loader2 size={16} className="animate-spin" />
+                                  <Loader2 size={18} className="animate-spin text-primary opacity-50" />
+                               </div>
+                           ) : paymentMethodType === 'credit_card' && !fetchingInstallments && (selectedCardId !== 'new' || formData.cardNumber.length >= 16) ? (
+                               <div className="space-y-1.5">
+                                  <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/80 px-1">Opções de Parcelamento</label>
+                                  <select value={formData.installments} onChange={e=>setFormData(f=>({...f, installments: e.target.value}))} className="w-full bg-secondary/50 border border-border/60 rounded-2xl px-5 py-4 text-sm font-medium focus:border-primary focus:ring-4 focus:ring-primary/10 outline-none transition-all appearance-none cursor-pointer">
+                                      <option value="1">1x de R$ {amount.toFixed(2).replace('.', ',')} (Sem Juros)</option>
+                                  </select>
+                                  <div className="text-[10px] text-yellow-600 dark:text-yellow-400 mt-1 pl-1">Não foi possível carregar as opções completas. Pagamento à vista.</div>
                                </div>
                            ) : paymentMethodType === 'credit_card' ? null : (
-                               <div className="w-full bg-secondary border border-border rounded-xl px-4 py-3 text-sm text-muted-foreground">
-                                   Pagamento à vista (Débito) - R$ {amount.toFixed(2).replace('.', ',')}
+                               <div className="w-full p-4 bg-blue-500/5 border border-blue-500/20 rounded-2xl text-xs text-blue-600 font-medium text-center">
+                                   Pagamento à vista via Débito
                                </div>
                            )}
 
                        </div>
                        
-                       <Button type="submit" variant="primary" className="w-full py-6 mt-2 relative overflow-hidden" disabled={loading}>
-                           {loading ? <Loader2 className="animate-spin" /> : 'Pagar Agora'}
+                       <Button type="submit" variant="primary" className="w-full h-16 rounded-2xl text-base font-bold shadow-xl shadow-primary/20 flex items-center justify-center gap-3 active:scale-[0.98] transition-transform" disabled={loading}>
+                           {loading ? <Loader2 className="animate-spin" size={20} /> : (
+                              <>
+                                 <Zap size={20} className="fill-current" />
+                                 Finalizar Pagamento
+                              </>
+                           )}
                        </Button>
                    </form>
                </motion.div>

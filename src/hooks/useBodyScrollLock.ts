@@ -7,6 +7,7 @@ export function useBodyScrollLock(isLocked: boolean) {
         if (isLocked) {
             if (lockCount === 0) {
                 document.body.style.overflow = 'hidden';
+                document.documentElement.style.overflow = 'hidden';
             }
             lockCount++;
         }
@@ -16,6 +17,7 @@ export function useBodyScrollLock(isLocked: boolean) {
                 lockCount--;
                 if (lockCount === 0) {
                     document.body.style.overflow = '';
+                    document.documentElement.style.overflow = '';
                 }
             }
         };

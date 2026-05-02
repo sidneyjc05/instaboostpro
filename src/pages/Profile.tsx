@@ -9,6 +9,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate } from 'react-router';
 import { useAppSound } from '../context/SoundContext';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
+import { getLocalCards, removeLocalCard } from '../lib/cardStorage';
 import { AddCardForm } from '../components/checkout/AddCardForm';
 
 export default function Profile() {
@@ -38,7 +39,7 @@ export default function Profile() {
   const [claimLoading, setClaimLoading] = useState(false);
 
   // Lock scroll if any modal is open
-  useBodyScrollLock(!!(activeQrModal || activePlanModal || showEmailVerify || showPasswordChange));
+  useBodyScrollLock(!!(activeQrModal || activePlanModal || showEmailVerify || showPasswordChange || showAddCard));
 
   const handleClaimReferral = async () => {
     if (!referralInput) return showNotification.error('Digite um código');
@@ -214,38 +215,25 @@ export default function Profile() {
 
   const fetchData = async () => {
     try {
-      const [promoRes, payRes, refRes, cardsRes] = await Promise.all([
+      const [promoRes, payRes, refRes] = await Promise.all([
         fetch('/api/users/me/promotions'),
         fetch('/api/users/me/payments'),
         fetch('/api/me/referral'),
-        fetch('/api/payments/cards')
       ]);
       if (promoRes.ok) setPromotions(await promoRes.json());
       if (payRes.ok) setPayments(await payRes.json());
       if (refRes.ok) setReferral(await refRes.json());
-      if (cardsRes.ok) {
-         try {
-             const data = await cardsRes.json();
-             if (Array.isArray(data)) setSavedCards(data);
-         } catch(e) {}
-      }
+      
+      // Load local cards
+      setSavedCards(getLocalCards());
     } catch {}
     setLoading(false);
   };
 
-  const handleRemoveCard = async (id: number) => {
-      try {
-          const res = await fetch(`/api/payments/cards/${id}`, { method: 'DELETE' });
-          if (res.ok) {
-              setSavedCards(prev => prev.filter(c => c.id !== id));
-              showNotification.success('Cartão removido com sucesso!');
-          } else {
-              const data = await res.json();
-              showNotification.error(data.error || 'Erro ao remover cartão');
-          }
-      } catch {
-          showNotification.error('Erro de conexão');
-      }
+  const handleRemoveCard = (id: string) => {
+      removeLocalCard(id);
+      setSavedCards(getLocalCards());
+      showNotification.success('Cartão removido com sucesso!');
   };
 
   const handleReboost = async (id: number) => {
@@ -331,14 +319,15 @@ export default function Profile() {
                initial={{ opacity: 0 }} 
                animate={{ opacity: 1 }} 
                exit={{ opacity: 0 }}
-               className="fixed inset-0 z-[60] bg-background/80 backdrop-blur-md flex items-center justify-center p-4"
+               className="fixed inset-0 z-[60] bg-black/60 dark:bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
                onClick={() => setActivePlanModal(null)}
             >
                <motion.div 
-                  initial={{ scale: 0.9, y: 20 }}
-                  animate={{ scale: 1, y: 0 }}
-                  exit={{ scale: 0.9, y: 20 }}
-                  className={`bg-card w-full max-w-sm border shadow-2xl rounded-3xl p-6 flex flex-col gap-4 relative ${
+                  initial={{ scale: 0.95, opacity: 0, y: 20 }}
+                  animate={{ scale: 1, opacity: 1, y: 0 }}
+                  exit={{ scale: 0.95, opacity: 0, y: 20 }}
+                  transition={{ type: "spring", damping: 25, stiffness: 300 }}
+                  className={`bg-card w-full max-w-sm border shadow-2xl rounded-[2.5rem] p-8 flex flex-col gap-6 relative overflow-hidden ${
                      activePlanModal === 'pro' ? 'border-green-500/50 shadow-green-500/10' :
                      activePlanModal === 'premium' ? 'border-purple-500/50 shadow-purple-500/10' :
                      'border-yellow-500/50 shadow-yellow-500/10'
@@ -424,12 +413,14 @@ export default function Profile() {
                initial={{ opacity: 0 }} 
                animate={{ opacity: 1 }} 
                exit={{ opacity: 0 }}
-               className="fixed inset-0 z-50 bg-background/80 backdrop-blur-md flex items-center justify-center p-4"
+               className="fixed inset-0 z-[70] bg-black/60 dark:bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
             >
                <motion.div 
-                  initial={{ scale: 0.9, y: 20 }}
-                  animate={{ scale: 1, y: 0 }}
-                  className="bg-card w-full max-w-sm border border-border shadow-2xl rounded-3xl p-6 flex flex-col items-center gap-6 relative"
+                  initial={{ scale: 0.95, opacity: 0, y: 20 }}
+                  animate={{ scale: 1, opacity: 1, y: 0 }}
+                  exit={{ scale: 0.95, opacity: 0, y: 20 }}
+                  transition={{ type: "spring", damping: 25, stiffness: 300 }}
+                  className="bg-card w-full max-w-sm border border-border shadow-2xl rounded-[2.5rem] p-8 flex flex-col items-center gap-6 relative"
                >
                   <button onClick={() => setActiveQrModal(null)} className="absolute top-4 right-4 p-2 bg-secondary rounded-full hover:bg-secondary/80">
                      <X size={20} />
@@ -689,43 +680,79 @@ export default function Profile() {
          </div>
       </div>
 
-      {/* Block Cartões always visible to allow adding */}
-      <div className="bg-card w-full border border-border rounded-3xl p-5 md:p-6 flex flex-col gap-4">
-         <h3 className="font-bold border-b border-border pb-3 flex items-center justify-between gap-2">
-            <span className="flex items-center gap-2"><CreditCard size={18} className="text-primary" /> Meus Cartões Salvos</span>
-            <Button variant="ghost" size="sm" onClick={() => setShowAddCard(true)} className="h-8 px-3 ml-auto shrink-0 flex items-center gap-1.5 text-xs text-primary bg-primary/10 hover:bg-primary/20">
-              <Plus size={14} /> Novo
+      {/* Block Cartões */}
+      <div className="bg-card w-full border border-border rounded-[2rem] p-6 flex flex-col gap-6 shadow-sm">
+         <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+               <div className="p-2 bg-primary/10 rounded-xl text-primary">
+                  <CreditCard size={20} />
+               </div>
+               <h3 className="font-bold text-lg">Cartões Salvos</h3>
+            </div>
+            <Button 
+               variant="outline" 
+               size="sm" 
+               onClick={() => { playClick(); setShowAddCard(true); }} 
+               className="rounded-xl border-primary/20 text-primary hover:bg-primary/5 gap-2"
+            >
+               <Plus size={16} /> Adicionar
             </Button>
-         </h3>
-         <div className="flex flex-col gap-3">
+         </div>
+
+         <div className="grid grid-cols-1 gap-3">
             {savedCards.length > 0 ? savedCards.map(card => (
-               <div key={card.id} className="bg-secondary/40 p-4 rounded-2xl flex justify-between items-center border border-border gap-3">
-                  <div className="flex items-center gap-3">
-                     <div className="bg-background flex flex-col items-center justify-center w-12 h-10 rounded border border-border shadow-sm p-1">
-                        <span className="text-[10px] font-black uppercase text-primary leading-none">{card.brand?.replace('deb', '')}</span>
+               <motion.div 
+                  layout
+                  key={card.id} 
+                  className="group relative bg-secondary/30 hover:bg-secondary/50 p-4 rounded-[1.5rem] flex justify-between items-center border border-border transition-all duration-300"
+               >
+                  <div className="flex items-center gap-4">
+                     <div className="w-12 h-12 rounded-xl bg-background border border-border flex flex-col items-center justify-center p-1 shadow-inner group-hover:scale-105 transition-transform">
+                        <span className="text-[10px] font-black text-primary leading-none tracking-tighter">
+                           {card.brand?.replace('deb', '').toUpperCase()}
+                        </span>
                      </div>
                      <div className="flex flex-col">
                         <div className="flex items-center gap-2">
-                           <span className="font-bold border px-1.5 py-0.5 rounded text-[10px] border-border text-muted-foreground bg-secondary">
-                              {card.brand?.startsWith('deb') ? 'DÉBITO' : 'CRÉDITO'}
+                           <span className="font-mono font-bold tracking-widest text-base">•••• {card.last_four}</span>
+                           <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${card.type === 'debit_card' ? 'bg-blue-500/10 text-blue-500' : 'bg-green-500/10 text-green-500'}`}>
+                              {card.type === 'debit_card' ? 'DÉBITO' : 'CRÉDITO'}
                            </span>
-                           <span className="font-bold tracking-widest text-sm">•••• {card.last_four}</span>
                         </div>
-                        <span className="text-xs text-muted-foreground mt-0.5">Vencimento: {card.expiration_month}/{card.expiration_year}</span>
+                        <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                           <span className="font-semibold uppercase truncate max-w-[120px]">{card.holder_name}</span>
+                           <span className="w-1 h-1 bg-muted-foreground/30 rounded-full" />
+                           <span>{String(card.expiration_month).padStart(2, '0')}/{card.expiration_year}</span>
+                        </div>
                      </div>
                   </div>
-                  <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10" onClick={() => {
-                     if(window.confirm('Tem certeza que deseja remover este cartão?')) {
-                        handleRemoveCard(card.id);
-                     }
-                  }}>
-                     <Trash2 size={16} />
+                  
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="opacity-0 group-hover:opacity-100 text-destructive hover:bg-destructive/10 transition-opacity rounded-xl relative z-10" 
+                    onClick={() => handleRemoveCard(card.id)}
+                  >
+                     <Trash2 size={18} />
                   </Button>
-               </div>
+                  
+                  {/* Mobile delete button always visible */}
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="md:hidden text-destructive hover:bg-destructive/10 rounded-xl relative z-10" 
+                    onClick={() => handleRemoveCard(card.id)}
+                  >
+                     <Trash2 size={18} />
+                  </Button>
+               </motion.div>
             )) : (
-               <div className="text-center text-sm py-4 text-muted-foreground flex flex-col items-center gap-2">
-                   <CreditCard size={32} className="opacity-20 mb-1" />
-                   Nenhum cartão salvo.
+               <div className="text-center py-10 px-6 border-2 border-dashed border-border rounded-[1.5rem] bg-secondary/10">
+                   <div className="w-12 h-12 bg-secondary/50 rounded-full flex items-center justify-center mx-auto mb-4 text-muted-foreground opacity-30">
+                     <CreditCard size={24} />
+                   </div>
+                   <p className="text-sm font-medium text-muted-foreground">Nenhum cartão salvo para pagamentos rápidos.</p>
+                   <Button variant="link" className="text-primary mt-2" onClick={() => setShowAddCard(true)}>Cadastrar meu primeiro cartão</Button>
                </div>
             )}
          </div>
@@ -932,23 +959,111 @@ export default function Profile() {
         </Button>
       </div>
 
+      {/* Add Card Modal */}
       <AnimatePresence>
-        {showAddCard && (
-           <motion.div 
-              initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
-              className="fixed inset-0 z-[100] bg-black/60 flex items-center justify-center p-4"
-           >
-              <div className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
-                 <AddCardForm 
-                    onSuccess={() => {
+         {showAddCard && (
+            <motion.div 
+               initial={{ opacity: 0 }} 
+               animate={{ opacity: 1 }} 
+               exit={{ opacity: 0 }}
+               className="fixed inset-0 z-[80] bg-black/60 dark:bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto"
+               onClick={() => setShowAddCard(false)}
+            >
+               <motion.div 
+                  initial={{ scale: 0.95, opacity: 0, y: 20 }}
+                  animate={{ scale: 1, opacity: 1, y: 0 }}
+                  exit={{ scale: 0.95, opacity: 0, y: 20 }}
+                  transition={{ type: "spring", damping: 25, stiffness: 300 }}
+                  className="bg-card w-full max-w-md border border-border shadow-2xl rounded-[2.5rem] p-1 relative my-auto"
+                  onClick={(e) => e.stopPropagation()}
+               >
+                  <div className="bg-card rounded-[2.4rem] p-6">
+                    <button onClick={() => setShowAddCard(false)} className="absolute top-6 right-6 p-2 bg-secondary rounded-full hover:bg-secondary/80 z-10">
+                      <X size={20} />
+                    </button>
+                    <AddCardForm 
+                      onSuccess={() => {
                         setShowAddCard(false);
                         fetchData();
-                    }}
-                    onCancel={() => setShowAddCard(false)}
-                 />
-              </div>
-           </motion.div>
-        )}
+                      }} 
+                      onCancel={() => setShowAddCard(false)} 
+                    />
+                  </div>
+               </motion.div>
+            </motion.div>
+         )}
+      </AnimatePresence>
+
+      {/* Email Verify Modal */}
+      <AnimatePresence>
+         {showEmailVerify && (
+            <motion.div 
+               initial={{ opacity: 0 }} 
+               animate={{ opacity: 1 }} 
+               exit={{ opacity: 0 }}
+               className="fixed inset-0 z-[90] bg-black/60 dark:bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+               onClick={() => setShowEmailVerify(false)}
+            >
+               <motion.div 
+                  initial={{ scale: 0.95, opacity: 0, y: 20 }}
+                  animate={{ scale: 1, opacity: 1, y: 0 }}
+                  exit={{ scale: 0.95, opacity: 0, y: 20 }}
+                  className="bg-card w-full max-w-sm border border-border shadow-2xl rounded-[2.5rem] p-8 flex flex-col items-center gap-6 relative"
+                  onClick={(e) => e.stopPropagation()}
+               >
+                  <button onClick={() => setShowEmailVerify(false)} className="absolute top-4 right-4 p-2 bg-secondary rounded-full hover:bg-secondary/80">
+                    <X size={20} />
+                  </button>
+                  <div className="text-center">
+                    <h3 className="text-xl font-bold">Verificar E-mail</h3>
+                    <p className="text-sm text-muted-foreground mt-1">Digite o código enviado para seu e-mail.</p>
+                  </div>
+                  <OTPInput value={codeInput} onChange={setCodeInput} />
+                  <Button className="w-full" onClick={handleVerifyEmail} isLoading={actionLoading}>Verificar</Button>
+                  <Button variant="ghost" className="w-full" onClick={() => setShowEmailVerify(false)}>Cancelar</Button>
+               </motion.div>
+            </motion.div>
+         )}
+      </AnimatePresence>
+
+      {/* Password Change Modal */}
+      <AnimatePresence>
+         {showPasswordChange && (
+            <motion.div 
+               initial={{ opacity: 0 }} 
+               animate={{ opacity: 1 }} 
+               exit={{ opacity: 0 }}
+               className="fixed inset-0 z-[90] bg-black/60 dark:bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+               onClick={() => setShowPasswordChange(false)}
+            >
+               <motion.div 
+                  initial={{ scale: 0.95, opacity: 0, y: 20 }}
+                  animate={{ scale: 1, opacity: 1, y: 0 }}
+                  exit={{ scale: 0.95, opacity: 0, y: 20 }}
+                  className="bg-card w-full max-w-sm border border-border shadow-2xl rounded-[2.5rem] p-8 flex flex-col gap-4 relative"
+                  onClick={(e) => e.stopPropagation()}
+               >
+                  <button onClick={() => setShowPasswordChange(false)} className="absolute top-4 right-4 p-2 bg-secondary rounded-full hover:bg-secondary/80">
+                    <X size={20} />
+                  </button>
+                  <div className="text-center mb-2">
+                    <h3 className="text-xl font-bold">Alterar Senha</h3>
+                    <p className="text-sm text-muted-foreground mt-1">Digite o código do e-mail e a nova senha.</p>
+                  </div>
+                  <div className="flex flex-col gap-3">
+                     <OTPInput value={codeInput} onChange={setCodeInput} />
+                     <Input 
+                        type="password" 
+                        placeholder="Nova senha" 
+                        value={passwordInput} 
+                        onChange={(e) => setPasswordInput(e.target.value)} 
+                     />
+                  </div>
+                  <Button className="w-full mt-2" onClick={handleUpdatePassword} isLoading={actionLoading}>Atualizar Senha</Button>
+                  <Button variant="ghost" className="w-full" onClick={() => setShowPasswordChange(false)}>Cancelar</Button>
+               </motion.div>
+            </motion.div>
+         )}
       </AnimatePresence>
 
     </div>

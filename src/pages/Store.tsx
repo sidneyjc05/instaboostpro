@@ -5,8 +5,10 @@ import { showNotification } from '../context/NotificationContext';
 import { QrCode, Copy, Zap, CheckCircle, CreditCard } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAppSound } from '../context/SoundContext';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 import { CreditCardForm } from '../components/checkout/CreditCardForm';
+import { getLocalCards } from '../lib/cardStorage';
 
 export default function Store() {
   const { user, refreshUser } = useAuth();
@@ -23,14 +25,14 @@ export default function Store() {
   const [showCCForm, setShowCCForm] = useState<'credit_card' | 'debit_card' | 'select_type' | false>(false);
   const [savedCards, setSavedCards] = useState<any[]>([]);
 
+  // useBodyScrollLock(!!(paymentData || paymentMethodSelect || showCCForm));
+
   useEffect(() => {
     fetch('/api/store/config').then(res => res.json()).then(data => setStoreConfig(data)).catch(() => {});
   }, []);
 
   useEffect(() => {
-    fetch('/api/payments/cards').then(res => res.json()).then(data => {
-       if (Array.isArray(data)) setSavedCards(data);
-    }).catch(() => {});
+    setSavedCards(getLocalCards());
   }, []);
 
   useEffect(() => {
@@ -323,14 +325,14 @@ export default function Store() {
   }
 
   return (
-    <div className="flex flex-col gap-6 pb-20">
+    <div className="flex flex-col gap-6 md:p-8 pb-32 max-w-5xl mx-auto">
       <AnimatePresence mode="wait">
         {paymentSuccess ? (
           <motion.div 
             key="success"
             initial={{ opacity: 0, scale: 0.9 }} 
             animate={{ opacity: 1, scale: 1 }}
-            className="bg-gradient-to-br from-green-500/20 to-blue-500/20 border border-green-500/30 p-8 rounded-3xl flex flex-col items-center gap-6 text-center mt-10"
+            className="bg-gradient-to-br from-green-500/20 to-blue-500/20 border border-green-500/30 p-6 md:p-8 rounded-3xl flex flex-col items-center gap-6 text-center mt-10"
           >
             <motion.div 
               initial={{ scale: 0 }} 
@@ -481,26 +483,39 @@ export default function Store() {
             initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}
             className="flex flex-col items-center justify-center pt-10"
           >
-             <div className="bg-card w-full max-w-md p-6 rounded-3xl border shadow-xl text-center">
-                <h3 className="text-2xl font-bold mb-2">Forma de Pagamento</h3>
-                <p className="text-muted-foreground text-sm mb-6">Como você deseja pagar os {paymentMethodSelect.type === 'plan' ? 'Plano ' + String(paymentMethodSelect.credits).toUpperCase() : paymentMethodSelect.credits + (paymentMethodSelect.type === 'tickets' ? ' Tickets' : ' Moedas')}?</p>
+             <div className="bg-card w-full max-w-md p-6 sm:p-8 rounded-3xl md:rounded-[2.5rem] border border-border/60 shadow-2xl text-center relative overflow-hidden">
+                <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-transparent pointer-events-none"></div>
+                <h3 className="text-2xl font-black mb-2 relative z-10">Forma de Pagamento</h3>
+                <p className="text-muted-foreground text-sm mb-8 leading-relaxed relative z-10">Como você deseja pagar os <span className="text-primary font-bold">{paymentMethodSelect.type === 'plan' ? 'Plano ' + String(paymentMethodSelect.credits).toUpperCase() : paymentMethodSelect.credits + (paymentMethodSelect.type === 'tickets' ? ' Tickets' : ' Moedas')}</span>?</p>
                 
-                <div className="flex flex-col gap-3">
-                   <Button variant="outline" className="h-16 text-lg justify-start px-6 border-2 hover:border-primary hover:bg-primary/5 transition-all" onClick={() => setShowCCForm('credit_card')}>
-                      <CreditCard className="mr-4 text-primary" size={24} /> Cartões
+                <div className="flex flex-col gap-4 relative z-10">
+                   <Button variant="outline" className="h-20 text-lg justify-start px-8 border-2 rounded-2xl hover:border-primary hover:bg-primary/5 transition-all group" onClick={() => setShowCCForm('credit_card')}>
+                      <div className="w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
+                        <CreditCard className="text-primary" size={24} />
+                      </div>
+                      <div className="flex flex-col items-start">
+                        <span className="font-bold">Cartões</span>
+                        <span className="text-[10px] text-muted-foreground uppercase font-black tracking-widest mt-0.5">Crédito ou Débito</span>
+                      </div>
                    </Button>
-                   <Button variant="outline" className="h-16 text-lg justify-start px-6 border-2 hover:border-green-500 hover:bg-green-500/5 transition-all outline-none" onClick={handleBuyPix} isLoading={loading}>
-                      <QrCode className="mr-4 text-green-500" size={24} /> PIX (Aprovação Imediata)
+                   <Button variant="outline" className="h-20 text-lg justify-start px-8 border-2 rounded-2xl hover:border-green-500 hover:bg-green-500/5 transition-all outline-none group" onClick={handleBuyPix} isLoading={loading}>
+                      <div className="w-12 h-12 bg-green-500/10 rounded-xl flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
+                        <QrCode className="text-green-500" size={24} />
+                      </div>
+                      <div className="flex flex-col items-start">
+                        <span className="font-bold">PIX Instantâneo</span>
+                        <span className="text-[10px] text-green-600/60 uppercase font-black tracking-widest mt-0.5">Aprovação em Segundos</span>
+                      </div>
                    </Button>
                 </div>
                 
-                <Button variant="ghost" className="mt-6 w-full" onClick={() => setPaymentMethodSelect(null)}>
+                <Button variant="ghost" className="mt-8 w-full font-bold text-muted-foreground" onClick={() => setPaymentMethodSelect(null)}>
                    Cancelar
                 </Button>
              </div>
           </motion.div>
         ) : (showCCForm === 'credit_card' || showCCForm === 'debit_card') && paymentMethodSelect && !paymentData ? (
-          <motion.div key="cc-form" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+          <motion.div key="cc-form" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="w-full flex justify-center py-4">
              <CreditCardForm
                  amount={paymentMethodSelect.rawPrice}
                  itemC={paymentMethodSelect.credits}
@@ -520,15 +535,43 @@ export default function Store() {
                  onCancel={() => { setShowCCForm(false); setPaymentMethodSelect(null); }}
              />
           </motion.div>
-        ) : (
+        ) : paymentData && !paymentSuccess && paymentData.paymentMethod === 'cc' ? (
+           <motion.div 
+             key="payment-cc"
+             initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+             className="bg-card w-full max-w-md border border-border/60 p-6 sm:p-8 rounded-3xl md:rounded-[2.5rem] flex flex-col items-center gap-6 text-center shadow-2xl relative mx-auto overflow-hidden"
+           >
+              <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 via-transparent to-transparent pointer-events-none"></div>
+              <div className="w-16 h-16 bg-blue-500/10 text-blue-500 rounded-full flex items-center justify-center relative z-10 motion-safe:animate-pulse">
+                 <CreditCard size={32} />
+              </div>
+              <div className="relative z-10">
+                 <h3 className="text-xl font-bold">Analisando Cartão</h3>
+                 <p className="text-sm text-muted-foreground mt-2">Aguarde enquanto verificamos junto ao seu banco.</p>
+              </div>
+              
+              <div className="w-full h-1.5 bg-secondary rounded-full overflow-hidden my-2 relative z-10">
+                 <div className="relative h-full bg-blue-500 w-1/3 animate-[translateX_1.5s_infinite_ease-in-out] rounded-full"></div>
+              </div>
+
+              <div className="w-full flex items-center justify-center gap-3 py-2 text-primary font-bold relative z-10">
+                 <Loader2 size={24} className="animate-spin" />
+                 Processando pagamento...
+              </div>
+              <Button variant="secondary" className="mt-4 w-full relative z-10" onClick={() => { setPaymentData(null); setPolling(false); }}>
+                Cancelar Compra
+              </Button>
+           </motion.div>
+        ) : paymentData && !paymentSuccess && paymentData.paymentMethod === 'pix' ? (
           <motion.div 
-            key="payment"
+            key="payment-pix"
             initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-            className="bg-card border border-border p-6 rounded-3xl flex flex-col items-center gap-6 text-center"
+            className="bg-card w-full max-w-md border border-border/60 p-6 sm:p-8 rounded-3xl md:rounded-[2.5rem] flex flex-col items-center gap-6 text-center shadow-2xl relative overflow-hidden mx-auto"
           >
-            <div className="flex w-full justify-between items-center bg-secondary/50 p-3 rounded-2xl border border-border">
-              <span className="text-sm font-semibold">Tempo restante</span>
-              <span className="text-lg font-mono font-bold text-destructive animate-pulse">{formatTime(timeLeft)}</span>
+            <div className="absolute inset-0 bg-gradient-to-br from-green-500/5 via-transparent to-transparent pointer-events-none"></div>
+            <div className="flex w-full justify-between items-center bg-secondary/50 p-4 rounded-2xl border border-border relative z-10">
+              <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Tempo expira em</span>
+              <span className="text-xl font-mono font-black text-destructive animate-pulse">{formatTime(timeLeft)}</span>
             </div>
 
             <div className="w-16 h-16 bg-green-500/10 text-green-500 rounded-full flex items-center justify-center">
@@ -551,52 +594,43 @@ export default function Store() {
                  </p>
               )}
             </div>
-            
-            {paymentData.paymentMethod === 'cc' ? (
-              <div className="p-6 bg-secondary/30 rounded-xl my-4">
-                <p className="text-muted-foreground font-medium mb-4">Seu cartão de crédito/débito está sendo processado.</p>
-                <div className="flex items-center justify-center gap-2 text-sm text-primary animate-pulse font-bold">
-                  <Loader2 className="animate-spin" size={24} /> Processando...
+
+            <>
+              {paymentData.qrCode ? (
+                <div className="p-2 bg-white rounded-xl">
+                  <img src={paymentData.qrCode} alt="PIX QR Code" className="w-48 h-48" />
                 </div>
+              ) : (
+                <div className="p-2 bg-white rounded-xl w-48 h-48 flex items-center justify-center text-xs text-black/50 text-center font-medium">
+                  QR Code apenas via app MercadoPago
+                </div>
+              )}
+  
+              <div className="w-full flex gap-2">
+                <div className="flex-1 bg-secondary rounded-xl px-3 py-2 text-xs truncate border border-border flex items-center text-left hover:bg-secondary/80 transition-colors cursor-pointer" onClick={() => { navigator.clipboard.writeText(paymentData.pixCode); showNotification.success('Código PIX copiado!'); }}>
+                  {paymentData.pixCode?.substring(0, 30)}...
+                </div>
+                <Button 
+                   variant="outline"
+                   onClick={() => {
+                     navigator.clipboard.writeText(paymentData.pixCode);
+                     showNotification.success('Código PIX copiado!');
+                   }}
+                >
+                  <Copy size={16} /> Copiar
+                </Button>
               </div>
-            ) : (
-              <>
-                {paymentData.qrCode ? (
-                  <div className="p-2 bg-white rounded-xl">
-                    <img src={paymentData.qrCode} alt="PIX QR Code" className="w-48 h-48" />
-                  </div>
-                ) : (
-                  <div className="p-2 bg-white rounded-xl w-48 h-48 flex items-center justify-center text-xs text-black/50 text-center font-medium">
-                    QR Code apenas via app MercadoPago
-                  </div>
-                )}
-    
-                <div className="w-full flex gap-2">
-                  <div className="flex-1 bg-secondary rounded-xl px-3 py-2 text-xs truncate border border-border flex items-center text-left">
-                    {paymentData.pixCode?.substring(0, 30)}...
-                  </div>
-                  <Button 
-                     variant="outline"
-                     onClick={() => {
-                       navigator.clipboard.writeText(paymentData.pixCode);
-                       showNotification.success('Código PIX copiado!');
-                     }}
-                  >
-                    <Copy size={16} /> Copiar
-                  </Button>
-                </div>
-    
-                <div className="flex items-center gap-2 text-sm text-primary animate-pulse">
-                  <Loader2 className="animate-spin" size={16} /> Aguardando pagamento do PIX...
-                </div>
-              </>
-            )}
-            
-            <Button variant="secondary" className="mt-4" onClick={() => setPaymentData(null)}>
+  
+              <div className="flex items-center gap-2 text-sm text-primary animate-pulse">
+                <Loader2 className="animate-spin" size={16} /> Aguardando pagamento do PIX...
+              </div>
+            </>
+
+            <Button variant="secondary" className="mt-4 w-full" onClick={() => { setPaymentData(null); setPolling(false); }}>
               Cancelar Operação
             </Button>
           </motion.div>
-        )}
+        ) : null}
       </AnimatePresence>
     </div>
   );

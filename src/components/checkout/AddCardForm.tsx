@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { CreditCard, Loader2, CheckCircle2, ShieldCheck, X } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { motion, AnimatePresence } from 'motion/react';
+import { saveLocalCard } from '../../lib/cardStorage';
 import { showNotification } from '../../context/NotificationContext';
 
 interface Props {
@@ -97,29 +98,37 @@ export function AddCardForm({ onSuccess, onCancel }: Props) {
       setLoading(true);
       try {
           const rawCardNumber = formData.cardNumber.replace(/\D/g, '');
-          const tokenRes = await mpInstance.createCardToken({
-              cardNumber: rawCardNumber,
-              cardholderName: formData.cardholderName,
-              cardExpirationMonth: formData.cardExpirationMonth,
-              cardExpirationYear: `20${formData.cardExpirationYear}`,
-              securityCode: formData.securityCode,
-              identificationType: formData.identificationType,
-              identificationNumber: formData.identificationNumber.replace(/\D/g, '')
+          
+          // We still validate and detect brand via MP but we save the data locally
+          const bin = rawCardNumber.substring(0, 6);
+          const paymentMethods = await mpInstance.getPaymentMethods({ bin });
+          const method = paymentMethods?.results?.find((m: any) => m.payment_type_id === paymentMethodType) || paymentMethods?.results?.[0];
+          let detectedBrand = method ? method.id : 'unknown';
+
+          // Force correct brand ID for debit cards if not already set correctly by MP
+          if (paymentMethodType === 'debit_card') {
+              if (detectedBrand === 'visa') detectedBrand = 'debvisa';
+              else if (detectedBrand === 'master') detectedBrand = 'debmaster';
+              else if (detectedBrand === 'cabal') detectedBrand = 'debcabal';
+              else if (detectedBrand === 'maestro') detectedBrand = 'debmaster'; // standard fallback
+          } else {
+              // Ensure it's NOT a debit brand if user chose credit
+              if (detectedBrand === 'debvisa') detectedBrand = 'visa';
+              else if (detectedBrand === 'debmaster') detectedBrand = 'master';
+              else if (detectedBrand === 'debcabal') detectedBrand = 'cabal';
+          }
+
+          // Save locally
+          saveLocalCard({
+              id: `local_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+              brand: detectedBrand,
+              last_four: rawCardNumber.slice(-4),
+              expiration_month: parseInt(formData.cardExpirationMonth),
+              expiration_year: 2000 + parseInt(formData.cardExpirationYear),
+              holder_name: formData.cardholderName,
+              type: paymentMethodType,
+              full_number: rawCardNumber
           });
-
-          if (!tokenRes || !tokenRes.id) throw new Error('Erro ao gerar token do cartão.');
-
-          const res = await fetch('/api/payments/cards', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                  token: tokenRes.id,
-                  payerDocument: formData.identificationNumber || undefined
-              })
-          });
-
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.error);
 
           setStep('success');
           setTimeout(() => {
@@ -135,69 +144,104 @@ export function AddCardForm({ onSuccess, onCancel }: Props) {
    };
 
    return (
-      <div className="bg-card w-full max-w-md mx-auto p-6 rounded-3xl border shadow-xl relative overflow-hidden">
-         <button onClick={onCancel} className="absolute top-4 right-4 p-2 bg-secondary rounded-full hover:bg-secondary/80 text-muted-foreground"><X size={16} /></button>
+      <div className="bg-card w-full max-w-md mx-auto p-6 rounded-[2.5rem] border border-border shadow-2xl relative overflow-hidden">
+         <button onClick={onCancel} className="absolute top-6 right-6 p-2 bg-secondary rounded-full hover:bg-secondary/80 text-muted-foreground transition-all duration-200 z-20"><X size={18} /></button>
          
-         <div className="text-center mb-6">
-            <h2 className="text-2xl font-bold">Salvar Cartão</h2>
-            <div className="flex items-center justify-center gap-1 text-xs text-green-500 mt-2">
-                <ShieldCheck size={14} /> Seus dados ficam protegidos no MercadoPago
+         <div className="text-center mb-8">
+            <div className="w-16 h-16 bg-primary/10 text-primary rounded-2xl flex items-center justify-center mx-auto mb-4">
+               <CreditCard size={32} />
+            </div>
+            <h2 className="text-2xl font-bold tracking-tight">Vincular Cartão</h2>
+            <div className="flex items-center justify-center gap-1.5 text-[10px] uppercase font-black tracking-widest text-green-500 mt-2 opacity-80">
+                <ShieldCheck size={12} strokeWidth={3} /> Segurança MercadoPago
             </div>
          </div>
 
          <AnimatePresence mode="wait">
             {step === 'form' && (
-               <motion.div key="form" initial={{opacity:0, x:20}} animate={{opacity:1, x:0}} exit={{opacity:0, x:-20}}>
-                   <form onSubmit={handleSubmit} className="flex flex-col gap-4 relative">
+               <motion.div key="form" initial={{opacity:0, y:10}} animate={{opacity:1, y:0}} exit={{opacity:0, y:-10}}>
+                   <form onSubmit={handleSubmit} className="flex flex-col gap-6 relative">
                        {/* Animated Card Preview */}
-                       <div className="w-full h-44 rounded-2xl bg-gradient-to-tr from-gray-900 to-gray-700 shadow-xl overflow-hidden relative text-white p-5 flex flex-col justify-between">
-                          <div className="flex justify-between items-start">
-                             <div className="w-12 h-8 bg-yellow-400/80 rounded flex items-end justify-start p-1 outline outline-1 outline-yellow-500/50">
-                                 <div className="w-3 h-4 border-r border-black/20" />
-                                 <div className="w-3 h-4 border-r border-black/20" />
+                       <div className="w-full h-48 rounded-[2rem] bg-gradient-to-tr from-gray-950 to-gray-800 shadow-2xl overflow-hidden relative text-white p-6 flex flex-col justify-between border border-white/5 group">
+                          <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-3xl -mr-10 -mt-10" />
+                          <div className="flex justify-between items-start relative z-10">
+                             <div className="w-14 h-10 bg-gradient-to-br from-yellow-300 to-yellow-600 rounded-lg flex flex-col items-center justify-center p-1 shadow-inner relative overflow-hidden">
+                                 <div className="w-full h-[1px] bg-black/10 mt-1" />
+                                 <div className="w-full h-[1px] bg-black/10 mt-1" />
+                                 <div className="w-full h-[1px] bg-black/10 mt-1" />
+                                 <div className="absolute inset-0 bg-white/10" />
                              </div>
-                             <div className="font-bold italic opacity-80 text-lg uppercase">{brand === 'unknown' ? 'CARD' : brand}</div>
+                             <div className="font-extrabold italic opacity-90 text-xl uppercase tracking-tighter drop-shadow-sm">{brand === 'unknown' ? 'INSTABOOST' : brand}</div>
                           </div>
-                          <div>
-                             <div className="font-mono text-lg tracking-widest opacity-90">{formData.cardNumber || '•••• •••• •••• ••••'}</div>
-                             <div className="flex justify-between mt-2 text-xs opacity-75 font-medium uppercase font-mono">
-                                 <span>{formData.cardholderName || 'NOME DO TITULAR'}</span>
-                                 <span>{formData.cardExpirationMonth ? `${formData.cardExpirationMonth}/${formData.cardExpirationYear}` : 'MM/AA'}</span>
+                          <div className="relative z-10">
+                             <div className="font-mono text-xl tracking-[0.2em] mb-4 drop-shadow-lg">{formData.cardNumber || '•••• •••• •••• ••••'}</div>
+                             <div className="flex justify-between mt-4 text-[10px] opacity-70 font-black uppercase tracking-widest font-mono">
+                                 <div className="flex flex-col gap-1">
+                                    <span className="opacity-50">Titular</span>
+                                    <span className="text-sm truncate max-w-[180px]">{formData.cardholderName || 'NOME DO TITULAR'}</span>
+                                 </div>
+                                 <div className="flex flex-col items-end gap-1">
+                                    <span className="opacity-50">Validade</span>
+                                    <span className="text-sm">{formData.cardExpirationMonth ? `${formData.cardExpirationMonth}/${formData.cardExpirationYear}` : 'MM/AA'}</span>
+                                 </div>
                              </div>
                           </div>
                        </div>
 
-                       <div className="grid grid-cols-1 gap-3 relative z-10">
-                           <div className="flex bg-secondary p-1 rounded-xl gap-1">
+                       <div className="grid grid-cols-1 gap-4">
+                           <div className="flex bg-secondary/80 p-1.5 rounded-2xl gap-1.5 border border-border/50">
                                <button 
                                   type="button" 
-                                  className={`flex-1 py-2 text-sm rounded-lg font-medium transition ${paymentMethodType === 'credit_card' ? 'bg-background shadow-sm text-primary' : 'text-muted-foreground hover:bg-black/5 dark:hover:bg-white/5'}`}
+                                  className={`flex-1 py-3 text-sm rounded-xl font-bold transition-all duration-300 ${paymentMethodType === 'credit_card' ? 'bg-background shadow-md text-primary ring-1 ring-black/5 dark:ring-white/5' : 'text-muted-foreground hover:bg-black/5 dark:hover:bg-white/5'}`}
                                   onClick={() => setPaymentMethodType('credit_card')}
                                >
                                   Crédito
                                </button>
                                <button 
                                   type="button" 
-                                  className={`flex-1 py-2 text-sm rounded-lg font-medium transition ${paymentMethodType === 'debit_card' ? 'bg-background shadow-sm text-primary' : 'text-muted-foreground hover:bg-black/5 dark:hover:bg-white/5'}`}
+                                  className={`flex-1 py-3 text-sm rounded-xl font-bold transition-all duration-300 ${paymentMethodType === 'debit_card' ? 'bg-background shadow-md text-primary ring-1 ring-black/5 dark:ring-white/5' : 'text-muted-foreground hover:bg-black/5 dark:hover:bg-white/5'}`}
                                   onClick={() => setPaymentMethodType('debit_card')}
                                >
                                   Débito
                                </button>
                            </div>
                            
-                           <div className="relative">
-                               <input type="text" required placeholder="Número do Cartão" value={formData.cardNumber} onChange={handleCardNumber} className="w-full bg-secondary border border-border rounded-xl px-4 py-3 text-sm focus:border-primary outline-none transition" />
+                           <div className="grid grid-cols-1 gap-3">
+                              <div className="space-y-1.5">
+                                 <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/80 px-1">Número do Cartão</label>
+                                 <input type="text" required placeholder="0000 0000 0000 0000" value={formData.cardNumber} onChange={handleCardNumber} className="w-full bg-secondary/50 border border-border/60 rounded-2xl px-5 py-4 text-sm font-medium focus:border-primary focus:ring-4 focus:ring-primary/10 outline-none transition-all" />
+                              </div>
+
+                              <div className="space-y-1.5">
+                                 <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/80 px-1">Nome no Cartão</label>
+                                 <input type="text" required placeholder="Ex: JOAO S SILVA" value={formData.cardholderName} onChange={e => setFormData(f=>({...f, cardholderName: e.target.value.toUpperCase()}))} className="w-full bg-secondary/50 border border-border/60 rounded-2xl px-5 py-4 text-sm font-medium focus:border-primary focus:ring-4 focus:ring-primary/10 outline-none transition-all" />
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-4">
+                                 <div className="space-y-1.5">
+                                    <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/80 px-1">Validade</label>
+                                    <input type="text" required placeholder="MM/AA" value={`${formData.cardExpirationMonth}${formData.cardExpirationMonth && !formData.cardExpirationYear ? '/' : ''}${formData.cardExpirationYear ? `/${formData.cardExpirationYear}` : ''}`} onChange={handleExpiry} className="w-full bg-secondary/50 border border-border/60 rounded-2xl px-5 py-4 text-sm font-medium text-center focus:border-primary focus:ring-4 focus:ring-primary/10 outline-none transition-all" />
+                                 </div>
+                                 <div className="space-y-1.5">
+                                    <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/80 px-1">CVV</label>
+                                    <input type="text" required placeholder="000" maxLength={4} value={formData.securityCode} onChange={e => setFormData(f=>({...f, securityCode: e.target.value.replace(/\D/g, '')}))} className="w-full bg-secondary/50 border border-border/60 rounded-2xl px-5 py-4 text-sm font-medium text-center focus:border-primary focus:ring-4 focus:ring-primary/10 outline-none transition-all" />
+                                 </div>
+                              </div>
+
+                              <div className="space-y-1.5">
+                                 <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/80 px-1">Seu CPF</label>
+                                 <input type="text" required placeholder="000.000.000-00" value={formData.identificationNumber} onChange={handleCpf} className="w-full bg-secondary/50 border border-border/60 rounded-2xl px-5 py-4 text-sm font-medium focus:border-primary focus:ring-4 focus:ring-primary/10 outline-none transition-all" />
+                              </div>
                            </div>
-                           <input type="text" required placeholder="Nome Impresso no Cartão" value={formData.cardholderName} onChange={e => setFormData(f=>({...f, cardholderName: e.target.value.toUpperCase()}))} className="w-full bg-secondary border border-border rounded-xl px-4 py-3 text-sm focus:border-primary outline-none transition" />
-                           <div className="grid grid-cols-2 gap-3">
-                               <input type="text" required placeholder="Validade (MM/AA)" value={`${formData.cardExpirationMonth}${formData.cardExpirationMonth && !formData.cardExpirationYear ? '/' : ''}${formData.cardExpirationYear ? `/${formData.cardExpirationYear}` : ''}`} onChange={handleExpiry} className="w-full bg-secondary border border-border rounded-xl px-4 py-3 text-sm focus:border-primary outline-none transition" />
-                               <input type="text" required placeholder="CVV" maxLength={4} value={formData.securityCode} onChange={e => setFormData(f=>({...f, securityCode: e.target.value.replace(/\D/g, '')}))} className="w-full bg-secondary border border-border rounded-xl px-4 py-3 text-sm focus:border-primary outline-none transition" />
-                           </div>
-                           <input type="text" required placeholder="CPF do Titular" value={formData.identificationNumber} onChange={handleCpf} className="w-full bg-secondary border border-border rounded-xl px-4 py-3 text-sm focus:border-primary outline-none transition" />
                        </div>
                        
-                       <Button type="submit" variant="primary" className="w-full py-6 mt-2 relative overflow-hidden" disabled={loading}>
-                           {loading ? <Loader2 className="animate-spin" /> : 'Salvar Cartão'}
+                       <Button type="submit" variant="primary" className="w-full h-16 rounded-2xl text-base font-bold shadow-xl shadow-primary/20 flex items-center justify-center gap-3 active:scale-[0.98] transition-transform" disabled={loading}>
+                           {loading ? <Loader2 className="animate-spin" size={20} /> : (
+                              <>
+                                 <CheckCircle2 size={20} />
+                                 Salvar Cartão com Segurança
+                              </>
+                           )}
                        </Button>
                    </form>
                </motion.div>

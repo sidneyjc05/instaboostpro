@@ -98,44 +98,46 @@ export function DailyRewardModal({ open, onClose }: DailyRewardModalProps) {
             animate={{ y: 0, opacity: 1 }} 
             exit={{ y: '100%', opacity: 0 }}
             transition={{ type: "spring", damping: 25, stiffness: 300 }}
-            className="bg-card w-full max-w-lg md:rounded-3xl rounded-t-3xl shadow-2xl flex flex-col max-h-[90vh]"
+            className="bg-card w-full max-w-lg md:rounded-3xl md:rounded-[2.5rem] rounded-t-[2.5rem] shadow-2xl flex flex-col max-h-[90vh] border border-border/50 relative overflow-hidden"
             onClick={e => e.stopPropagation()}
           >
           {/* Header */}
-          <div className="relative p-6 border-b border-border text-center overflow-hidden rounded-t-3xl">
-             <div className="absolute inset-0 bg-gradient-to-br from-primary/20 via-purple-500/10 to-transparent"></div>
-             <button onClick={onClose} className="absolute z-20 right-4 top-4 p-2 bg-background/50 backdrop-blur-md rounded-full text-muted-foreground hover:text-foreground">
+          <div className="relative p-6 md:p-8 text-center overflow-hidden">
+             <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-purple-500/5 to-transparent"></div>
+             <button onClick={onClose} className="absolute z-20 right-6 top-6 p-2 bg-secondary/80 backdrop-blur-md rounded-full text-muted-foreground hover:text-foreground hover:scale-110 transition-transform">
                 <X size={20} />
              </button>
              
              <div className="relative z-10 flex flex-col items-center">
-                <div className="w-16 h-16 bg-gradient-to-br from-yellow-400 to-amber-600 rounded-full flex items-center justify-center shadow-lg border-2 border-yellow-200 mb-3">
-                   <Calendar className="text-yellow-100" size={32} />
+                <div className="w-20 h-20 bg-gradient-to-br from-yellow-400 to-amber-600 rounded-[1.5rem] flex items-center justify-center shadow-xl border-4 border-yellow-200/50 mb-4 rotate-3 group-hover:rotate-0 transition-transform">
+                   <Calendar className="text-yellow-50" size={40} />
                 </div>
-                <h2 className="text-2xl font-extrabold text-foreground">Premiação Diária</h2>
-                <p className="text-sm text-muted-foreground mt-1 px-8">Entre todos os dias para não perder prêmios acumulativos e tickets surpresa!</p>
+                <h2 className="text-3xl font-black text-foreground tracking-tight">Prêmio Diário</h2>
+                <p className="text-sm text-muted-foreground mt-2 px-10 leading-relaxed">Retorne todos os dias para desbloquear prêmios épicos e tickets raros!</p>
              </div>
           </div>
 
           {/* Content */}
-          <div className="p-6 overflow-y-auto flex-1 custom-scrollbar">
+          <div className="p-8 pt-0 overflow-y-auto flex-1 custom-scrollbar">
             {loading || !data ? (
-              <div className="flex justify-center p-8">
-                 <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+              <div className="flex flex-col items-center justify-center p-12 gap-3">
+                 <div className="w-10 h-10 border-4 border-primary/30 border-t-primary rounded-full animate-spin"></div>
+                 <span className="text-xs font-bold text-muted-foreground animate-pulse">CARREGANDO...</span>
               </div>
             ) : (
-              <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-6">
                 
-                <div className="bg-secondary/50 p-4 rounded-xl text-center border border-primary/20 bg-gradient-to-r from-primary/5 via-transparent to-primary/5">
-                   <p className="text-xs font-semibold text-primary tracking-wider uppercase">Reset Semanal toda Segunda-feira</p>
+                <div className="bg-primary/5 p-4 rounded-2xl text-center border border-primary/10 relative overflow-hidden group">
+                   <div className="absolute inset-0 bg-gradient-to-r from-primary/5 via-transparent to-primary/5 animate-pulse"></div>
+                   <p className="relative z-10 text-[10px] font-black text-primary tracking-[0.2em] uppercase">Progresso Semanal</p>
                 </div>
 
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-4 gap-3">
                    {data.plan.slice(0, 4).map((day: any) => (
                       <RewardDayCard key={day.dayIndex} day={day} getDayName={getDayName} />
                    ))}
                 </div>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-3 gap-3">
                    {data.plan.slice(4, 7).map((day: any) => (
                       <RewardDayCard key={day.dayIndex} day={day} getDayName={getDayName} />
                    ))}
@@ -147,23 +149,21 @@ export function DailyRewardModal({ open, onClose }: DailyRewardModalProps) {
 
           {/* Footer Action */}
           {!loading && data && (
-             <div className="p-6 border-t border-border bg-secondary/20 rounded-b-3xl">
+             <div className="p-8 pt-4 bg-secondary/10 border-t border-border/50">
                 {availableDay ? (
                    <Button 
                       size="lg" 
                       variant="primary" 
-                      className="w-full font-bold text-lg h-14 shadow-lg shadow-primary/30"
+                      className="w-full font-black text-lg h-16 rounded-2xl shadow-xl shadow-primary/20 active:scale-[0.98] transition-transform"
                       onClick={handleClaim}
                       isLoading={claiming}
                    >
-                      RESGATAR PRÊMIO DE HOJE
+                      <Ticket size={20} className="mr-2" /> RESGATAR RECOMPENSA
                    </Button>
                 ) : (
-                   <div className="w-full text-center py-3 bg-secondary rounded-xl text-muted-foreground font-medium border border-border">
-                      {data.plan.every((p:any) => p.state === 'claimed' || p.state === 'missed') && data.plan[6].state !== 'locked' 
-                         ? 'Nenhum prêmio restante esta semana.' 
-                         : 'Volte amanhã para mais prêmios!'
-                      }
+                   <div className="w-full flex items-center justify-center gap-3 py-4 px-6 bg-secondary/50 rounded-2xl text-muted-foreground font-bold border border-border/50 text-sm italic">
+                      <Zap size={16} className="text-yellow-500 fill-current" />
+                      Próximo prêmio disponível em breve!
                    </div>
                 )}
              </div>
