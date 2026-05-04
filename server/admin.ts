@@ -232,7 +232,7 @@ adminRouter.post('/backup', (req: any, res) => {
 
     // Protect against self-deletion: Ensure the admin doing the import is inside the backup
     const adminExists = users.some(u => u.id === req.userId && u.role === 'admin');
-    if (!adminExists) return res.status(403).json({ error: 'O backup não contém sua conta Admin. Importação abortada por segurança.' });
+    if (!adminExists) return res.status(400).json({ error: 'O backup não contém sua conta Admin. Importação abortada por segurança.' });
 
     try {
         const importTx = db.transaction(() => {

@@ -86,7 +86,7 @@ apiRouter.post('/auth/register', (req, res) => {
   // Block registration if maintenance mode is on
   const maintenanceMode = db.prepare('SELECT value FROM settings WHERE key = ?').get('maintenance_mode') as any;
   if (maintenanceMode && maintenanceMode.value === 'on') {
-      return res.status(403).json({ error: 'O sistema está em manutenção no momento. Cadastros estão temporariamente indisponíveis.' });
+      return res.status(400).json({ error: 'O sistema está em manutenção no momento. Cadastros estão temporariamente indisponíveis.' });
   }
 
   // Check unique email if provided
@@ -188,11 +188,11 @@ apiRouter.post('/auth/login', async (req, res) => {
     const user = db.prepare('SELECT * FROM users WHERE username = ? OR email = ?').get(username, username) as any;
     
     if (!user || !bcrypt.compareSync(password, user.password)) {
-      return res.status(401).json({ error: 'Credenciais inválidas' });
+      return res.status(400).json({ error: 'Credenciais inválidas' });
     }
 
     if (user.is_blocked) {
-      return res.status(403).json({ error: 'Sua conta foi suspensa pelo administrador.' });
+      return res.status(400).json({ error: 'Sua conta foi suspensa pelo administrador.' });
     }
 
     // Get IP and Device
@@ -207,7 +207,7 @@ apiRouter.post('/auth/login', async (req, res) => {
     if (user.active_device_hash && user.active_device_hash !== deviceHash) {
        if (user.device_change_count >= 100) {
           // Exceeded limit
-          return res.status(403).json({ error: 'Sua conta foi suspensa temporariamente por excesso de mudanças de rede. Contate o suporte.' });
+          return res.status(400).json({ error: 'Sua conta foi suspensa temporariamente por excesso de mudanças de rede. Contate o suporte.' });
        }
     }
 
@@ -238,9 +238,9 @@ apiRouter.post('/auth/login', async (req, res) => {
              
              if (mailStatus.bypassed) {
                 // Bypass se as configs de email não foram colocadas no Railway/Vercel/etc
-                return res.status(403).json({ requiresVerification: true, bypassed: true, code, error: 'Bypass ativo. Use o código exibido para prosseguir.' });
+                return res.status(400).json({ requiresVerification: true, bypassed: true, code, error: 'Bypass ativo. Use o código exibido para prosseguir.' });
              } else {
-                return res.status(403).json({ requiresVerification: true, error: 'Acesso de novo dispositivo! Código de segurança enviado para seu email (pode chegar em até 10 minutos).' });
+                return res.status(400).json({ requiresVerification: true, error: 'Acesso de novo dispositivo! Código de segurança enviado para seu email (pode chegar em até 10 minutos).' });
              }
            } catch (mailError) {
              console.error("[Mailer Error]", mailError);
@@ -249,7 +249,7 @@ apiRouter.post('/auth/login', async (req, res) => {
        } else {
            const validCode = db.prepare(`SELECT id FROM verification_codes WHERE user_id = ? AND code = ? AND expires_at > datetime('now')`).get(user.id, verificationCode);
            if (!validCode) {
-               return res.status(401).json({ error: 'Código de verificação inválido ou expirado.' });
+               return res.status(400).json({ error: 'Código de verificação inválido ou expirado.' });
            }
            // Code is valid, clean up and trust device
            db.prepare('DELETE FROM verification_codes WHERE user_id = ?').run(user.id);
@@ -330,7 +330,7 @@ apiRouter.post('/support', authMiddleware, (req: any, res) => {
 apiRouter.get('/support/:id/chat', authMiddleware, (req: any, res) => {
     // Check ownership
     const sreq = db.prepare('SELECT * FROM support_requests WHERE id = ? AND user_id = ?').get(req.params.id, req.userId);
-    if (!sreq) return res.status(403).json({ error: 'Não autorizado' });
+    if (!sreq) return res.status(400).json({ error: 'Não autorizado' });
     
     // Mark messages as read
     db.prepare('UPDATE support_messages SET read_at = CURRENT_TIMESTAMP WHERE request_id = ? AND sender_id != ? AND read_at IS NULL').run(req.params.id, req.userId);
@@ -342,7 +342,7 @@ apiRouter.get('/support/:id/chat', authMiddleware, (req: any, res) => {
 apiRouter.post('/support/:id/chat', authMiddleware, (req: any, res) => {
     const { message, image_url } = req.body;
     const sreq = db.prepare('SELECT * FROM support_requests WHERE id = ? AND user_id = ?').get(req.params.id, req.userId) as any;
-    if (!sreq || sreq.status === 'closed') return res.status(403).json({ error: 'Não autorizado' });
+    if (!sreq || sreq.status === 'closed') return res.status(400).json({ error: 'Não autorizado' });
 
     db.prepare('INSERT INTO support_messages (request_id, sender_id, message, image_url) VALUES (?, ?, ?, ?)').run(req.params.id, req.userId, message, image_url);
     
@@ -358,7 +358,7 @@ apiRouter.post('/support/:id/chat', authMiddleware, (req: any, res) => {
 apiRouter.get('/me', authMiddleware, (req: any, res) => {
   db.prepare('UPDATE users SET last_active_at = CURRENT_TIMESTAMP WHERE id = ?').run(req.userId);
   const user = db.prepare('SELECT id, username, email, role, is_verified, credits, tickets, plan_type, plan_expires_at, created_at, referral_code FROM users WHERE id = ? AND is_blocked = 0').get(req.userId) as any;
-  if (!user) return res.status(401).json({ error: 'User blocked or not found' });
+  if (!user) return res.status(400).json({ error: 'User blocked or not found' });
   
   if (user.plan_expires_at && new Date(user.plan_expires_at).getTime() < Date.now()) {
       user.plan_type = 'basic';
@@ -399,7 +399,7 @@ apiRouter.post('/me/referral/claim', authMiddleware, (req: any, res) => {
   const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown') as string;
   const recentReferralsFromIp = db.prepare('SELECT count(*) as count FROM users WHERE referred_by = ? AND id IN (SELECT user_id FROM login_logs WHERE ip = ?)').get(referrer.id, ip) as {count: number};
   if (recentReferralsFromIp.count > 1) { // strict, max 1 extra account from same IP
-     return res.status(403).json({ error: 'Sistema anti-fraude: limite de indicações por rede excedido.' });
+     return res.status(400).json({ error: 'Sistema anti-fraude: limite de indicações por rede excedido.' });
   }
 
   // Reward!
@@ -1269,7 +1269,7 @@ apiRouter.post('/rewards/daily/claim', authMiddleware, (req: any, res) => {
         res.json({ success: true, reward });
     } catch (err: any) {
         if (err.message === 'DEVICE_ALREADY_CLAIMED') {
-             return res.status(403).json({ error: 'Este dispositivo já resgatou o prêmio de hoje em outra conta.' });
+             return res.status(400).json({ error: 'Este dispositivo já resgatou o prêmio de hoje em outra conta.' });
         }
         if (err.message === 'ALREADY_CLAIMED') {
              return res.status(400).json({ error: 'Você já resgatou o prêmio de hoje.' });

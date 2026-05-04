@@ -9,30 +9,30 @@ import { AnimatedIcon } from '../components/AnimatedIcon';
 
 const PromoBadge = ({ percent, size = 'md' }: { percent: number; size?: 'sm' | 'md' | 'lg' }) => {
   const sizes = {
-    sm: { container: 'top-2 left-2', badge: 'py-1 px-2 text-[8px]', circle: 'w-2 h-2', zap: 6 },
-    md: { container: '-top-3 -left-3 md:-top-4 md:-left-4', badge: 'py-1.5 px-3 text-[10px] md:text-xs', circle: 'w-2.5 h-2.5', zap: 8 },
-    lg: { container: 'top-4 left-4 md:top-6 md:left-6', badge: 'py-2 px-4 md:py-3 md:px-6 text-xs md:text-sm', circle: 'w-3.5 h-3.5 md:w-5 md:h-5', zap: 14 }
+    sm: { container: 'top-2 right-2', badge: 'py-1 px-2 text-[8px]', circle: 'w-2 h-2', zap: 6 },
+    md: { container: 'top-3 right-3 lg:top-4 lg:right-4 w-max', badge: 'py-1 px-2.5 text-[10px] md:text-xs md:py-1.5 md:px-3', circle: 'w-3 h-3', zap: 8 },
+    lg: { container: 'top-4 right-4 lg:top-5 lg:right-5 w-max', badge: 'py-1.5 px-3 md:py-2 md:px-4 text-xs md:text-sm', circle: 'w-4 h-4', zap: 12 }
   };
 
   const s = sizes[size];
 
   return (
     <motion.div 
-      initial={{ scale: 0, rotate: -20 }}
-      animate={{ scale: 1, rotate: -12 }}
-      whileHover={{ rotate: 0, scale: 1.15 }}
-      className={`absolute ${s.container} z-30 pointer-events-none drop-shadow-2xl transition-all duration-300`}
+      initial={{ scale: 0, rotate: -5 }}
+      animate={{ scale: 1, rotate: size === 'md' ? 0 : -6 }}
+      whileHover={{ rotate: 0, scale: 1.1 }}
+      className={`absolute ${s.container} z-30 pointer-events-none drop-shadow-lg transition-all duration-300 w-max`}
     >
-      <div className="relative group/badge">
-        <div className="absolute inset-0 bg-red-600 blur-xl opacity-40 animate-pulse group-hover/badge:opacity-60 transition-opacity" />
+      <div className="relative group/badge flex items-center justify-center">
+        <div className="absolute inset-0 bg-red-600 blur-md opacity-30 animate-pulse group-hover/badge:opacity-50 transition-opacity" />
         
-        <div className={`relative bg-gradient-to-br from-red-500 via-red-600 to-red-900 text-white font-black uppercase rounded-2xl border border-white/20 flex flex-col items-center justify-center leading-none shadow-[0_10px_25px_-5px_rgba(220,38,38,0.5)] ${s.badge}`}>
-          <span className="opacity-60 mb-1 tracking-tighter text-[0.6em]">Oferta Especial</span>
+        <div className={`relative bg-gradient-to-r from-red-600 to-rose-600 text-white font-black uppercase rounded-full md:rounded-2xl border border-white/20 flex flex-row md:flex-col items-center justify-center gap-1 md:gap-0 leading-none shadow-[0_5px_15px_-3px_rgba(220,38,38,0.5)] ${s.badge}`}>
+          <span className="opacity-80 tracking-tight text-[0.7em] md:mb-0.5">Promo</span>
           <span className="tracking-tighter font-black italic">-{percent}%</span>
         </div>
 
-        <div className={`absolute -top-1 -right-1 ${s.circle} bg-white rounded-full flex items-center justify-center shadow-lg border-2 border-red-500`}>
-          <Zap size={s.zap === 14 ? 12 : (s.zap === 8 ? 7 : 5)} className="fill-red-600 text-red-600" />
+        <div className={`absolute -top-1 -right-1 ${s.circle} bg-white rounded-full flex items-center justify-center shadow border border-red-500`}>
+          <Zap size={s.zap === 12 ? 10 : (s.zap === 8 ? 6 : 5)} className="fill-red-600 text-red-600" />
         </div>
       </div>
     </motion.div>

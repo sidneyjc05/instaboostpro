@@ -76,7 +76,7 @@ export function InstaViewerModal({ open, onClose, url, type, username, onInterac
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-foreground/20 backdrop-blur-sm">
         <motion.div 
           initial={{ opacity: 0, scale: 0.95, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -84,7 +84,7 @@ export function InstaViewerModal({ open, onClose, url, type, username, onInterac
           className="w-full max-w-sm bg-gradient-to-br from-[#1a0033] to-[#2a004d] rounded-[24px] shadow-2xl shadow-purple-900/50 border border-purple-500/20 overflow-hidden flex flex-col relative"
         >
           {/* Header */}
-          <div className="flex items-center justify-between p-4 bg-black/20 border-b border-white/5">
+          <div className="flex items-center justify-between p-4 bg-background border-b border-white/5">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-purple-500 to-pink-500 p-0.5">
                 <div className="w-full h-full bg-[#1a0033] rounded-full flex items-center justify-center text-sm font-bold uppercase text-white shadow-inner">
@@ -105,11 +105,11 @@ export function InstaViewerModal({ open, onClose, url, type, username, onInterac
           </div>
 
           {/* Player Area */}
-          <div className="w-full relative bg-black flex items-center justify-center min-h-[400px]">
+          <div className="w-full relative bg-background flex items-center justify-center min-h-[400px]">
              {type === 'profile' ? (
                 <div className="w-full h-[400px] flex flex-col items-center justify-center gap-4 text-center p-6 bg-gradient-to-b from-[#1a0033] to-black">
                    <div className="w-24 h-24 rounded-full bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-500 p-1 mb-2">
-                       <div className="w-full h-full bg-zinc-900 rounded-full flex items-center justify-center text-4xl font-bold uppercase text-white">
+                       <div className="w-full h-full bg-card rounded-full flex items-center justify-center text-4xl font-bold uppercase text-white">
                           {profileUser.charAt(0)}
                        </div>
                     </div>
@@ -118,7 +118,7 @@ export function InstaViewerModal({ open, onClose, url, type, username, onInterac
                 </div>
              ) : (
                 !isPlaying ? (
-                  <div className="absolute inset-0 flex items-center justify-center bg-zinc-900">
+                  <div className="absolute inset-0 flex items-center justify-center bg-card">
                     <button 
                        onClick={() => setIsPlaying(true)}
                        className="group relative w-16 h-16 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/30 transition-all backdrop-blur-md"
@@ -143,7 +143,7 @@ export function InstaViewerModal({ open, onClose, url, type, username, onInterac
 
              {/* Timer Overlay */}
              {isPlaying && !completed && type !== 'profile' && (
-                <div className="absolute top-4 right-4 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10 flex items-center gap-2">
+                <div className="absolute top-4 right-4 bg-foreground/20 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10 flex items-center gap-2">
                    <div className="w-4 h-4 text-purple-400 animate-pulse"><Play size={16} /></div>
                    <span className="text-white text-xs font-bold font-mono">
                       {Math.max(0, REQUIRED_SECS - watchedSecs)}s
@@ -160,7 +160,7 @@ export function InstaViewerModal({ open, onClose, url, type, username, onInterac
           </div>
 
           {/* Action Area */}
-          <div className="p-5 flex flex-col gap-4 bg-black/20">
+          <div className="p-5 flex flex-col gap-4 bg-background">
              
              {/* Progress Bar (Overall Mission) */}
              {missionProgress && (
@@ -170,7 +170,7 @@ export function InstaViewerModal({ open, onClose, url, type, username, onInterac
                          <span className="text-xs text-white/70 font-medium">Progresso da Missão</span>
                          <span className="text-xs font-bold text-white shadow-sm">{missionProgress.current} / {missionProgress.goal}</span>
                       </div>
-                      <div className="w-full h-1.5 bg-black/40 rounded-full overflow-hidden">
+                      <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
                          <div 
                            className="h-full bg-gradient-to-r from-purple-500 to-pink-500 rounded-full transition-all duration-500"
                            style={{ width: `${Math.min(100, (missionProgress.current / missionProgress.goal) * 100)}%` }}
@@ -184,19 +184,19 @@ export function InstaViewerModal({ open, onClose, url, type, username, onInterac
                 {type === 'reel' && (
                    <Button 
                       onClick={() => handleActionClick('watch')}
-                      className={`flex-1 font-bold text-white shadow-lg border-none py-6 transition-all ${completed ? 'bg-gradient-to-r from-emerald-500 to-green-600 hover:scale-[1.02]' : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'}`}
+                      className={`flex-1 font-bold text-white shadow-lg border-none py-6 transition-all ${completed ? 'bg-gradient-to-r from-emerald-500 to-green-600 hover:scale-[1.02]' : 'bg-muted text-muted-foreground cursor-not-allowed'}`}
                       disabled={!completed}
                    >
-                      <CheckCircle2 size={20} className={completed ? "text-white mr-2" : "text-zinc-500 mr-2"} /> Confirmar Visualização
+                      <CheckCircle2 size={20} className={completed ? "text-white mr-2" : "text-muted-foreground mr-2"} /> Confirmar Visualização
                    </Button>
                 )}
                 {type === 'post' && (
                    <Button 
                       onClick={() => handleActionClick('like')}
-                      className={`flex-1 font-bold text-white shadow-lg border-none py-6 transition-all ${completed ? 'bg-gradient-to-r from-rose-500 to-red-600 hover:scale-[1.02]' : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'}`}
+                      className={`flex-1 font-bold text-white shadow-lg border-none py-6 transition-all ${completed ? 'bg-gradient-to-r from-rose-500 to-red-600 hover:scale-[1.02]' : 'bg-muted text-muted-foreground cursor-not-allowed'}`}
                       disabled={!completed}
                    >
-                      <Heart size={20} className={completed ? "text-white mr-2" : "text-zinc-500 mr-2"} /> Curtir e Confirmar
+                      <Heart size={20} className={completed ? "text-white mr-2" : "text-muted-foreground mr-2"} /> Curtir e Confirmar
                    </Button>
                 )}
                 {type === 'profile' && (
