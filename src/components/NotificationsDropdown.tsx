@@ -60,7 +60,7 @@ export function NotificationsDropdown() {
                                         </div>
                                         <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{notif.message}</p>
                                         <span className="text-[10px] text-muted-foreground/60 mt-2 block">
-                                            {new Date(notif.created_at).toLocaleString()}
+                                            {new Date(notif.created_at).toLocaleString('pt-BR')}
                                         </span>
                                     </div>
                                 ))

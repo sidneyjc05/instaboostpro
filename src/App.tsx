@@ -72,8 +72,19 @@ function AppContent() {
 
      const checkMaintenance = async () => {
          try {
-             const r = await fetch('/api/settings/public');
-             const data = await r.json();
+             // Parallel check for maintenance AND session validity
+             const [settingsRes, meRes] = await Promise.all([
+                 fetch('/api/settings/public'),
+                 user ? fetch('/api/me') : Promise.resolve({ ok: true, status: 200 } as Response)
+             ]);
+
+             const data = await settingsRes.json();
+             
+             if (meRes.status === 401 && user) {
+                logout();
+                return;
+             }
+
              if (isMounted) {
                  if (data.maintenance_mode === 'on' && !isAdmin) {
                      setMaintenance(data);
@@ -121,7 +132,7 @@ function AppContent() {
               {maintenance.maintenance_end && (
                   <div className="relative z-10 mt-10 p-6 bg-secondary/20 rounded-3xl border border-white/5 shadow-2xl backdrop-blur-md flex flex-col gap-2 transform transition-transform hover:scale-105">
                       <p className="text-xs font-black text-purple-400 uppercase tracking-[0.2em]">Previsão de Retorno</p>
-                      <p className="text-3xl font-mono text-white font-bold">{new Date(maintenance.maintenance_end).toLocaleString()}</p>
+                      <p className="text-3xl font-mono text-white font-bold">{new Date(maintenance.maintenance_end).toLocaleString('pt-BR')}</p>
                   </div>
               )}
           </div>

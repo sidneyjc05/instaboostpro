@@ -110,127 +110,59 @@ export function UserSupportModal({ open, onClose }: { open: boolean, onClose: ()
 
     return (
         <AnimatePresence>
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 bg-black/60 backdrop-blur-md flex items-end md:items-center justify-center p-0 md:p-4" onClick={onClose}>
-                <motion.div 
-                    initial={{ scale: 0.95, opacity: 0, y: 20 }} 
-                    animate={{ scale: 1, opacity: 1, y: 0 }} 
-                    exit={{ scale: 0.95, opacity: 0, y: 20 }} 
-                    transition={{ type: "spring", damping: 25, stiffness: 300 }}
-                    className="bg-card w-full max-w-lg h-[90vh] md:h-[80vh] border border-border shadow-2xl rounded-t-3xl md:rounded-[2.5rem] mt-auto md:mt-0 flex flex-col relative overflow-hidden"
-                    onClick={e => e.stopPropagation()}
-                >
-                    <div className="p-6 border-b border-border bg-secondary/30 flex justify-between items-center z-10 w-full relative shrink-0">
-                        <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center text-primary">
-                                <MessageSquare size={24} />
-                            </div>
-                            <div className="flex flex-col">
-                                <h2 className="font-bold text-lg leading-none">Central de Suporte</h2>
-                                <span className="text-[10px] text-muted-foreground uppercase font-black tracking-widest mt-1">Atendimento ao Cliente</span>
-                            </div>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
+                <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} className="bg-card w-full max-w-lg h-[80vh] border border-border shadow-2xl rounded-3xl flex flex-col relative overflow-hidden" onClick={e => e.stopPropagation()}>
+                    <div className="p-4 border-b border-border bg-secondary/50 flex justify-between items-center z-10 w-full relative shrink-0">
+                        <div className="flex items-center gap-2">
+                            <MessageSquare className="text-primary" />
+                            <h2 className="font-bold text-lg">Central de Suporte</h2>
                         </div>
-                        <button onClick={onClose} className="p-2 bg-secondary rounded-full hover:bg-secondary/80 hover:scale-110 transition-transform">
+                        <button onClick={onClose} className="p-2 bg-secondary rounded-full hover:bg-secondary/80">
                             <X size={20} />
                         </button>
                     </div>
 
-                    <div className="flex-1 overflow-hidden flex flex-col relative">
+                    <div className="flex-1 overflow-hidden flex flex-col relative top-0 z-0">
                         {!request ? (
-                            <div className="p-6 md:p-8 flex flex-col gap-6 h-full">
-                                <div className="text-center mb-2">
-                                    <h3 className="text-xl font-bold mb-1">Como podemos ajudar?</h3>
-                                    <p className="text-muted-foreground text-sm leading-relaxed px-4">Descreva seu problema ou dúvida abaixo e nossa equipe entrará em contato em tempo real.</p>
-                                </div>
-                                <div className="space-y-2 flex-1">
-                                    <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/80 px-1">Seu Problema</label>
-                                    <textarea 
-                                        className="w-full bg-secondary/50 border border-border/80 rounded-2xl p-5 text-sm h-48 resize-none custom-scrollbar focus:border-primary focus:ring-4 focus:ring-primary/10 outline-none transition-all" 
-                                        placeholder="Ex: Não recebi minhas moedas após o pagamento..." 
-                                        value={desc} 
-                                        onChange={e => setDesc(e.target.value)} 
-                                    />
-                                </div>
-                                <Button 
-                                    disabled={loading || !desc.trim()} 
-                                    onClick={handleCreate} 
-                                    className="w-full h-16 rounded-2xl text-base font-bold shadow-xl shadow-primary/20"
-                                >
-                                    Abrir Chamado de Suporte
-                                </Button>
+                            <div className="p-6 flex flex-col gap-4 h-full relative z-0">
+                                <p className="text-muted-foreground text-sm">Precisando de ajuda? Descreva seu problema abaixo e vamos te conectar com um de nossos administradores em tempo real.</p>
+                                <textarea className="w-full bg-secondary/50 border border-border rounded-xl p-4 text-sm h-32 resize-none custom-scrollbar focus:ring-2 focus:ring-primary outline-none text-foreground z-10 relative" placeholder="Descreva o que está acontecendo..." value={desc} onChange={e => setDesc(e.target.value)} />
+                                <Button disabled={loading || !desc.trim()} onClick={handleCreate} className="mt-auto">Solicitar Suporte</Button>
                             </div>
                         ) : request.status === 'pending' ? (
-                            <div className="flex flex-col items-center justify-center h-full p-8 text-center gap-6">
-                                <div className="relative">
-                                    <div className="w-24 h-24 rounded-full bg-yellow-500/10 text-yellow-500 flex items-center justify-center animate-pulse">
-                                        <MessageSquare size={48} />
-                                    </div>
-                                    <div className="absolute -top-1 -right-1 w-6 h-6 bg-yellow-500 rounded-full border-4 border-card animate-bounce"></div>
+                            <div className="flex flex-col items-center justify-center h-full p-6 text-center gap-4 relative z-0">
+                                <div className="w-16 h-16 rounded-full bg-yellow-500/10 text-yellow-500 flex items-center justify-center">
+                                    <MessageSquare size={32} />
                                 </div>
-                                <div>
-                                    <h3 className="text-2xl font-black mb-2">Aguardando Suporte...</h3>
-                                    <p className="text-sm text-muted-foreground leading-relaxed px-6">Sua solicitação foi encaminhada para nossos especialistas. <br/>Mantenha esta janela aberta; o chat iniciará automaticamente.</p>
-                                </div>
-                                <div className="w-full max-w-[200px] h-1.5 bg-secondary rounded-full overflow-hidden">
-                                   <div className="h-full bg-yellow-500 rounded-full animate-[progress_2s_ease-in-out_infinite]" style={{width: '60%'}}></div>
-                                </div>
+                                <h3 className="text-xl font-bold">Na Fila...</h3>
+                                <p className="text-sm text-muted-foreground">Sua solicitação enviada foi encaminhada para a moderação.<br/>Por favor, aguarde um administrador aceitar para iniciar o chat.</p>
                             </div>
                         ) : (
-                            <div className="flex-1 flex flex-col overflow-hidden bg-gradient-to-b from-transparent to-secondary/10">
-                                <div className="flex-1 p-6 overflow-y-auto flex flex-col gap-4 custom-scrollbar" ref={listRef}>
-                                    <div className="text-center py-2 mb-2">
-                                        <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/50 bg-secondary/50 px-3 py-1 rounded-full">Chat Iniciado</span>
-                                    </div>
+                            <div className="flex-1 flex flex-col overflow-hidden relative z-0">
+                                <div className="flex-1 p-4 overflow-y-auto flex flex-col gap-3 custom-scrollbar relative z-0" ref={listRef}>
                                     {messages.map((m, i) => {
                                         const isMine = m.sender_id === request.user_id;
                                         return (
-                                            <div key={i} className={`flex flex-col max-w-[85%] ${isMine ? 'self-end items-end' : 'self-start items-start'}`}>
-                                                <div className={`p-4 rounded-[1.5rem] text-sm shadow-sm relative group overflow-hidden ${isMine ? 'bg-primary text-white rounded-tr-none' : 'bg-card border border-border text-foreground rounded-tl-none'}`}>
+                                            <div key={i} className={`flex flex-col max-w-[80%] ${isMine ? 'self-end items-end' : 'self-start items-start'}`}>
+                                                <div className={`p-3 rounded-2xl text-sm overflow-hidden ${isMine ? 'bg-primary text-white rounded-tr-none' : 'bg-secondary text-foreground rounded-tl-none'}`}>
                                                     {m.image_url ? (
-                                                        <div className="mb-2 rounded-lg overflow-hidden border border-white/10">
-                                                            <img src={m.image_url} alt="Envio" className="max-w-full h-auto" />
-                                                        </div>
+                                                        <img src={m.image_url} alt="Envio" className="max-w-[200px] rounded-lg mb-2" />
                                                     ) : null}
-                                                    <span className="relative z-10">{m.message}</span>
-                                                    {isMine && <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent opacity-50"></div>}
+                                                    {m.message}
                                                 </div>
-                                                <div className="text-[9px] font-bold text-muted-foreground/60 mt-1.5 px-2 flex items-center gap-1">
-                                                    {new Date(m.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                                                    {isMine && <span className="text-[8px]">✓✓</span>}
-                                                </div>
+                                                <div className="text-[10px] text-muted-foreground mt-1 px-1">{new Date(m.created_at).toLocaleTimeString().substring(0,5)}</div>
                                             </div>
                                         );
                                     })}
                                 </div>
-                                <div className="p-4 pt-2 bg-card border-t border-border flex gap-3 items-end">
-                                    <button 
-                                        onClick={handleImageUpload} 
-                                        className="mb-1 p-3 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-xl transition-all"
-                                        title="Enviar Imagem"
-                                    >
+                                <div className="p-3 bg-secondary/30 border-t border-border flex gap-2 items-center relative z-0">
+                                    <button onClick={handleImageUpload} className="p-2 text-muted-foreground hover:text-primary transition-colors">
                                         <ImageIcon size={20} />
                                     </button>
-                                    <div className="flex-1 relative">
-                                        <textarea 
-                                            className="w-full bg-secondary/50 border border-border rounded-2xl px-5 py-3 text-sm focus:border-primary focus:ring-4 focus:ring-primary/10 outline-none transition-all resize-none max-h-32 min-h-[48px]" 
-                                            placeholder="Mensagem..." 
-                                            rows={1}
-                                            value={text} 
-                                            onChange={e => setText(e.target.value)} 
-                                            onKeyDown={e => {
-                                                if(e.key === 'Enter' && !e.shiftKey) {
-                                                    e.preventDefault();
-                                                    handleSend();
-                                                }
-                                            }} 
-                                        />
-                                    </div>
-                                    <button 
-                                        onClick={handleSend} 
-                                        disabled={!text.trim()}
-                                        className="mb-1 p-3 bg-primary text-white rounded-xl shadow-lg shadow-primary/20 hover:scale-105 active:scale-95 transition-all disabled:opacity-50 disabled:hover:scale-100"
-                                    >
-                                        <Send size={20} />
-                                    </button>
+                                    <Input className="flex-1" placeholder="Digite uma mensagem..." value={text} onChange={e => setText(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSend()} />
+                                    <Button onClick={handleSend} className="px-3" size="sm">
+                                        <Send size={16} />
+                                    </Button>
                                 </div>
                             </div>
                         )}

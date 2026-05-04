@@ -4,6 +4,7 @@ import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { showNotification } from '../../context/NotificationContext';
 import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
+import { AnimatedIcon } from '../AnimatedIcon';
 
 export function AdminUsers({ users, refresh }: { users: any[], refresh: () => void }) {
     const [search, setSearch] = useState('');
@@ -91,7 +92,7 @@ export function AdminUsers({ users, refresh }: { users: any[], refresh: () => vo
                             </td>
                             <td className="p-3 text-muted-foreground">{u.email || '-'}</td>
                             <td className="p-3 uppercase text-xs font-bold text-primary">{u.plan_type}</td>
-                            <td className="p-3 font-mono">{Math.floor(u.credits)} 🪙 / {u.tickets} 🎟️</td>
+                            <td className="p-3 font-mono flex items-center gap-1.5">{Math.floor(u.credits)} <AnimatedIcon type="coin" size={14} /> / {u.tickets} <AnimatedIcon type="ticket" size={14} /></td>
                             <td className="p-3">
                                <span className={`px-2 py-1 text-[10px] uppercase font-bold rounded-md ${!u.is_blocked ? 'bg-green-500/20 text-green-500' : 'bg-red-500/20 text-red-500'}`}>
                                   {!u.is_blocked ? 'Ativo' : 'Bloqueado'}

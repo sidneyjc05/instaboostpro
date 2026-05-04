@@ -4,6 +4,8 @@ import 'dotenv/config';
 import cookieParser from 'cookie-parser';
 import { apiRouter } from './server/routes.js';
 
+console.log('API Router imported:', typeof apiRouter);
+
 async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
@@ -12,8 +14,33 @@ async function startServer() {
   app.use(express.urlencoded({ limit: '50mb', extended: true }));
   app.use(cookieParser());
 
+  // Log all requests for debugging
+  app.use((req, res, next) => {
+    console.log(`${req.method} ${req.url}`);
+    next();
+  });
+
   // API routing
+  app.post('/api/auth/login-test', (req, res) => {
+    res.json({ ok: true, message: "Test route works" });
+  });
+
+  app.all('/api/auth/login', (req, res, next) => {
+    console.log(`[LOGIN ATTEMPT] ${req.method} ${req.url}`);
+    next();
+  });
+
+  app.get('/api/test', (req, res) => {
+    res.json({ ok: true, timestamp: new Date().toISOString() });
+  });
+
   app.use('/api', apiRouter);
+
+  // Catch-all for missing API routes to prevent HTML response
+  app.all('/api/*', (req, res) => {
+    console.log(`[CATCH-ALL 404] ${req.method} ${req.url}`);
+    res.status(404).json({ error: `API route not found: ${req.method} ${req.url}` });
+  });
 
   // Explicit route for assetlinks.json
   app.get('/.well-known/assetlinks.json', (req, res) => {
@@ -51,9 +78,21 @@ async function startServer() {
     });
   }
 
+  // Global Error Handler
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error('SERVER ERROR:', err);
+    res.status(err.status || 500).json({
+      error: err.message || 'Internal Server Error',
+      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    });
+  });
+
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
 }
 
-startServer();
+startServer().catch(err => {
+  console.error("FAILED TO START SERVER:", err);
+  process.exit(1);
+});

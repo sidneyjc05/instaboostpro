@@ -6,6 +6,8 @@ import { useAppSound } from '../context/SoundContext';
 import { useAuth } from '../context/AuthContext';
 import { UserSupportModal } from './UserSupportModal';
 import { NotificationsDropdown } from './NotificationsDropdown';
+import { AnimatedBackground } from './AnimatedBackground';
+import { motion } from 'motion/react';
 
 export function Layout() {
   const { theme, toggleTheme } = useTheme();
@@ -20,7 +22,8 @@ export function Layout() {
   const handleToggleTheme = () => toggleTheme();
 
   return (
-    <div className="flex flex-col min-h-screen pb-20 md:pb-0 md:pl-20 bg-background text-foreground transition-colors duration-300">
+    <div className="flex flex-col min-h-screen pb-20 md:pb-0 md:pl-20 bg-background/80 text-foreground transition-colors duration-500 font-sans">
+      <AnimatedBackground />
       
       {/* Top Header */}
       <header className="sticky top-0 z-10 bg-background/80 backdrop-blur-md border-b border-border p-4 flex justify-between items-center md:hidden">
@@ -97,13 +100,33 @@ function NavItem({ to, icon, label }: { to: string; icon: React.ReactNode; label
       to={to} 
       onClick={() => playClick()}
       className={({ isActive }) => 
-        `flex flex-col items-center gap-1 p-2 rounded-xl transition-all duration-200 ${
-          isActive ? 'bg-primary text-white shadow-[0_0_20px_rgba(139,92,246,0.4)] scale-110' : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
+        `relative flex flex-col items-center justify-center gap-1.5 p-3 rounded-2xl transition-all duration-300 group overflow-hidden ${
+          isActive 
+            ? 'text-white' 
+            : 'text-muted-foreground hover:text-foreground'
         }`
       }
     >
-      {React.cloneElement(icon as React.ReactElement, { size: 24 })}
-      <span className="text-[10px] font-medium hidden md:block">{label}</span>
+      {({ isActive }) => (
+        <>
+          {isActive && (
+            <motion.div 
+              layoutId="nav-pill" 
+              className="absolute inset-0 bg-gradient-to-tr from-primary to-accent opacity-90 shadow-[0_0_20px_rgba(139,92,246,0.5)] z-0 rounded-2xl" 
+              transition={{ type: "spring", stiffness: 300, damping: 25 }}
+            />
+          )}
+          <motion.div 
+             className="z-10 relative"
+             animate={isActive ? { scale: [1, 1.2, 1], rotate: [0, -10, 10, 0] } : {}}
+             transition={{ duration: 0.5, ease: "easeInOut" }}
+             whileHover={!isActive ? { y: -3, scale: 1.1 } : {}}
+          >
+            {React.cloneElement(icon as React.ReactElement, { size: 24, strokeWidth: isActive ? 2.5 : 2 })}
+          </motion.div>
+          <span className="text-[10px] font-bold z-10 relative hidden md:block uppercase tracking-wider">{label}</span>
+        </>
+      )}
     </NavLink>
   );
 }

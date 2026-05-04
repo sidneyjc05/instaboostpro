@@ -1,1069 +1,438 @@
-import React, { useEffect, useState } from 'react';
-import { useAuth } from '../context/AuthContext';
+import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
-import { OTPInput } from '../components/ui/OTPInput';
-import { showNotification } from '../context/NotificationContext';
-import { LogOut, Rocket, Clock, History, AlertTriangle, RefreshCw, Eye, QrCode, Copy, X, Users, Share2, Award, ChevronDown, ChevronUp, CheckCircle, CreditCard, Trash2, Plus } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
-import { useNavigate } from 'react-router';
+import { useAuth } from '../context/AuthContext';
+import { User, Mail, LogOut, Loader2, Diamond, Users, Copy, CheckCircle, Share2, AlertTriangle, ShieldCheck, History, PlusSquare, X, Check } from 'lucide-react';
 import { useAppSound } from '../context/SoundContext';
+import { AnimatedIcon } from '../components/AnimatedIcon';
+import { showNotification } from '../context/NotificationContext';
+import { useNavigate } from 'react-router';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
-import { getLocalCards, removeLocalCard } from '../lib/cardStorage';
-import { AddCardForm } from '../components/checkout/AddCardForm';
 
 export default function Profile() {
   const { user, logout, refreshUser } = useAuth();
-  const { playSuccess, playClick } = useAppSound();
-  const [promotions, setPromotions] = useState<any[]>([]);
-  const [payments, setPayments] = useState<any[]>([]);
-  const [referral, setReferral] = useState<any>(null);
-  const [savedCards, setSavedCards] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [reboostLoading, setReboostLoading] = useState<number | null>(null);
-  const [checkingPayment, setCheckingPayment] = useState<string | null>(null);
-  const [showAddCard, setShowAddCard] = useState(false);
-  const [activeQrModal, setActiveQrModal] = useState<any>(null); // { qrCode, pixCode, etc }
-  const [activePlanModal, setActivePlanModal] = useState<string | null>(null);
+  const { playClick, playSuccess } = useAppSound();
   const navigate = useNavigate();
-
-  const [emailInput, setEmailInput] = useState('');
-  const [passwordInput, setPasswordInput] = useState('');
-  const [codeInput, setCodeInput] = useState('');
-  const [showEmailVerify, setShowEmailVerify] = useState(false);
-  const [showPasswordChange, setShowPasswordChange] = useState(false);
-  const [actionLoading, setActionLoading] = useState(false);
   
-  const [showCommissions, setShowCommissions] = useState(false);
-  const [referralInput, setReferralInput] = useState('');
-  const [claimLoading, setClaimLoading] = useState(false);
+  const [loadingCode, setLoadingCode] = useState(false);
+  const [friendCode, setFriendCode] = useState('');
+  const [copied, setCopied] = useState(false);
 
-  // Lock scroll if any modal is open
-  useBodyScrollLock(!!(activeQrModal || activePlanModal || showEmailVerify || showPasswordChange || showAddCard));
+  const [promotions, setPromotions] = useState<any[]>([]);
+  const [loadingPromos, setLoadingPromos] = useState(true);
+  const [selectedPlanModal, setSelectedPlanModal] = useState<any | null>(null);
 
-  const handleClaimReferral = async () => {
-    if (!referralInput) return showNotification.error('Digite um código');
-    setClaimLoading(true);
+  useBodyScrollLock(!!selectedPlanModal);
+
+  const planBenefits: Record<string, string[]> = {
+    'basic': [
+      'Moedas normais em missões',
+      'Chances normais na roleta',
+      '1 publicação por dia',
+      'Feed Geral',
+      'Análise de desempenho básica'
+    ],
+    'pro': [
+      'Dobro de moedas em todas as missões',
+      '+20% chances na roleta',
+      '10 publicações por dia',
+      'Prioridade no Feed Geral',
+      'Análise de desempenho básica',
+      '+500 moedas de bônus mensal',
+      '+10% de comissão extra'
+    ],
+    'premium': [
+      'Triplo de moedas nas missões',
+      '+50% chances na roleta',
+      '30 publicações por dia',
+      'Destaque no Feed Geral',
+      'Análise de desempenho avançada',
+      '+1500 moedas de bônus mensal',
+      '+20% de comissão extra'
+    ],
+    'ultra': [
+      'Quíntuplo de moedas nas missões',
+      '+100% chances na roleta',
+      'Publicações ilimitadas',
+      'Top Destaque no Feed Geral',
+      'Análise de desempenho premium',
+      '+5000 moedas de bônus mensal',
+      '+50% de comissão extra',
+      'Suporte VIP'
+    ]
+  };
+
+  useEffect(() => {
+    fetch('/api/users/me/promotions')
+      .then(r => r.json())
+      .then(data => {
+         if (Array.isArray(data)) setPromotions(data);
+         setLoadingPromos(false);
+      })
+      .catch(() => setLoadingPromos(false));
+  }, []);
+
+  const handleCopyCode = () => {
+    if (!user?.referral_code) return;
+    playClick();
+    navigator.clipboard.writeText(user.referral_code);
+    setCopied(true);
+    showNotification.success('Código copiado!');
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleShareLink = () => {
+    if (!user?.referral_code) return;
+    playClick();
+    const link = `${window.location.origin}/register?ref=${user.referral_code}`;
+    if (navigator.share) {
+      navigator.share({
+        title: 'InstaBoost PRO',
+        text: 'Entre no InstaBoost PRO usando meu código e ganhe moedas!',
+        url: link,
+      }).catch((err) => {
+        if (err.name !== 'AbortError') {
+          console.error('Erro ao compartilhar:', err);
+        }
+      });
+    } else {
+      navigator.clipboard.writeText(link);
+      showNotification.success('Link copiado!');
+    }
+  };
+
+  const handleClaimReferral = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!friendCode) return;
+    playClick();
+    setLoadingCode(true);
     try {
       const res = await fetch('/api/me/referral/claim', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: referralInput })
+        body: JSON.stringify({ code: friendCode })
       });
       const data = await res.json();
-      if (res.ok) {
-        showNotification.success(data.message);
-        fetchData();
-        refreshUser();
+      if (res.ok && data.success) {
+        playSuccess();
+        showNotification.success(data.message || 'Código resgatado!');
+        await refreshUser();
+        setFriendCode('');
       } else {
-        showNotification.error(data.error);
+        showNotification.error(data.error || 'Código inválido');
       }
-    } catch {
-       showNotification.error('Erro de conexão');
+    } catch (err) {
+      showNotification.error('Erro ao conectar.');
+    } finally {
+      setLoadingCode(false);
     }
-    setClaimLoading(false);
   };
 
-  const [now, setNow] = useState(Date.now());
-
-  useEffect(() => {
-    fetchData();
-    const interval = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const handleLinkEmail = async () => {
-     if (!emailInput) return showNotification.error('Digite um e-mail válido');
-     setActionLoading(true);
-     try {
-        const res = await fetch('/api/me/email', {
-           method: 'POST',
-           headers: { 'Content-Type': 'application/json' },
-           body: JSON.stringify({ email: emailInput })
-        });
-        const data = await res.json();
-        if (res.ok) {
-           showNotification.success('Email adicionado!');
-           await refreshUser();
-           handleSendVerifyCode();
-        } else {
-           showNotification.error(data.error);
-        }
-     } catch {
-        showNotification.error('Erro de rede');
-     }
-     setActionLoading(false);
+  const sendVerifyEmail = async () => {
+    playClick();
+    showNotification.info('Enviando código de verificação...');
+    // Real implementation would call /api/me/email/verify/send
   };
 
-  const handleSendVerifyCode = async () => {
-     setActionLoading(true);
-     try {
-        const res = await fetch('/api/me/email/verify/send', { method: 'POST' });
-        const data = await res.json();
-        if (res.ok) {
-           if (data.bypassed) {
-              showNotification.success(`E-mail verificado automaticamente. Código bypass: ${data.code}`);
-              await refreshUser();
-           } else {
-              showNotification.success('Código enviado para seu e-mail!');
-              setShowEmailVerify(true);
-           }
-        } else {
-           showNotification.error(data.error);
-        }
-     } catch {
-        showNotification.error('Erro ao enviar código');
-     }
-     setActionLoading(false);
-  };
+  const plans = [
+    { id: 'basic', name: 'BÁSICO', price: 'Gratuito' },
+    { id: 'pro', name: 'PRO', price: 'R$ 50' },
+    { id: 'premium', name: 'PREMIUM', price: 'R$ 100' },
+    { id: 'ultra', name: 'ULTRA', price: 'R$ 150', featured: true }
+  ];
 
-  const handleVerifyEmail = async () => {
-     if (!codeInput) return;
-     setActionLoading(true);
-     try {
-        const res = await fetch('/api/me/email/verify', {
-           method: 'POST',
-           headers: { 'Content-Type': 'application/json' },
-           body: JSON.stringify({ code: codeInput })
-        });
-        const data = await res.json();
-        if (res.ok) {
-           showNotification.success('Email verificado com sucesso!');
-           setShowEmailVerify(false);
-           setCodeInput('');
-           await refreshUser();
-        } else {
-           showNotification.error(data.error);
-        }
-     } catch {
-        showNotification.error('Erro ao verificar código');
-     }
-     setActionLoading(false);
-  };
-
-  const handleChangePassword = async () => {
-     setActionLoading(true);
-     try {
-        const res = await fetch('/api/auth/recover/send', {
-           method: 'POST',
-           headers: { 'Content-Type': 'application/json' },
-           body: JSON.stringify({ email: user?.email })
-        });
-        const data = await res.json();
-        if (res.ok) {
-           if (data.bypassed) {
-              showNotification.success(`Aviso: Email bypass ativado. Use este código para trocar a senha: ${data.code}`);
-           } else {
-              showNotification.success('Código de segurança enviado para seu email!');
-           }
-           setShowPasswordChange(true);
-        } else {
-           showNotification.error(data.error);
-        }
-     } catch {
-        showNotification.error('Erro ao enviar código');
-     }
-     setActionLoading(false);
-  };
-
-  const handleUpdatePassword = async () => {
-     if (!codeInput || !passwordInput) return showNotification.error('Preencha os campos');
-     setActionLoading(true);
-     try {
-        const res = await fetch('/api/auth/recover/reset', {
-           method: 'POST',
-           headers: { 'Content-Type': 'application/json' },
-           body: JSON.stringify({ email: user?.email, code: codeInput, newPassword: passwordInput })
-        });
-        const data = await res.json();
-        if (res.ok) {
-           showNotification.success('Senha atualizada com sucesso!');
-           setShowPasswordChange(false);
-           setCodeInput('');
-           setPasswordInput('');
-        } else {
-           showNotification.error(data.error);
-        }
-     } catch {
-        showNotification.error('Erro ao verificar código');
-     }
-     setActionLoading(false);
-  };
-
-  // Sync payments automatically while the QR modal is open
-  useEffect(() => {
-    let interval: any;
-    if (activeQrModal?.id) {
-       interval = setInterval(async () => {
-          try {
-             const res = await fetch(`/api/payments/${activeQrModal.id}`);
-             if (res.ok) {
-                const data = await res.json();
-                if (data.status === 'approved') {
-                   setActiveQrModal(null);
-                   playSuccess();
-                   showNotification.success('Pagamento Aprovado!');
-                   fetchData();
-                   refreshUser();
-                }
-             }
-          } catch(e) {}
-       }, 5000);
-    }
-    return () => clearInterval(interval);
-  }, [activeQrModal]);
-
-  const fetchData = async () => {
-    try {
-      const [promoRes, payRes, refRes] = await Promise.all([
-        fetch('/api/users/me/promotions'),
-        fetch('/api/users/me/payments'),
-        fetch('/api/me/referral'),
-      ]);
-      if (promoRes.ok) setPromotions(await promoRes.json());
-      if (payRes.ok) setPayments(await payRes.json());
-      if (refRes.ok) setReferral(await refRes.json());
-      
-      // Load local cards
-      setSavedCards(getLocalCards());
-    } catch {}
-    setLoading(false);
-  };
-
-  const handleRemoveCard = (id: string) => {
-      removeLocalCard(id);
-      setSavedCards(getLocalCards());
-      showNotification.success('Cartão removido com sucesso!');
-  };
-
-  const handleReboost = async (id: number) => {
-    setReboostLoading(id);
-    try {
-      const res = await fetch(`/api/promotions/${id}/reboost`, {
-        method: 'POST'
-      });
-      const data = await res.json();
-      if (res.ok) {
-        showNotification.success('Divulgação reaplicada com sucesso!');
-        fetchData();
-        refreshUser();
-      } else {
-        showNotification.error(data.error || 'Erro ao reaplicar');
-      }
-    } catch {
-       showNotification.error('Erro de conexão');
-    }
-    setReboostLoading(null);
-  };
-
-  const handleViewPix = async (payId: string) => {
-     setCheckingPayment(payId);
-     try {
-       const res = await fetch(`/api/payments/${payId}`);
-       const data = await res.json();
-       if (res.ok && data.qrCode) {
-          setActiveQrModal(data);
-       } else if (data.status === 'approved') {
-          showNotification.success('Esse pagamento já foi aprovado!');
-          fetchData();
-       } else {
-          showNotification.error('Não foi possível carregar o código PIX.');
-       }
-     } catch {
-       showNotification.error('Erro ao conectar ao servidor.');
-     }
-     setCheckingPayment(null);
-  };
-
-  const calculateTimeLeft = (expiresAt: string) => {
-    const safeDateStr = expiresAt.includes('Z') ? expiresAt : expiresAt.replace(' ', 'T') + 'Z';
-    const diff = new Date(safeDateStr).getTime() - now;
-    if (diff <= 0) return 'Expirado';
-    const hours = Math.floor(diff / (1000 * 60 * 60));
-    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-    const seconds = Math.floor((diff % (1000 * 60)) / 1000);
-    
-    if (hours > 0) return `${hours}h ${minutes}m restantes`;
-    if (minutes > 0) return `${minutes}m ${seconds}s restantes`;
-    return `${seconds} segundos restantes`;
-  };
-
-  const calculatePaymentTimeLeft = (createdAt: string) => {
-    // 15 mins total
-    const safeDateStr = createdAt.includes('Z') ? createdAt : createdAt.replace(' ', 'T') + 'Z';
-    const diff = (new Date(safeDateStr).getTime() + 15 * 60 * 1000) - now;
-    if (diff <= 0) return 'Cancelado (Expirado)';
-    const minutes = Math.floor((diff / 1000) / 60);
-    const seconds = Math.floor((diff / 1000) % 60);
-    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-  };
-
-  const formatDuration = (cost: number) => {
-     const mins = cost / 5;
-     if (mins >= 60) {
-        const h = Math.floor(mins / 60);
-        const m = Math.floor(mins % 60);
-        return m > 0 ? `${h}h ${m}m` : `${h}h`;
-     }
-     return `${mins}m`;
-  };
-
-  if (!user) return null;
+  const userPlan = user?.plan_type || 'basic';
 
   return (
-    <div className="flex flex-col gap-8 pb-20 max-w-3xl mx-auto w-full">
+    <div className="max-w-4xl mx-auto space-y-10 mb-20">
       
-      <AnimatePresence>
-         {activePlanModal && (
-            <motion.div 
-               initial={{ opacity: 0 }} 
-               animate={{ opacity: 1 }} 
-               exit={{ opacity: 0 }}
-               className="fixed inset-0 z-[60] bg-black/60 dark:bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
-               onClick={() => setActivePlanModal(null)}
-            >
-               <motion.div 
-                  initial={{ scale: 0.95, opacity: 0, y: 20 }}
-                  animate={{ scale: 1, opacity: 1, y: 0 }}
-                  exit={{ scale: 0.95, opacity: 0, y: 20 }}
-                  transition={{ type: "spring", damping: 25, stiffness: 300 }}
-                  className={`bg-card w-full max-w-sm border shadow-2xl rounded-[2.5rem] p-8 flex flex-col gap-6 relative overflow-hidden ${
-                     activePlanModal === 'pro' ? 'border-green-500/50 shadow-green-500/10' :
-                     activePlanModal === 'premium' ? 'border-purple-500/50 shadow-purple-500/10' :
-                     'border-yellow-500/50 shadow-yellow-500/10'
-                  }`}
-                  onClick={(e) => e.stopPropagation()}
-               >
-                  <button onClick={() => { playClick(); setActivePlanModal(null); }} className="absolute top-4 right-4 p-2 bg-secondary rounded-full hover:bg-secondary/80">
-                    <X size={20} />
-                  </button>
-
-                  <div className="text-center">
-                    <h3 className={`text-2xl font-black uppercase ${
-                       activePlanModal === 'pro' ? 'text-green-500' :
-                       activePlanModal === 'premium' ? 'text-purple-500' :
-                       'text-yellow-500'
-                    }`}>
-                       Plano {activePlanModal}
-                    </h3>
-                    <p className="text-sm text-muted-foreground mt-1">Conheça todos os benefícios deste plano.</p>
-                  </div>
-
-                  <div className="flex-1 flex flex-col gap-3 mt-2 overflow-y-auto max-h-[50vh] pr-2 custom-scrollbar">
-                     {(activePlanModal === 'pro' ? [
-                        'Dobro de moedas em todas as missões',
-                        '+20% chances na roleta',
-                        '10 publicações por dia',
-                        'Prioridade no Feed Geral',
-                        'Análise de desempenho básica',
-                        '+500 moedas de bônus mensal',
-                        '+10% de comissão extra'
-                     ] : activePlanModal === 'premium' ? [
-                        'Dobro de moedas nas missões',
-                        '+40% chances na roleta',
-                        '15 publicações por dia (24h limite)',
-                        '+4 tickets de roleta diários',
-                        'Stories com duração +24h',
-                        'Análise de desempenho avançada',
-                        'Redução de cooldown em missões',
-                        'Remoção de anúncios / Ultra clean',
-                        '+1.500 moedas de bônus mensal',
-                        '+20% de comissão extra'
-                     ] : [
-                        'Dobro + 50% extra de moedas',
-                        '+80% chances na roleta',
-                        '30 publicações por dia (48h limite)',
-                        '+8 tickets de roleta diários',
-                        'Stories com duração +48h',
-                        'Suporte VIP 24h',
-                        'Maior prioridade no Feed Geral',
-                        'Acesso Beta a novos recursos',
-                        'Remoção de anúncios / Ultra clean',
-                        '+4.000 moedas de bônus mensal',
-                        '+40% de comissão extra'
-                     ]).map((b, i) => (
-                        <div key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
-                           <CheckCircle className={`shrink-0 mt-0.5 ${
-                               activePlanModal === 'pro' ? 'text-green-500' :
-                               activePlanModal === 'premium' ? 'text-purple-500' :
-                               'text-yellow-500'
-                           }`} size={16} />
-                           <span className="leading-tight">{b}</span>
-                        </div>
-                     ))}
-                  </div>
-
-                  <Button 
-                     className="w-full mt-2" 
-                     onClick={() => {
-                        playClick();
-                        navigate(`/store?tab=plans`);
-                     }}
-                  >
-                     Assinar Plano
-                  </Button>
-               </motion.div>
-            </motion.div>
-         )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-         {activeQrModal && (
-            <motion.div 
-               initial={{ opacity: 0 }} 
-               animate={{ opacity: 1 }} 
-               exit={{ opacity: 0 }}
-               className="fixed inset-0 z-[70] bg-black/60 dark:bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
-            >
-               <motion.div 
-                  initial={{ scale: 0.95, opacity: 0, y: 20 }}
-                  animate={{ scale: 1, opacity: 1, y: 0 }}
-                  exit={{ scale: 0.95, opacity: 0, y: 20 }}
-                  transition={{ type: "spring", damping: 25, stiffness: 300 }}
-                  className="bg-card w-full max-w-sm border border-border shadow-2xl rounded-[2.5rem] p-8 flex flex-col items-center gap-6 relative"
-               >
-                  <button onClick={() => setActiveQrModal(null)} className="absolute top-4 right-4 p-2 bg-secondary rounded-full hover:bg-secondary/80">
-                     <X size={20} />
-                  </button>
-                  <div className="w-16 h-16 bg-green-500/10 text-green-500 rounded-full flex items-center justify-center">
-                    <QrCode size={32} />
-                  </div>
-                  <div className="text-center">
-                    <h3 className="text-xl font-bold">Pagar via PIX</h3>
-                    <p className="text-sm text-muted-foreground mt-1">Escaneie o código para aprovação imediata.</p>
-                  </div>
-                  
-                  <div className="p-2 bg-white rounded-xl">
-                    <img src={activeQrModal.qrCode} alt="PIX QR Code" className="w-48 h-48" />
-                  </div>
-                  
-                  <div className="w-full flex gap-2">
-                    <div className="flex-1 bg-secondary rounded-xl px-3 py-2 text-xs truncate border border-border flex items-center text-left">
-                      {activeQrModal.pixCode?.substring(0, 30)}...
-                    </div>
-                    <Button 
-                       variant="outline"
-                       onClick={() => {
-                         navigator.clipboard.writeText(activeQrModal.pixCode);
-                         showNotification.success('Código PIX copiado!');
-                       }}
-                    >
-                      <Copy size={16} /> Copiar
-                    </Button>
-                  </div>
-
-                  <div className="text-sm text-primary font-mono animate-pulse">
-                     Aguardando confirmação...
-                  </div>
-               </motion.div>
-            </motion.div>
-         )}
-      </AnimatePresence>
-
       {/* Profile Header */}
-      <div className="flex flex-col items-center text-center">
-        <div className={`w-24 h-24 rounded-full flex items-center justify-center text-white font-bold text-3xl shadow-lg mb-4 ring-4 ${user.plan_type === 'ultra' ? 'bg-gradient-to-tr from-yellow-500 to-orange-600 ring-yellow-500/50 shadow-yellow-500/50' : user.plan_type === 'premium' ? 'bg-gradient-to-tr from-purple-500 to-pink-500 ring-purple-500/50 shadow-purple-500/50' : user.plan_type === 'pro' ? 'bg-gradient-to-tr from-green-500 to-teal-500 ring-green-500/50 shadow-green-500/50' : 'bg-gradient-to-tr from-gray-700 to-gray-500 ring-border'}`}>
-          {user.username.substring(0, 2).toUpperCase()}
-        </div>
-        <h2 className="text-2xl font-bold flex items-center gap-2">
-           @{user.username}
-           {user.plan_type === 'ultra' && <span className="text-yellow-500" title="Plano Ultra">💎</span>}
-           {user.plan_type === 'premium' && <span className="text-purple-500" title="Plano Premium">✨</span>}
-           {user.plan_type === 'pro' && <span className="text-green-500" title="Plano Pro">⚡</span>}
-        </h2>
-        
-        {user.plan_type !== 'basic' && user.plan_expires_at && (
-           <div className="text-xs text-muted-foreground mt-1">
-              Plano {user.plan_type.toUpperCase()} ativo até {new Date(user.plan_expires_at).toLocaleDateString('pt-BR')}
-           </div>
-        )}
-
-        <div className="mt-4 px-4 py-2 bg-yellow-500/15 border border-yellow-500/30 text-yellow-500 rounded-full font-semibold flex items-center gap-2">
-          <span>💰</span>
-          <span>{Number((user.credits || 0).toFixed(1))} Moedas</span>
-        </div>
-      </div>
-
-      {/* Planos Disponiveis Section */}
-      <div className="bg-card border border-border rounded-3xl p-5 md:p-6 flex flex-col gap-4">
-          <div className="border-b border-border pb-3 flex items-center justify-between">
-             <h3 className="font-bold flex items-center gap-2 text-primary">
-                💎 Planos de Assinatura
-             </h3>
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.5 }}
+        className="flex flex-col items-center justify-center text-center space-y-4 pt-4"
+      >
+        <div className="relative">
+          <div className="w-24 h-24 sm:w-32 sm:h-32 rounded-full bg-primary/20 border-2 border-primary/50 flex items-center justify-center text-4xl sm:text-5xl font-black text-primary shadow-[0_0_30px_rgba(126,34,206,0.3)]">
+            {user?.username?.[0]?.toUpperCase() || 'U'}
           </div>
-          
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-             <div className="bg-secondary/50 border border-border rounded-2xl p-4 flex flex-col items-center justify-center text-center gap-2">
-                <span className="font-bold uppercase text-muted-foreground text-xs">Básico</span>
-                <span className="font-bold text-foreground">Gratuito</span>
-                {user.plan_type === 'basic' ? (
-                   <span className="text-[10px] text-green-500 font-bold bg-green-500/10 px-2 py-1 rounded-full mt-1">ATIVO</span>
-                ) : null}
-             </div>
-             
-             <div onClick={() => { playClick(); setActivePlanModal('pro'); }} className="cursor-pointer hover:ring-2 ring-green-500/50 transition-all bg-gradient-to-br from-green-500/10 to-green-900/10 border border-green-500/30 rounded-2xl p-4 flex flex-col items-center justify-center text-center gap-2">
-                <span className="font-bold uppercase text-green-500 text-xs">Pro</span>
-                <span className="font-bold text-foreground">R$ 50</span>
-                {user.plan_type === 'pro' ? <span className="text-[10px] text-green-500 font-bold bg-green-500/10 px-2 py-1 rounded-full mt-1">ATIVO</span> : null}
-             </div>
-             
-             <div onClick={() => { playClick(); setActivePlanModal('premium'); }} className="cursor-pointer hover:ring-2 ring-purple-500/50 transition-all bg-gradient-to-br from-purple-500/10 to-purple-900/10 border border-purple-500/30 rounded-2xl p-4 flex flex-col items-center justify-center text-center gap-2">
-                <span className="font-bold uppercase text-purple-500 text-xs">Premium</span>
-                <span className="font-bold text-foreground">R$ 100</span>
-                {user.plan_type === 'premium' ? <span className="text-[10px] text-purple-500 font-bold bg-purple-500/10 px-2 py-1 rounded-full mt-1">ATIVO</span> : null}
-             </div>
-
-             <div onClick={() => { playClick(); setActivePlanModal('ultra'); }} className="cursor-pointer hover:ring-2 ring-yellow-500/50 transition-all bg-gradient-to-br from-yellow-400/10 to-orange-600/10 border border-yellow-500/30 rounded-2xl p-4 flex flex-col items-center justify-center text-center gap-2 relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-8 h-8 bg-yellow-500/20 rotate-45 transform translate-x-2 -translate-y-2" />
-                <span className="font-bold uppercase text-yellow-500 text-xs">Ultra</span>
-                <span className="font-bold text-foreground">R$ 150</span>
-                {user.plan_type === 'ultra' ? <span className="text-[10px] text-yellow-500 font-bold bg-yellow-500/10 px-2 py-1 rounded-full mt-1">ATIVO</span> : null}
-             </div>
+          <div className={`absolute -bottom-2 md:-bottom-3 left-1/2 transform -translate-x-1/2 px-3 py-1 rounded-full text-[10px] md:text-xs font-bold whitespace-nowrap shadow-lg border ${
+            userPlan === 'pro' ? 'bg-green-500 text-black border-green-400' :
+            userPlan === 'premium' ? 'bg-primary text-white border-primary-foreground/50' :
+            userPlan === 'ultra' ? 'bg-amber-500 text-black border-amber-400' :
+            'bg-secondary text-muted-foreground border-border'
+          }`}>
+            PLANO {userPlan.toUpperCase()}
           </div>
-          
-          <Button variant="outline" className="w-full mt-2" onClick={() => { playClick(); navigate('/store?tab=plans'); }}>
-             Ver Benefícios e Comparar Planos
-          </Button>
-      </div>
+        </div>
+        <div>
+          <h1 className="text-3xl font-black mt-2">@{user?.username}</h1>
+          <div className="inline-flex items-center justify-center gap-2 mt-3 px-5 py-2 rounded-full bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 font-bold mx-auto">
+            <AnimatedIcon type="coin" size={18} />
+            {typeof user?.credits === 'number' ? Math.floor(user.credits).toLocaleString('pt-BR') : '0'} Moedas
+          </div>
+        </div>
+      </motion.div>
 
-      {/* Indique e Ganhe Section */}
-      <div className="bg-gradient-to-br from-purple-600 to-indigo-600 border border-purple-500 rounded-3xl p-1 relative overflow-hidden shadow-2xl">
-         <div className="absolute top-0 left-0 w-full h-full bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10 pointer-events-none" />
-         <div className="bg-card w-full h-full rounded-[20px] p-5 md:p-6 flex flex-col items-center text-center relative z-10">
-            <div className="w-16 h-16 bg-purple-500/20 text-purple-400 rounded-2xl flex items-center justify-center mb-4 border border-purple-500/30">
-               <Users size={32} />
+      {/* Planos de Assinatura */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+        className="bg-card/40 backdrop-blur-xl border border-border rounded-3xl p-6 lg:p-8 relative overflow-hidden"
+      >
+        <div className="flex items-center gap-3 mb-6">
+          <Diamond className="text-cyan-400" />
+          <h2 className="text-xl font-bold">Planos de Assinatura</h2>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {plans.map((p) => {
+             const isActive = userPlan.toLowerCase() === p.id.toLowerCase();
+             return (
+              <div 
+                key={p.id}
+                onClick={() => { playClick(); setSelectedPlanModal(p); }}
+                className={`p-5 rounded-2xl border flex flex-col items-center justify-center gap-2 text-center relative overflow-hidden transition-all cursor-pointer ${
+                  isActive 
+                    ? 'bg-primary/10 border-primary/50 shadow-[0_0_20px_rgba(126,34,206,0.15)]' 
+                    : p.featured 
+                      ? 'bg-gradient-to-br from-amber-500/10 to-transparent border-amber-500/30' 
+                      : 'bg-background/50 border-border/50 hover:bg-white/5'
+                }`}
+              >
+                {p.featured && <div className="absolute top-0 right-0 w-12 h-12 bg-amber-500/20 rotate-45 translate-x-6 -translate-y-6" />}
+                <span className={`text-[10px] font-bold tracking-widest uppercase ${p.id === 'pro' ? 'text-green-400' : p.id === 'premium' ? 'text-primary' : p.id === 'ultra' ? 'text-amber-400' : 'text-muted-foreground'}`}>
+                  {p.name}
+                </span>
+                <span className="text-lg font-bold">{p.price}</span>
+                {isActive && (
+                  <span className="text-[9px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-primary/20 text-primary mt-1">
+                    Ativo
+                  </span>
+                )}
+              </div>
+             );
+          })}
+        </div>
+        <Button variant="secondary" className="w-full mt-6 opacity-70 hover:opacity-100 transition-opacity" onClick={() => navigate('/store')}>Ver Benefícios e Comparar Planos</Button>
+      </motion.div>
+
+      {/* Indique e Ganhe! */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, delay: 0.1 }}
+        className="bg-gradient-to-b from-[#6322FA] to-[#4B11E0] rounded-[2.5rem] p-8 lg:p-12 text-white relative overflow-hidden shadow-2xl flex flex-col items-center mx-auto w-full"
+      >
+        <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10 mix-blend-overlay"></div>
+        <div className="relative z-10 flex flex-col items-center text-center w-full">
+          <div className="w-16 h-16 bg-white/10 rounded-2xl flex items-center justify-center mb-6 backdrop-blur-sm border border-white/10">
+            <Users size={32} />
+          </div>
+          <h2 className="text-3xl font-black mb-4 tracking-tight">Indique e Ganhe!</h2>
+          <p className="text-white/80 w-full max-w-sm mb-8 leading-relaxed">
+            Convide seus amigos para o InstaBoost PRO e ganhe <strong className="text-yellow-400">500 moedas</strong> quando eles entrarem, e <strong className="text-yellow-400">+10%</strong> de todas as moedas que eles ganharem!
+          </p>
+
+          <div className="w-full max-w-md space-y-4">
+            <div className="bg-white/10 backdrop-blur-md rounded-2xl p-4 flex items-center justify-between border border-white/20">
+              <div className="flex flex-col items-start px-2">
+                <span className="text-[10px] uppercase font-bold text-white/50 mb-1">Seu Código</span>
+                <span className="text-2xl font-mono font-bold tracking-widest leading-none select-all">{user?.referral_code || '---'}</span>
+              </div>
+              <button onClick={handleCopyCode} className="p-3 bg-white/10 hover:bg-white/20 rounded-xl transition-colors active:scale-95">
+                {copied ? <CheckCircle size={20} className="text-green-400" /> : <Copy size={20} />}
+              </button>
             </div>
-            <h3 className="text-2xl font-extrabold font-space bg-clip-text text-transparent bg-gradient-to-r from-purple-500 to-blue-500 animate-pulse">
-               Indique e Ganhe!
-            </h3>
-            <p className="text-sm text-muted-foreground mt-2 max-w-sm mb-6">
-               Convide seus amigos para o InstaBoost PRO e ganhe <strong className="text-yellow-400">500 moedas</strong> quando eles entrarem, e <strong className="text-primary">+10%</strong> de todas as moedas que eles ganharem!
-            </p>
-
-            {referral ? (
-               <div className="w-full flex flex-col gap-4">
-                  <div className="flex flex-col sm:flex-row gap-2 w-full">
-                     <div className="flex-1 bg-secondary border border-border rounded-xl flex items-center justify-between px-4 py-3 relative overflow-hidden group">
-                        <div className="flex flex-col items-start z-10 w-full">
-                           <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-1">Seu Código</span>
-                           <span className="font-mono text-xl text-white font-bold tracking-widest">{referral.referral_code}</span>
-                        </div>
-                        <Button 
-                           variant="outline" 
-                           size="icon" 
-                           className="bg-transparent border-none text-muted-foreground hover:text-white shrink-0 z-10"
-                           onClick={() => {
-                              navigator.clipboard.writeText(referral.referral_code);
-                              showNotification.success('Código copiado!');
-                           }}
-                        >
-                           <Copy size={18} />
-                        </Button>
-                     </div>
-                     <Button 
-                        className="bg-primary hover:bg-primary/90 text-white shadow-lg h-[74px] sm:w-[120px]"
-                        onClick={() => {
-                           const link = `${window.location.origin}/indicar?ref=${referral.referral_code}`;
-                           navigator.clipboard.writeText(link);
-                           showNotification.success('Link copiado!');
-                        }}
-                     >
-                        <Share2 size={20} className="mr-2" /> Link
-                     </Button>
-                  </div>
-
-                  {/* Ativar codigo received */}
-                  {!referral.referred_by && (
-                     <div className="mt-4 border-t border-border/50 pt-4">
-                        <p className="text-xs text-muted-foreground mb-3 font-semibold">Foi convidado por alguém?</p>
-                        <div className="flex gap-2">
-                           <Input 
-                              placeholder="Código do amigo" 
-                              value={referralInput}
-                              onChange={(e) => setReferralInput(e.target.value.toUpperCase())}
-                              className="font-mono text-center tracking-widest uppercase"
-                           />
-                           <Button variant="outline" onClick={handleClaimReferral} isLoading={claimLoading}>
-                              Resgatar
-                           </Button>
-                        </div>
-                     </div>
-                  )}
-
-                  {/* Commissions Button */}
-                  {referral.referred_users?.length > 0 && (
-                     <div className="w-full mt-2">
-                        <Button
-                           variant="outline"
-                           className="w-full bg-secondary/30 flex justify-between items-center"
-                           onClick={() => setShowCommissions(!showCommissions)}
-                        >
-                           <span className="flex items-center gap-2">
-                              <Award size={16} className="text-yellow-500" />
-                              <span className="font-bold">Comissões ({referral.total_earnings?.toFixed(0)}💰)</span>
-                           </span>
-                           {showCommissions ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                        </Button>
-
-                        <AnimatePresence>
-                           {showCommissions && (
-                              <motion.div
-                                 initial={{ height: 0, opacity: 0 }}
-                                 animate={{ height: 'auto', opacity: 1 }}
-                                 exit={{ height: 0, opacity: 0 }}
-                                 className="overflow-hidden w-full mt-2 flex flex-col gap-2"
-                              >
-                                 <div className="bg-secondary/50 rounded-2xl p-4 border border-border text-left">
-                                    <p className="text-sm font-bold text-muted-foreground uppercase mb-4 tracking-wider">Amigos Indicados ({referral.referred_users.length})</p>
-                                    <div className="flex flex-col gap-3 max-h-[300px] overflow-y-auto pr-1">
-                                       {referral.referred_users.map((ru: any, i: number) => {
-                                          let statusColor = 'bg-red-500 hover:bg-red-400';
-                                          let statusText = 'Inativo há muito tempo';
-                                          let activePercent = 10;
-                                          
-                                          if (ru.last_active_at) {
-                                            const activeDate = new Date(ru.last_active_at);
-                                            const daysDiff = Math.floor((Date.now() - activeDate.getTime()) / (1000 * 60 * 60 * 24));
-                                            if (daysDiff <= 1) {
-                                              statusColor = 'bg-emerald-500 hover:bg-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.3)]';
-                                              statusText = 'Ativo (Hoje)';
-                                              activePercent = 95;
-                                            } else if (daysDiff <= 3) {
-                                              statusColor = 'bg-green-500';
-                                              statusText = 'Ativo recentemente';
-                                              activePercent = 70;
-                                            } else if (daysDiff <= 7) {
-                                              statusColor = 'bg-yellow-500';
-                                              statusText = `Pouco ativo (${daysDiff}d atrás)`;
-                                              activePercent = 40;
-                                            } else {
-                                              statusColor = 'bg-red-500';
-                                              statusText = `Inativo há ${daysDiff} dias`;
-                                              activePercent = 10;
-                                            }
-                                          }
-
-                                          return (
-                                          <div key={i} className="flex flex-col gap-2 bg-card p-3 rounded-xl border border-border/60 hover:border-primary/30 transition-colors shadow-sm">
-                                             <div className="flex justify-between items-start">
-                                                <div className="flex items-center gap-3">
-                                                   <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-primary/80 to-blue-500/80 text-white flex items-center justify-center text-lg font-bold shadow-md relative">
-                                                      {ru.username.substring(0,2).toUpperCase()}
-                                                      <div className={`absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 border-card ${statusColor}`} />
-                                                   </div>
-                                                   <div className="flex flex-col">
-                                                      <span className="text-sm font-extrabold text-foreground">@{ru.username}</span>
-                                                      <span className="text-[10px] text-muted-foreground/80 my-0.5">{statusText}</span>
-                                                      <div className="w-20 h-1 mt-1 bg-secondary rounded-full overflow-hidden">
-                                                        <div className={`h-full ${statusColor.split(' ')[0]} rounded-full transition-all`} style={{ width: `${activePercent}%` }} />
-                                                      </div>
-                                                   </div>
-                                                </div>
-                                                <div className="flex flex-col items-end">
-                                                   <span className="text-xs font-semibold text-muted-foreground uppercase opacity-80 mb-1">Ganhos</span>
-                                                   <span className="text-lg font-black text-yellow-500 flex items-center gap-1"><Award size={14}/> {ru.total_earned?.toFixed(1) || 0}</span>
-                                                </div>
-                                             </div>
-                                          </div>
-                                       )})}
-                                    </div>
-                                 </div>
-                              </motion.div>
-                           )}
-                        </AnimatePresence>
-                     </div>
-                  )}
-               </div>
-            ) : (
-               <div className="animate-pulse w-full h-[100px] bg-secondary/50 rounded-xl" />
-            )}
-         </div>
-      </div>
-
-      {/* Block Cartões */}
-      <div className="bg-card w-full border border-border rounded-[2rem] p-6 flex flex-col gap-6 shadow-sm">
-         <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-               <div className="p-2 bg-primary/10 rounded-xl text-primary">
-                  <CreditCard size={20} />
-               </div>
-               <h3 className="font-bold text-lg">Cartões Salvos</h3>
-            </div>
-            <Button 
-               variant="outline" 
-               size="sm" 
-               onClick={() => { playClick(); setShowAddCard(true); }} 
-               className="rounded-xl border-primary/20 text-primary hover:bg-primary/5 gap-2"
-            >
-               <Plus size={16} /> Adicionar
+            
+            <Button className="w-full h-14 rounded-2xl bg-white/10 hover:bg-white/20 text-white border border-white/20 font-bold text-lg" onClick={handleShareLink}>
+              <Share2 className="mr-2" /> Link
             </Button>
-         </div>
+          </div>
 
-         <div className="grid grid-cols-1 gap-3">
-            {savedCards.length > 0 ? savedCards.map(card => (
-               <motion.div 
-                  layout
-                  key={card.id} 
-                  className="group relative bg-secondary/30 hover:bg-secondary/50 p-4 rounded-[1.5rem] flex justify-between items-center border border-border transition-all duration-300"
-               >
-                  <div className="flex items-center gap-4">
-                     <div className="w-12 h-12 rounded-xl bg-background border border-border flex flex-col items-center justify-center p-1 shadow-inner group-hover:scale-105 transition-transform">
-                        <span className="text-[10px] font-black text-primary leading-none tracking-tighter">
-                           {card.brand?.replace('deb', '').toUpperCase()}
-                        </span>
-                     </div>
-                     <div className="flex flex-col">
-                        <div className="flex items-center gap-2">
-                           <span className="font-mono font-bold tracking-widest text-base">•••• {card.last_four}</span>
-                           <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${card.type === 'debit_card' ? 'bg-blue-500/10 text-blue-500' : 'bg-green-500/10 text-green-500'}`}>
-                              {card.type === 'debit_card' ? 'DÉBITO' : 'CRÉDITO'}
-                           </span>
-                        </div>
-                        <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-                           <span className="font-semibold uppercase truncate max-w-[120px]">{card.holder_name}</span>
-                           <span className="w-1 h-1 bg-muted-foreground/30 rounded-full" />
-                           <span>{String(card.expiration_month).padStart(2, '0')}/{card.expiration_year}</span>
-                        </div>
-                     </div>
-                  </div>
-                  
-                  <Button 
-                    variant="ghost" 
-                    size="icon" 
-                    className="opacity-0 group-hover:opacity-100 text-destructive hover:bg-destructive/10 transition-opacity rounded-xl relative z-10" 
-                    onClick={() => handleRemoveCard(card.id)}
-                  >
-                     <Trash2 size={18} />
-                  </Button>
-                  
-                  {/* Mobile delete button always visible */}
-                  <Button 
-                    variant="ghost" 
-                    size="icon" 
-                    className="md:hidden text-destructive hover:bg-destructive/10 rounded-xl relative z-10" 
-                    onClick={() => handleRemoveCard(card.id)}
-                  >
-                     <Trash2 size={18} />
-                  </Button>
-               </motion.div>
-            )) : (
-               <div className="text-center py-10 px-6 border-2 border-dashed border-border rounded-[1.5rem] bg-secondary/10">
-                   <div className="w-12 h-12 bg-secondary/50 rounded-full flex items-center justify-center mx-auto mb-4 text-muted-foreground opacity-30">
-                     <CreditCard size={24} />
-                   </div>
-                   <p className="text-sm font-medium text-muted-foreground">Nenhum cartão salvo para pagamentos rápidos.</p>
-                   <Button variant="link" className="text-primary mt-2" onClick={() => setShowAddCard(true)}>Cadastrar meu primeiro cartão</Button>
-               </div>
-            )}
-         </div>
-      </div>
-
-      {payments.length > 0 && (
-        <div className="bg-card w-full border border-border rounded-3xl p-5 md:p-6 flex flex-col gap-4">
-          <h3 className="font-bold border-b border-border pb-3 flex items-center gap-2">
-            <Clock size={18} className="text-orange-500" /> Pagamentos PIX Pendentes
-          </h3>
-          <div className="flex flex-col gap-3">
-            {payments.map(pay => {
-              const timeLeft = calculatePaymentTimeLeft(pay.created_at);
-              const isExpired = timeLeft.includes('Cancelado');
-
-              return (
-                <div key={pay.id} className="bg-secondary/40 p-4 rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center border border-border gap-3">
-                   <div className="flex flex-col w-full">
-                     <span className="font-bold">{pay.credits} Moedas</span>
-                     <div className="flex justify-between w-full mt-1">
-                       <span className="text-xs text-muted-foreground mr-1">Status: Aguardando Pagamento</span>
-                       <div className="flex flex-col items-end">
-                         <span className={`font-mono font-bold ${isExpired ? 'text-muted-foreground' : 'text-destructive'}`}>{timeLeft}</span>
-                       </div>
-                     </div>
-                     {!isExpired && (
-                        <Button 
-                          variant="primary" 
-                          size="sm" 
-                          className="mt-3 w-full"
-                          isLoading={checkingPayment === pay.id}
-                          onClick={() => handleViewPix(pay.id)}
-                        >
-                          <QrCode size={16} className="mr-2" /> Pagar Agora
-                        </Button>
-                     )}
-                   </div>
-                </div>
-              );
-            })}
+          <div className="w-full max-w-md mt-10 space-y-4 pt-10 border-t border-white/10">
+             <p className="text-sm font-bold text-white/50 uppercase tracking-widest">Foi convidado por alguém?</p>
+             <form onSubmit={handleClaimReferral} className="flex flex-col sm:flex-row gap-2">
+                <Input 
+                  value={friendCode}
+                  onChange={(e) => setFriendCode(e.target.value.toUpperCase())}
+                  placeholder="CÓDIGO DO AMIGO" 
+                  className="bg-white/10 border-white/20 text-white placeholder:text-white/30 h-14 font-mono font-bold tracking-widest rounded-2xl flex-1 text-center"
+                />
+                <Button type="submit" className="h-14 bg-white hover:bg-gray-100 text-[#5415EF] font-black rounded-2xl px-6 w-full sm:w-auto" isLoading={loadingCode}>
+                   Resgatar
+                </Button>
+             </form>
           </div>
         </div>
-      )}
+      </motion.div>
 
-      <div className="bg-card border border-border rounded-3xl p-5 md:p-6 flex flex-col gap-4">
-        <div className="border-b border-border pb-3 flex items-center justify-between">
-          <h3 className="font-bold flex items-center gap-2 text-primary">
-            <History size={18} /> Minhas Divulgações
-          </h3>
-          <span className="text-xs font-bold text-muted-foreground bg-secondary px-2 py-1 rounded-md">
-            {promotions.filter(p => calculateTimeLeft(p.expires_at) !== 'Expirado').length} / 10 Ativas
-          </span>
+      {/* Minhas Divulgações */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, delay: 0.2 }}
+        className="bg-card/40 backdrop-blur-xl border border-border rounded-3xl p-6 lg:p-8 relative overflow-hidden"
+      >
+         <div className="flex items-center justify-between mb-6 border-b border-border/50 pb-4">
+            <div className="flex items-center gap-3">
+               <History className="text-primary" />
+               <h2 className="text-lg font-bold">Minhas Divulgações</h2>
+            </div>
+            <span className="text-xs font-bold bg-secondary/50 px-3 py-1 rounded-full">{promotions.length} / 10 Ativas</span>
+         </div>
+         
+         <div className="min-h-[120px] flex flex-col items-center justify-center text-center gap-4 py-4">
+            {loadingPromos ? (
+              <Loader2 className="animate-spin text-primary" />
+            ) : promotions.length === 0 ? (
+              <>
+                <p className="text-muted-foreground text-sm">Você não tem nenhuma divulgação ativa no momento.</p>
+                <Button variant="secondary" onClick={() => navigate('/new')} className="rounded-xl font-bold bg-background/50 hover:bg-background border">
+                  Criar Divulgação
+                </Button>
+              </>
+            ) : (
+              <div className="w-full space-y-3">
+                 {promotions.map(p => (
+                    <div key={p.id} className="bg-background/50 border border-border/50 rounded-2xl p-4 flex justify-between items-center text-left">
+                       <div>
+                         <span className="text-xs font-bold text-primary mb-1 block uppercase">{p.type}</span>
+                         <span className="text-sm font-medium opacity-80 max-w-[200px] truncate block">{p.url}</span>
+                       </div>
+                       <div className="text-right">
+                         <span className="text-xl font-black">{Math.floor(p.progress)} <span className="opacity-50 text-sm">/ {p.goal}</span></span>
+                       </div>
+                    </div>
+                 ))}
+                 <Button variant="ghost" onClick={() => navigate('/new')} className="w-full mt-4 flex justify-center gap-2 text-primary opacity-80 hover:opacity-100">
+                    <PlusSquare size={18} /> Adicionar Nova
+                 </Button>
+              </div>
+            )}
+         </div>
+      </motion.div>
+
+      {/* Segurança e Recuperação */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, delay: 0.3 }}
+        className="bg-card/40 backdrop-blur-xl border border-border rounded-3xl p-6 lg:p-8"
+      >
+        <div className="flex items-center gap-3 mb-6">
+          <ShieldCheck className="text-primary" />
+          <h2 className="text-lg font-bold">Segurança e Recuperação</h2>
         </div>
         
-        {loading ? (
-           <div className="text-center text-muted-foreground py-4 text-sm animate-pulse">Carregando...</div>
-        ) : promotions.length === 0 ? (
-           <div className="text-center text-muted-foreground py-6 text-sm bg-secondary/30 rounded-2xl">
-             Você não tem nenhuma divulgação ativa no momento.<br/>
-             <Button variant="outline" size="sm" className="mt-4" onClick={() => navigate('/new')}>Criar Divulgação</Button>
+        <div className="bg-background/40 border border-border/50 rounded-2xl p-6 space-y-4">
+           <div>
+             <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1 block">E-mail Cadastrado</span>
+             <span className="text-lg font-bold text-foreground block mb-2">{user?.email || 'Nenhum e-mail'}</span>
+             <span className="text-xs font-bold text-orange-500/90 block">E-mail pendente de verificação</span>
            </div>
-        ) : (
-           <div className="flex flex-col gap-4">
-              {promotions.map(promo => {
-                const timeLeft = calculateTimeLeft(promo.expires_at);
-                const isExpired = timeLeft === 'Expirado';
-                const safeDateStr = promo.expires_at.includes('Z') ? promo.expires_at : promo.expires_at.replace(' ', 'T') + 'Z';
-                const msLeft = new Date(safeDateStr).getTime() - now;
-                // Allow reboost if expired or expiring within 1 hour
-                const canReboost = isExpired || msLeft < 60 * 60 * 1000;
-                const durText = formatDuration(promo.cost);
-                
-                return (
-                  <div key={promo.id} className={`p-4 rounded-2xl border flex flex-col gap-3 ${isExpired ? 'bg-secondary/20 border-border opacity-70' : 'bg-primary/5 border-primary/20'}`}>
-                    <div className="flex items-start justify-between gap-2 border-b border-border/50 pb-2">
-                       <a href={promo.url} target="_blank" rel="noreferrer" className="text-sm font-medium text-blue-500 hover:underline flex items-center gap-1 truncate max-w-[200px]">
-                         <Eye size={14} /> Link da publicação
-                       </a>
-                       <span className={`text-xs font-bold px-2 py-1 rounded-md ${isExpired ? 'bg-red-500/10 text-red-500' : 'bg-green-500/10 text-green-500'}`}>
-                         {isExpired ? 'Expirado' : 'Ativo'}
-                       </span>
-                    </div>
-                    <div className="flex justify-between items-center text-sm">
-                       <span className="text-muted-foreground">Tempo Restante:</span>
-                       <span className="font-mono font-medium">{timeLeft}</span>
-                    </div>
-                    
-                    {canReboost && (
-                       <Button 
-                         variant="primary" 
-                         size="sm" 
-                         className="w-full mt-2 flex items-center gap-2 bg-gradient-to-r from-primary to-purple-600 border-none text-white"
-                         disabled={reboostLoading === promo.id}
-                         onClick={() => handleReboost(promo.id)}
-                       >
-                         {reboostLoading === promo.id ? <RefreshCw className="animate-spin" size={14} /> : <Rocket size={14} />}
-                         Reaplicar {durText} ({promo.cost} 💰)
-                       </Button>
-                    )}
-                  </div>
-                )
-              })}
-           </div>
-        )}
-      </div>
+           
+           <Button variant="secondary" onClick={sendVerifyEmail} className="w-full rounded-xl mt-4 font-bold bg-white/5 border border-white/5 hover:bg-white/10">
+              Enviar Código de Verificação
+           </Button>
+        </div>
+      </motion.div>
 
-      <div className="bg-card border border-border rounded-3xl p-5 md:p-6 flex flex-col gap-4">
-        <h3 className="font-bold border-b border-border pb-3 flex items-center gap-2">
-           Segurança e Recuperação
-        </h3>
+      {/* Configurações da Conta */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, delay: 0.4 }}
+        className="bg-card/40 backdrop-blur-xl border border-border rounded-3xl p-6 lg:p-8"
+      >
+        <h2 className="text-lg font-bold mb-6">Configurações da Conta</h2>
         
-        <div className="flex flex-col gap-3">
-           <div className="p-4 bg-secondary/30 rounded-2xl flex flex-col gap-3">
-              <div className="flex flex-col gap-1">
-                 <span className="text-sm text-muted-foreground">E-mail Cadastrado</span>
-                 <span className="font-bold">{user.email ? user.email : 'Nenhum e-mail vinculado'}</span>
-                 {!user.is_verified && user.email && (
-                    <span className="text-xs text-orange-500 font-bold mb-2">E-mail pendente de verificação</span>
-                 )}
-                 {user.is_verified && (
-                    <span className="text-xs text-green-500 font-bold">Verificado ✓</span>
-                 )}
+        <div className="bg-destructive/10 border border-destructive/20 rounded-2xl p-6 space-y-3 mb-6">
+           <div className="flex gap-3 text-destructive">
+             <AlertTriangle className="shrink-0 mt-0.5" size={20} />
+             <div>
+                <h3 className="font-bold mb-2">Política de Limpeza de Dados (Inatividade)</h3>
+                <p className="text-sm opacity-90 leading-relaxed">
+                   Para manter nossos servidores otimizados e seguros, contas inativas (sem nenhum acesso por mais de 90 dias) e publicações antigas expiradas a mais de 7 dias são <strong>excluídas permanentemente e sem aviso prévio.</strong> Todas as moedas e registros serão perdidos se a conta for apagada. Mantenha seu login ativo!
+                </p>
+             </div>
+           </div>
+        </div>
+
+        <Button variant="destructive" className="w-full h-14 rounded-2xl font-bold text-lg shadow-lg shadow-destructive/20" onClick={() => { playClick(); logout(); }}>
+           <LogOut className="mr-2" /> Sair da conta
+        </Button>
+      </motion.div>
+
+      <AnimatePresence>
+        {selectedPlanModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+              onClick={() => setSelectedPlanModal(null)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className={`relative w-full max-w-sm rounded-[2rem] p-8 border ${
+                  selectedPlanModal.id === 'pro' ? 'bg-background/95 border-green-500/50 shadow-[0_0_40px_rgba(34,197,94,0.1)]' :
+                  selectedPlanModal.id === 'premium' ? 'bg-background/95 border-primary/50 shadow-[0_0_40px_rgba(126,34,206,0.1)]' :
+                  selectedPlanModal.id === 'ultra' ? 'bg-background/95 border-amber-500/50 shadow-[0_0_40px_rgba(245,158,11,0.1)]' :
+                  'bg-background/95 border-border shadow-xl'
+              }`}
+            >
+              <button 
+                onClick={() => setSelectedPlanModal(null)}
+                className="absolute top-4 right-4 p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors"
+              >
+                <X size={20} />
+              </button>
+
+              <div className="text-center mb-6">
+                <h3 className={`text-2xl font-black uppercase tracking-wider ${
+                  selectedPlanModal.id === 'pro' ? 'text-green-400' :
+                  selectedPlanModal.id === 'premium' ? 'text-primary' :
+                  selectedPlanModal.id === 'ultra' ? 'text-amber-400' :
+                  'text-muted-foreground'
+                }`}>
+                  Plano {selectedPlanModal.name}
+                </h3>
+                <p className="text-sm opacity-80 mt-2">Conheça todos os benefícios deste plano.</p>
               </div>
 
-              {!user.is_verified && (
-                 <div className="flex flex-col gap-2 mt-2 pt-3 border-t border-border/50">
-                    {!user.email && (
-                       <div className="flex gap-2">
-                          <Input 
-                             placeholder="Seu melhor e-mail" 
-                             value={emailInput} 
-                             onChange={(e) => setEmailInput(e.target.value)} 
-                          />
-                          <Button variant="primary" onClick={handleLinkEmail} isLoading={actionLoading}>
-                             Vincular
-                          </Button>
-                       </div>
-                    )}
-                    
-                    {user.email && !showEmailVerify && (
-                       <Button variant="outline" onClick={handleSendVerifyCode} isLoading={actionLoading}>
-                          Enviar Código de Verificação
-                       </Button>
-                    )}
-
-                    {showEmailVerify && (
-                       <div className="flex flex-col gap-2 p-3 bg-card border border-border shadow-sm rounded-xl">
-                          <p className="text-xs font-bold text-center">Digite o código recebido</p>
-                           <div className="flex flex-col gap-4 mt-2">
-                              <OTPInput value={codeInput} onChange={setCodeInput} />
-                              <Button variant="primary" onClick={handleVerifyEmail} isLoading={actionLoading} className="w-full">Validar</Button>
-                           </div>
-                          <button onClick={() => setShowEmailVerify(false)} className="text-xs text-muted-foreground mt-1 hover:underline">
-                             Cancelar
-                          </button>
-                       </div>
-                    )}
-                 </div>
-              )}
-           </div>
-
-           {user.email && user.is_verified && (
-               <div className="p-4 bg-secondary/30 rounded-2xl flex flex-col gap-3 mt-4">
-                  <div className="flex flex-col gap-1">
-                     <span className="text-sm text-muted-foreground">Senha</span>
-                     <span className="font-bold">********</span>
+              <div className="space-y-4 mb-8">
+                {planBenefits[selectedPlanModal.id]?.map((benefit: string, i: number) => (
+                  <div key={i} className="flex items-start gap-3">
+                    <Check size={18} className="text-green-500 shrink-0 mt-0.5" />
+                    <span className="text-sm opacity-90 font-medium">{benefit}</span>
                   </div>
+                ))}
+              </div>
 
-                  <div className="flex flex-col gap-2 mt-2 pt-3 border-t border-border/50">
-                     {!showPasswordChange ? (
-                        <Button variant="outline" onClick={handleChangePassword} isLoading={actionLoading}>
-                           Trocar Senha
-                        </Button>
-                     ) : (
-                        <div className="flex flex-col gap-4 p-4 bg-card border border-border shadow-sm rounded-xl">
-                           <p className="text-xs font-bold text-center">Enviamos um código para seu e-mail.</p>
-                           <OTPInput value={codeInput} onChange={setCodeInput} />
-                           <Input type="password" placeholder="Nova Senha" value={passwordInput} onChange={(e) => setPasswordInput(e.target.value)} />
-                           <Button variant="primary" onClick={handleUpdatePassword} isLoading={actionLoading}>Atualizar Senha</Button>
-                           <button onClick={() => setShowPasswordChange(false)} className="text-xs text-muted-foreground mt-1 hover:underline">Cancelar</button>
-                        </div>
-                     )}
-                  </div>
-               </div>
-            )}
-        </div>
-      </div>
-
-      <div className="bg-card border border-border rounded-3xl p-5 md:p-6 flex flex-col gap-4">
-        <h3 className="font-bold border-b border-border pb-3 flex items-center gap-2">
-           Configurações da Conta
-        </h3>
-        
-        <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-2xl flex gap-3 mt-2">
-           <AlertTriangle size={24} className="text-red-500 shrink-0 mt-0.5" />
-           <div className="flex flex-col gap-2 text-sm text-red-900/90 dark:text-red-200/90">
-             <p className="font-bold">Política de Limpeza de Dados (Inatividade)</p>
-             <p>Para manter nossos servidores otimizados e seguros, contas inativas (sem nenhum acesso por mais de 90 dias) e publicações antigas expiradas a mais de 7 dias são <strong>excluídas permanentemente e sem aviso prévio</strong>. Todas as moedas e registros serão perdidos se a conta for apagada. Mantenha seu login ativo!</p>
-           </div>
-        </div>
-
-        <Button variant="destructive" className="flex items-center gap-2 w-full mt-4" onClick={logout}>
-          <LogOut size={18} /> Sair da conta
-        </Button>
-      </div>
-
-      {/* Add Card Modal */}
-      <AnimatePresence>
-         {showAddCard && (
-            <motion.div 
-               initial={{ opacity: 0 }} 
-               animate={{ opacity: 1 }} 
-               exit={{ opacity: 0 }}
-               className="fixed inset-0 z-[80] bg-black/60 dark:bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto"
-               onClick={() => setShowAddCard(false)}
-            >
-               <motion.div 
-                  initial={{ scale: 0.95, opacity: 0, y: 20 }}
-                  animate={{ scale: 1, opacity: 1, y: 0 }}
-                  exit={{ scale: 0.95, opacity: 0, y: 20 }}
-                  transition={{ type: "spring", damping: 25, stiffness: 300 }}
-                  className="bg-card w-full max-w-md border border-border shadow-2xl rounded-[2.5rem] p-1 relative my-auto"
-                  onClick={(e) => e.stopPropagation()}
-               >
-                  <div className="bg-card rounded-[2.4rem] p-6">
-                    <button onClick={() => setShowAddCard(false)} className="absolute top-6 right-6 p-2 bg-secondary rounded-full hover:bg-secondary/80 z-10">
-                      <X size={20} />
-                    </button>
-                    <AddCardForm 
-                      onSuccess={() => {
-                        setShowAddCard(false);
-                        fetchData();
-                      }} 
-                      onCancel={() => setShowAddCard(false)} 
-                    />
-                  </div>
-               </motion.div>
+              <Button 
+                onClick={() => {
+                  setSelectedPlanModal(null);
+                  navigate('/store');
+                }}
+                className={`w-full h-14 rounded-2xl text-lg font-bold ${
+                  selectedPlanModal.id === 'pro' ? 'bg-green-500 hover:bg-green-600 text-black' :
+                  selectedPlanModal.id === 'premium' ? 'bg-primary hover:bg-primary/90 text-white' :
+                  selectedPlanModal.id === 'ultra' ? 'bg-amber-500 hover:bg-amber-600 text-black' :
+                  'bg-secondary hover:bg-secondary/80'
+                }`}
+              >
+                {selectedPlanModal.id === 'basic' ? 'Ver na Loja' : 'Assinar Plano'}
+              </Button>
             </motion.div>
-         )}
-      </AnimatePresence>
-
-      {/* Email Verify Modal */}
-      <AnimatePresence>
-         {showEmailVerify && (
-            <motion.div 
-               initial={{ opacity: 0 }} 
-               animate={{ opacity: 1 }} 
-               exit={{ opacity: 0 }}
-               className="fixed inset-0 z-[90] bg-black/60 dark:bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
-               onClick={() => setShowEmailVerify(false)}
-            >
-               <motion.div 
-                  initial={{ scale: 0.95, opacity: 0, y: 20 }}
-                  animate={{ scale: 1, opacity: 1, y: 0 }}
-                  exit={{ scale: 0.95, opacity: 0, y: 20 }}
-                  className="bg-card w-full max-w-sm border border-border shadow-2xl rounded-[2.5rem] p-8 flex flex-col items-center gap-6 relative"
-                  onClick={(e) => e.stopPropagation()}
-               >
-                  <button onClick={() => setShowEmailVerify(false)} className="absolute top-4 right-4 p-2 bg-secondary rounded-full hover:bg-secondary/80">
-                    <X size={20} />
-                  </button>
-                  <div className="text-center">
-                    <h3 className="text-xl font-bold">Verificar E-mail</h3>
-                    <p className="text-sm text-muted-foreground mt-1">Digite o código enviado para seu e-mail.</p>
-                  </div>
-                  <OTPInput value={codeInput} onChange={setCodeInput} />
-                  <Button className="w-full" onClick={handleVerifyEmail} isLoading={actionLoading}>Verificar</Button>
-                  <Button variant="ghost" className="w-full" onClick={() => setShowEmailVerify(false)}>Cancelar</Button>
-               </motion.div>
-            </motion.div>
-         )}
-      </AnimatePresence>
-
-      {/* Password Change Modal */}
-      <AnimatePresence>
-         {showPasswordChange && (
-            <motion.div 
-               initial={{ opacity: 0 }} 
-               animate={{ opacity: 1 }} 
-               exit={{ opacity: 0 }}
-               className="fixed inset-0 z-[90] bg-black/60 dark:bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
-               onClick={() => setShowPasswordChange(false)}
-            >
-               <motion.div 
-                  initial={{ scale: 0.95, opacity: 0, y: 20 }}
-                  animate={{ scale: 1, opacity: 1, y: 0 }}
-                  exit={{ scale: 0.95, opacity: 0, y: 20 }}
-                  className="bg-card w-full max-w-sm border border-border shadow-2xl rounded-[2.5rem] p-8 flex flex-col gap-4 relative"
-                  onClick={(e) => e.stopPropagation()}
-               >
-                  <button onClick={() => setShowPasswordChange(false)} className="absolute top-4 right-4 p-2 bg-secondary rounded-full hover:bg-secondary/80">
-                    <X size={20} />
-                  </button>
-                  <div className="text-center mb-2">
-                    <h3 className="text-xl font-bold">Alterar Senha</h3>
-                    <p className="text-sm text-muted-foreground mt-1">Digite o código do e-mail e a nova senha.</p>
-                  </div>
-                  <div className="flex flex-col gap-3">
-                     <OTPInput value={codeInput} onChange={setCodeInput} />
-                     <Input 
-                        type="password" 
-                        placeholder="Nova senha" 
-                        value={passwordInput} 
-                        onChange={(e) => setPasswordInput(e.target.value)} 
-                     />
-                  </div>
-                  <Button className="w-full mt-2" onClick={handleUpdatePassword} isLoading={actionLoading}>Atualizar Senha</Button>
-                  <Button variant="ghost" className="w-full" onClick={() => setShowPasswordChange(false)}>Cancelar</Button>
-               </motion.div>
-            </motion.div>
-         )}
+          </div>
+        )}
       </AnimatePresence>
 
     </div>

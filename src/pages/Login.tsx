@@ -5,7 +5,7 @@ import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { OTPInput } from '../components/ui/OTPInput';
 import { showNotification } from '../context/NotificationContext';
-import { Instagram, ShieldAlert, Eye, EyeOff } from 'lucide-react';
+import { Instagram, ShieldAlert, Eye, EyeOff, Mail } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 export default function Login() {
@@ -86,7 +86,16 @@ export default function Login() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
       });
-      const data = await res.json();
+      
+      const contentType = res.headers.get('content-type');
+      let data: any;
+      if (contentType && contentType.includes('application/json')) {
+        data = await res.json();
+      } else {
+        const text = await res.text();
+        console.error("Non-JSON response received:", text.substring(0, 500));
+        throw new Error(`O servidor retornou uma resposta inválida (Status ${res.status}). Veja o console para detalhes.`);
+      }
       
       if (res.ok) {
         if (data.bypassed) {
@@ -114,19 +123,20 @@ export default function Login() {
         }
       } else {
         if (data.requiresVerification) {
-           setRequiresVerification(true);
-           if (data.bypassed) {
-              setVerificationCode(data.code);
-              showNotification.success(`Aviso: Bypass ativado. O Código de Segurança é: ${data.code}`);
-           } else {
-              showNotification.error(data.error);
-           }
+          setRequiresVerification(true);
+          if (data.bypassed) {
+            setVerificationCode(data.code);
+            showNotification.success(`Bypass: Use o código ${data.code}`);
+          } else {
+            showNotification.info(data.error || 'Verificação necessária.');
+          }
         } else {
-           showNotification.error(data.error || 'Ocorreu um erro');
+          showNotification.error(data.error || 'Usuário ou senha incorretos.');
         }
       }
     } catch (err) {
-      showNotification.error('Erro de conexão');
+      console.error("Login Fetch Error:", err);
+      showNotification.error('Erro de conexão com o servidor. Tente novamente.');
     } finally {
       setLoading(false);
     }
@@ -216,15 +226,25 @@ export default function Login() {
           <AnimatePresence mode="popLayout">
             {requiresVerification ? (
                <motion.div key="verify" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="flex flex-col gap-5">
-                  <div className="p-3 bg-orange-500/10 border border-orange-500/20 text-orange-600 dark:text-orange-300 text-sm rounded-xl text-center">
-                     Detectamos um novo dispositivo. Enviamos um código para seu email de recuperação. Verifique sua caixa de entrada.
-                     <br/><br/>
-                     <span className="font-bold">Aviso:</span> Pode demorar até 10 minutos para chegar o código. Tenha paciência e evite enviar vários códigos em sequência!
+                  <div className="flex flex-col items-center justify-center p-6 bg-orange-500/10 border border-orange-500/20 rounded-[2rem] text-center">
+                     <div className="w-12 h-12 bg-orange-500/20 text-orange-500 rounded-full flex items-center justify-center mb-4">
+                        <Mail size={24} />
+                     </div>
+                     <h3 className="text-lg font-bold text-orange-600 dark:text-orange-400 mb-2">Verificação Requerida</h3>
+                     <p className="text-xs text-muted-foreground leading-relaxed">
+                        Detectamos um acesso de um novo dispositivo ou rede. Enviamos um código de segurança de 6 dígitos para o seu Gmail cadastrado.
+                     </p>
                   </div>
-                  <OTPInput 
-                     value={verificationCode}
-                     onChange={setVerificationCode}
-                  />
+                  
+                  <div className="space-y-4">
+                     <OTPInput 
+                        value={verificationCode}
+                        onChange={setVerificationCode}
+                     />
+                     <p className="text-[10px] text-center text-muted-foreground px-2">
+                        O código pode demorar até 10 minutos. Se não encontrar, verifique a pasta de SPAM.
+                     </p>
+                  </div>
                </motion.div>
             ) : (
                <motion.div key="auth" exit={{ opacity: 0 }} className="flex flex-col gap-4">

@@ -6,6 +6,7 @@ import { showNotification } from '../context/NotificationContext';
 import { Rocket, Clock, Link as LinkIcon, Info } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
+import { AnimatedIcon } from '../components/AnimatedIcon';
 
 const getInstaLinkType = (link: string) => {
   if (!link) return null;
@@ -124,8 +125,8 @@ export default function Create() {
         <div className="pt-4 border-t border-border flex items-center justify-between">
           <div className="flex flex-col">
             <span className="text-sm text-muted-foreground">Custo Total</span>
-            <span className={`font-bold text-lg ${(user?.credits || 0) < getCost() ? 'text-destructive' : 'text-primary'}`}>
-              {getCost()} 💰
+            <span className={`font-bold text-lg flex items-center gap-1 ${(user?.credits || 0) < getCost() ? 'text-destructive' : 'text-primary'}`}>
+              {getCost()} <AnimatedIcon type="coin" size={18} />
             </span>
           </div>
           <Button 

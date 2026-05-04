@@ -4,6 +4,7 @@ import { Heart, PlaySquare, UserPlus, Clock, Play } from 'lucide-react';
 import { Button } from './ui/Button';
 import { showNotification } from '../context/NotificationContext';
 import { useAuth } from '../context/AuthContext';
+import { AnimatedIcon } from './AnimatedIcon';
 
 const MISSION_CONFIG = {
   likes: {
@@ -182,10 +183,10 @@ function MissionCard({ missionKey, config, state, onUpdate, refreshUser, onOpenV
                             <h3 className="font-bold text-foreground">{config.title}</h3>
                             <p className="text-xs text-muted-foreground font-medium">
                                 Nível {state.level} • Prêmio:{' '}
-                                <span className="text-primary font-bold">{reward} 💎</span>
+                                <span className="text-primary font-bold flex items-center gap-1">{reward} <AnimatedIcon type="coin" size={16} /></span>
                                 {config.tickets && config.tickets[state.level - 1] > 0 && (
                                   <span className="text-orange-500 font-bold ml-1">
-                                    + {config.tickets[state.level - 1]} 🎟️
+                                    + {config.tickets[state.level - 1]} <AnimatedIcon type="ticket" size={16} className="ml-1" />
                                   </span>
                                 )}
                             </p>

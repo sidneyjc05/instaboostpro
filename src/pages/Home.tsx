@@ -7,6 +7,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { DailyRewardModal } from '../components/DailyRewardModal';
 import { MissionsTab } from '../components/MissionsTab';
 import { InstaViewerModal } from '../components/InstaViewerModal';
+import { AnimatedIcon } from '../components/AnimatedIcon';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 
 interface Promotion {
   id: number;
@@ -35,6 +37,8 @@ export default function Home() {
   // Viewer Modal State
   const [viewerOpen, setViewerOpen] = useState(false);
   const [activePromo, setActivePromo] = useState<Promotion | null>(null);
+
+  useBodyScrollLock(showDailyModal || viewerOpen);
 
   const loadPromos = async () => {
     setLoading(true);
@@ -111,7 +115,7 @@ export default function Home() {
         </div>
         <div className="flex items-center gap-3">
           <div className="px-4 py-2 bg-yellow-500/15 border border-yellow-500/30 text-yellow-500 rounded-full font-semibold flex items-center gap-2 shadow-sm">
-             💎 {Number((user?.credits || 0).toFixed(1))} Moedas
+             <AnimatedIcon type="coin" size={18} /> {Math.floor(user?.credits || 0).toLocaleString('pt-BR')} Moedas
           </div>
           <button onClick={loadPromos} className="p-2 bg-secondary rounded-full hover:bg-muted text-muted-foreground hover:text-foreground relative group">
             <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
@@ -130,8 +134,8 @@ export default function Home() {
                </div>
                <div>
                   <h3 className={`font-bold ${hasDailyRewardAvailable ? 'text-amber-600 dark:text-amber-400' : 'text-foreground'}`}>Prêmio Diário</h3>
-                  <p className="text-sm text-muted-foreground">
-                     {hasDailyRewardAvailable ? '🎁 Resgate o prêmio de hoje!' : 'Ver calendário da semana'}
+                  <p className="text-sm text-muted-foreground flex items-center gap-1.5">
+                     {hasDailyRewardAvailable ? <><Gift size={14} className="text-amber-500" /> Resgate o prêmio de hoje!</> : 'Ver calendário da semana'}
                   </p>
                </div>
             </div>
@@ -234,8 +238,8 @@ export default function Home() {
                             <span className="font-semibold text-sm">@{p.username}</span>
                             <span className="text-[10px] text-muted-foreground uppercase tracking-widest">{promoTypeLabel}</span>
                           </div>
-                          <span className="text-primary font-bold ml-auto bg-primary/10 px-2 py-1 rounded-md text-sm border border-primary/20">
-                            +0.2 💎
+                          <span className="text-primary font-bold ml-auto bg-primary/10 px-2 py-1 rounded-md text-sm flex items-center gap-1 border border-primary/20">
+                            +0.2 <AnimatedIcon type="coin" size={14} className="ml-1" />
                           </span>
                         </div>
 

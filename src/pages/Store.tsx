@@ -5,10 +5,39 @@ import { showNotification } from '../context/NotificationContext';
 import { QrCode, Copy, Zap, CheckCircle, CreditCard } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAppSound } from '../context/SoundContext';
-import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
+import { AnimatedIcon } from '../components/AnimatedIcon';
 
-import { CreditCardForm } from '../components/checkout/CreditCardForm';
-import { getLocalCards } from '../lib/cardStorage';
+const PromoBadge = ({ percent, size = 'md' }: { percent: number; size?: 'sm' | 'md' | 'lg' }) => {
+  const sizes = {
+    sm: { container: 'top-2 left-2', badge: 'py-1 px-2 text-[8px]', circle: 'w-2 h-2', zap: 6 },
+    md: { container: '-top-3 -left-3 md:-top-4 md:-left-4', badge: 'py-1.5 px-3 text-[10px] md:text-xs', circle: 'w-2.5 h-2.5', zap: 8 },
+    lg: { container: 'top-4 left-4 md:top-6 md:left-6', badge: 'py-2 px-4 md:py-3 md:px-6 text-xs md:text-sm', circle: 'w-3.5 h-3.5 md:w-5 md:h-5', zap: 14 }
+  };
+
+  const s = sizes[size];
+
+  return (
+    <motion.div 
+      initial={{ scale: 0, rotate: -20 }}
+      animate={{ scale: 1, rotate: -12 }}
+      whileHover={{ rotate: 0, scale: 1.15 }}
+      className={`absolute ${s.container} z-30 pointer-events-none drop-shadow-2xl transition-all duration-300`}
+    >
+      <div className="relative group/badge">
+        <div className="absolute inset-0 bg-red-600 blur-xl opacity-40 animate-pulse group-hover/badge:opacity-60 transition-opacity" />
+        
+        <div className={`relative bg-gradient-to-br from-red-500 via-red-600 to-red-900 text-white font-black uppercase rounded-2xl border border-white/20 flex flex-col items-center justify-center leading-none shadow-[0_10px_25px_-5px_rgba(220,38,38,0.5)] ${s.badge}`}>
+          <span className="opacity-60 mb-1 tracking-tighter text-[0.6em]">Oferta Especial</span>
+          <span className="tracking-tighter font-black italic">-{percent}%</span>
+        </div>
+
+        <div className={`absolute -top-1 -right-1 ${s.circle} bg-white rounded-full flex items-center justify-center shadow-lg border-2 border-red-500`}>
+          <Zap size={s.zap === 14 ? 12 : (s.zap === 8 ? 7 : 5)} className="fill-red-600 text-red-600" />
+        </div>
+      </div>
+    </motion.div>
+  );
+};
 
 export default function Store() {
   const { user, refreshUser } = useAuth();
@@ -20,19 +49,38 @@ export default function Store() {
   const [paymentSuccess, setPaymentSuccess] = useState(false);
   const [tab, setTab] = useState<'credits' | 'tickets' | 'plans'>('plans');
   const [storeConfig, setStoreConfig] = useState<any>(null);
-
-  const [paymentMethodSelect, setPaymentMethodSelect] = useState<{ credits: number|string, type: 'credits'|'tickets'|'plan', rawPrice: number } | null>(null);
-  const [showCCForm, setShowCCForm] = useState<'credit_card' | 'debit_card' | 'select_type' | false>(false);
-  const [savedCards, setSavedCards] = useState<any[]>([]);
-
-  // useBodyScrollLock(!!(paymentData || paymentMethodSelect || showCCForm));
+  const [promoTime, setPromoTime] = useState<{ d: number, h: number, m: number, s: number } | null>(null);
 
   useEffect(() => {
-    fetch('/api/store/config').then(res => res.json()).then(data => setStoreConfig(data)).catch(() => {});
-  }, []);
+    if (storeConfig?.promo?.active && storeConfig.promo.expiresAt) {
+      const timer = setInterval(() => {
+        const now = new Date().getTime();
+        const expiry = new Date(storeConfig.promo.expiresAt).getTime();
+        const diff = expiry - now;
+
+        if (diff <= 0) {
+          setPromoTime(null);
+          clearInterval(timer);
+        } else {
+          setPromoTime({
+            d: Math.floor(diff / (1000 * 60 * 60 * 24)),
+            h: Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)),
+            m: Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60)),
+            s: Math.floor((diff % (1000 * 60)) / 1000)
+          });
+        }
+      }, 1000);
+      return () => clearInterval(timer);
+    } else {
+      setPromoTime(null);
+    }
+  }, [storeConfig]);
 
   useEffect(() => {
-    setSavedCards(getLocalCards());
+    fetch('/api/store/config')
+      .then(res => res.json())
+      .then(data => setStoreConfig(data))
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -78,7 +126,7 @@ export default function Store() {
             const data = await res.json();
             if (data.status === 'approved') {
                playSuccess();
-               showNotification.success(paymentData.paymentMethod === 'cc' ? 'Pagamento com Cartão Aprovado!' : 'Pagamento PIX Aprovado!');
+               showNotification.success('Pagamento PIX Aprovado!');
                setPolling(false);
                setPaymentSuccess(true);
                refreshUser();
@@ -94,15 +142,8 @@ export default function Store() {
     return () => clearInterval(interval);
   }, [polling, paymentData]);
 
-  const handleBuy = (credits: number | string, type: 'credits' | 'tickets' | 'plan' = 'credits', rawPrice: number) => {
-      setPaymentMethodSelect({ credits, type, rawPrice });
-  };
-
-  const handleBuyPix = async () => {
-    if (!paymentMethodSelect) return;
-    const { credits, type } = paymentMethodSelect;
+  const handleBuy = async (credits: number | string, type: 'credits' | 'tickets' | 'plan' = 'credits', rawPrice: number) => {
     setLoading(true);
-    setPaymentMethodSelect(null);
     try {
       const res = await fetch('/api/payments/pix', {
         method: 'POST',
@@ -165,6 +206,26 @@ export default function Store() {
   ];
 
   let planPackages: any[] = [
+    { 
+       id: 'basic', 
+       name: 'Basic', 
+       price: 'Grátis', 
+       period: 'Vitalício',
+       color: 'from-blue-500/10 to-blue-900/10',
+       borderColor: 'border-blue-500/30',
+       ringColor: 'ring-blue-500/20',
+       benefits: [
+          '1.0x moedas nas missões',
+          '1.0x moedas ao curtir e seguir',
+          'Sem desconto na loja',
+          '5 publicações por dia',
+          'Tempo máximo de destaque: 12h',
+          '2 Tickets grátis diários',
+          '0% chance no Mega Jackpot',
+          '0 moedas de bônus mensal',
+          '+0% de comissão extra'
+       ]
+    },
     { 
        id: 'pro', 
        name: 'Pro', 
@@ -232,7 +293,7 @@ export default function Store() {
   ];
 
   if (storeConfig) {
-      const formatPrice = (num: number) => `R$ ${num.toFixed(2).replace('.', ',')}`;
+      const formatPrice = (num: number) => `R$ ${num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
       let planDiscount = 0;
       if (user?.plan_type === 'pro') planDiscount = 0.12;
@@ -250,6 +311,7 @@ export default function Store() {
          if (type === 'credits' && pCoins) applyPromo = true;
          if (type === 'tickets' && pTickets) applyPromo = true;
          if (type === 'plan') {
+             if (itemId === 'basic' && (storeConfig.promo?.applyPlanBasic ?? true)) applyPromo = true;
              if (itemId === 'pro' && (storeConfig.promo?.applyPlanPro ?? true)) applyPromo = true;
              if (itemId === 'premium' && (storeConfig.promo?.applyPlanPremium ?? true)) applyPromo = true;
              if (itemId === 'ultra' && (storeConfig.promo?.applyPlanUltra ?? true)) applyPromo = true;
@@ -310,13 +372,16 @@ export default function Store() {
 
       planPackages = planPackages.map(p => {
           const original = storeConfig.plans[p.id];
-          if (original) {
+          const isActive = user?.plan_type === p.id;
+          if (original !== undefined) {
               const discounted = applyPromoAndPlan(original, 'plan', p.id);
+              const showDiscount = !isActive && discounted < original && original > 0;
               return { 
                   ...p, 
-                  price: formatPrice(discounted),
-                  originalPrice: discounted < original ? formatPrice(original) : undefined,
-                  discountPercent: discounted < original ? Math.round(((original - discounted) / original) * 100) : 0,
+                  isActive,
+                  price: isActive ? 'Ativo' : (discounted === 0 ? 'Grátis' : formatPrice(discounted)),
+                  originalPrice: showDiscount ? formatPrice(original) : undefined,
+                  discountPercent: showDiscount ? Math.round(((original - discounted) / original) * 100) : 0,
                   rawPrice: discounted
               };
           }
@@ -325,253 +390,343 @@ export default function Store() {
   }
 
   return (
-    <div className="flex flex-col gap-6 md:p-8 pb-32 max-w-5xl mx-auto">
+    <div className="flex flex-col gap-8 pb-20 max-w-7xl mx-auto w-full px-4 md:px-0">
       <AnimatePresence mode="wait">
         {paymentSuccess ? (
           <motion.div 
             key="success"
-            initial={{ opacity: 0, scale: 0.9 }} 
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-gradient-to-br from-green-500/20 to-blue-500/20 border border-green-500/30 p-6 md:p-8 rounded-3xl flex flex-col items-center gap-6 text-center mt-10"
+            initial={{ opacity: 0, scale: 0.9, y: 20 }} 
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.9 }}
+            className="bg-card border border-green-500/30 p-12 rounded-[2rem] flex flex-col items-center gap-8 text-center mt-10 relative overflow-hidden"
           >
+            <div className="absolute inset-0 bg-gradient-to-br from-green-500/10 to-transparent pointer-events-none" />
             <motion.div 
               initial={{ scale: 0 }} 
-              animate={{ scale: 1, rotate: [0, 20, -20, 0] }}
+              animate={{ scale: 1, rotate: [0, 15, -15, 0] }}
               transition={{ 
                 scale: { type: "spring", stiffness: 200, damping: 10 },
-                rotate: { type: "tween", duration: 0.5, ease: "easeInOut" }
+                rotate: { type: "tween", duration: 0.5, delay: 0.2 }
               }}
-              className="text-green-500"
+              className="text-green-500 bg-green-500/10 p-6 rounded-full"
             >
-              <CheckCircle size={80} />
+              <CheckCircle size={100} />
             </motion.div>
-            <div>
-                 <h3 className="text-3xl font-extrabold text-foreground">Pagamento Concluído!</h3>
-              <p className="text-green-400 mt-2 text-lg font-bold">
-                {paymentData?.pendingPlan ? `Parabéns, você ativou o Plano ${paymentData.pendingPlan.toUpperCase()}!` : 
-                 paymentData?.tickets && paymentData.tickets > 0 ? `Parabéns, você comprou ${paymentData.tickets} tickets!` : 
-                 `Parabéns, você comprou ${paymentData?.credits ?? 0} moedas!`}
+            <div className="relative z-10">
+              <h3 className="text-4xl font-black text-foreground tracking-tight">Sucesso Total!</h3>
+              <p className="text-green-400 mt-3 text-xl font-bold">
+                {paymentData?.pendingPlan ? `Seu Plano ${paymentData.pendingPlan.toUpperCase()} está ATIVADO!` : 
+                 paymentData?.tickets && paymentData.tickets > 0 ? `Adicionamos ${paymentData.tickets} tickets à sua conta!` : 
+                 `Adicionamos ${paymentData?.credits ?? 0} moedas à sua conta!`}
               </p>
-              <p className="text-muted-foreground mt-2">Muito obrigado por contribuir. Uma mensagem de agradecimento foi enviada nas suas notificações também!</p>
+              <p className="text-muted-foreground mt-4 max-w-md mx-auto">Sua contribuição ajuda a manter o servidor rodando e você colhe os benefícios agora mesmo. Aproveite!</p>
             </div>
-            <Button size="lg" className="mt-4" onClick={() => { setPaymentSuccess(false); setPaymentData(null); }}>
+            <Button size="lg" className="mt-4 px-12 h-14 text-lg rounded-full" onClick={() => { setPaymentSuccess(false); setPaymentData(null); }}>
               Voltar para Loja
             </Button>
           </motion.div>
-        ) : !paymentData && !paymentMethodSelect && !showCCForm ? (
-          <motion.div key="store" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col gap-6">
-            <div>
-              <h2 className="text-2xl font-bold flex items-center gap-2">
-                <Zap className="text-yellow-500" /> Loja
-              </h2>
-              <p className="text-muted-foreground text-sm mt-1">Compre moedas para destacar seus links, ou tickets para girar a roleta.</p>
+        ) : !paymentData ? (
+          <motion.div key="store" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col gap-10">
+            <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+              <div className="flex-1">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="w-10 h-10 bg-yellow-500/20 text-yellow-500 rounded-xl flex items-center justify-center">
+                    <Zap className="fill-yellow-500" size={20} />
+                  </div>
+                  <h2 className="text-4xl font-black tracking-tight text-foreground flex items-center gap-2">
+                    Loja Oficial
+                    <div className="flex items-center bg-blue-500/10 border border-blue-500/20 px-2 py-1 rounded-full group cursor-help" title="Vendedor Verificado">
+                       <CheckCircle size={14} className="text-blue-500 fill-blue-500/20" />
+                       <span className="text-[10px] font-black text-blue-500 uppercase ml-1 tracking-widest hidden md:block">Verificado</span>
+                    </div>
+                  </h2>
+                </div>
+                <p className="text-muted-foreground text-lg leading-relaxed max-w-2xl">
+                  Turbine seu perfil com moedas exclusivas ou desbloqueie o poder dos nossos planos VIP para crescimento acelerado.
+                </p>
+              </div>
+
+              {storeConfig?.promo?.active && (
+                <motion.div 
+                  initial={{ y: -20, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  className="bg-card border border-red-500/30 rounded-[2rem] p-6 flex flex-col md:flex-row items-center gap-6 relative overflow-hidden shadow-2xl shadow-red-500/5 group"
+                >
+                  <div className="absolute inset-0 bg-gradient-to-br from-red-500/5 via-transparent to-orange-500/5 pointer-events-none" />
+                  
+                  <div className="flex items-center gap-4 relative z-10">
+                    <div className="w-14 h-14 bg-red-500 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-red-500/40 relative">
+                      <Zap size={28} className="fill-white animate-pulse" />
+                      <div className="absolute -top-1 -right-1 w-4 h-4 bg-white rounded-full flex items-center justify-center">
+                         <div className="w-2 h-2 bg-red-600 rounded-full animate-ping" />
+                      </div>
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-black uppercase tracking-tighter text-red-500 italic">Promoção de Elite</h3>
+                      <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest leading-none mt-1">Ofertas Limitadas</p>
+                    </div>
+                  </div>
+
+                  <div className="flex-1 flex justify-center md:justify-end gap-3 relative z-10">
+                    {promoTime ? (
+                      <>
+                        <div className="flex flex-col items-center">
+                          <div className="bg-background/80 backdrop-blur-md border border-border w-14 h-14 rounded-xl flex items-center justify-center text-xl font-black text-foreground shadow-sm">
+                            {promoTime.d.toString().padStart(2, '0')}
+                          </div>
+                          <span className="text-[10px] font-black uppercase text-muted-foreground mt-1 tracking-widest">Dias</span>
+                        </div>
+                        <div className="flex flex-col items-center">
+                          <div className="bg-background/80 backdrop-blur-md border border-border w-14 h-14 rounded-xl flex items-center justify-center text-xl font-black text-foreground shadow-sm">
+                            {promoTime.h.toString().padStart(2, '0')}
+                          </div>
+                          <span className="text-[10px] font-black uppercase text-muted-foreground mt-1 tracking-widest">Horas</span>
+                        </div>
+                        <div className="flex flex-col items-center">
+                          <div className="bg-background/80 backdrop-blur-md border border-border w-14 h-14 rounded-xl flex items-center justify-center text-xl font-black text-foreground shadow-sm">
+                            {promoTime.m.toString().padStart(2, '0')}
+                          </div>
+                          <span className="text-[10px] font-black uppercase text-muted-foreground mt-1 tracking-widest">Min</span>
+                        </div>
+                        <div className="flex flex-col items-center">
+                          <div className="bg-red-500 border border-red-400 w-14 h-14 rounded-xl flex items-center justify-center text-xl font-black text-white shadow-lg shadow-red-500/20">
+                            {promoTime.s.toString().padStart(2, '0')}
+                          </div>
+                          <span className="text-[10px] font-black uppercase text-red-500 mt-1 tracking-widest">Seg</span>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="bg-red-500/10 border border-red-500/30 px-6 py-3 rounded-2xl">
+                         <p className="text-sm font-black text-red-500 uppercase tracking-widest">Válido enquanto durar o estoque!</p>
+                      </div>
+                    )}
+                  </div>
+                </motion.div>
+              )}
             </div>
 
-            <div className="flex gap-2 p-1 bg-secondary border border-border rounded-xl">
+            <div className="flex p-1.5 bg-secondary/50 border border-border rounded-2xl backdrop-blur-sm sticky top-4 z-40 shadow-xl shadow-black/5">
                <button 
-                 className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${tab === 'credits' ? 'bg-background shadow-sm text-primary' : 'text-muted-foreground'}`}
-                 onClick={() => { playClick(); setTab('credits'); }}
-               >
-                 Moedas 💰
-               </button>
-               <button 
-                 className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${tab === 'tickets' ? 'bg-background shadow-sm text-primary' : 'text-muted-foreground'}`}
-                 onClick={() => { playClick(); setTab('tickets'); }}
-               >
-                 Tickets 🎟️
-               </button>
-               <button 
-                 className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${tab === 'plans' ? 'bg-background shadow-sm text-primary' : 'text-muted-foreground'}`}
+                 className={`flex-1 flex items-center justify-center gap-2 py-4 text-sm font-black uppercase tracking-widest rounded-xl transition-all duration-300 ${tab === 'plans' ? 'bg-background shadow-lg text-primary scale-[1.02] border border-border/50' : 'text-muted-foreground hover:text-foreground'}`}
                  onClick={() => { playClick(); setTab('plans'); }}
                >
-                 Planos 💎
+                 <AnimatedIcon type="diamond" size={20} /> Planos VIP
+               </button>
+               <button 
+                 className={`flex-1 flex items-center justify-center gap-2 py-4 text-sm font-black uppercase tracking-widest rounded-xl transition-all duration-300 ${tab === 'credits' ? 'bg-background shadow-lg text-primary scale-[1.02] border border-border/50' : 'text-muted-foreground hover:text-foreground'}`}
+                 onClick={() => { playClick(); setTab('credits'); }}
+               >
+                 <AnimatedIcon type="coin" size={20} /> Moedas
+               </button>
+               <button 
+                 className={`flex-1 flex items-center justify-center gap-2 py-4 text-sm font-black uppercase tracking-widest rounded-xl transition-all duration-300 ${tab === 'tickets' ? 'bg-background shadow-lg text-primary scale-[1.02] border border-border/50' : 'text-muted-foreground hover:text-foreground'}`}
+                 onClick={() => { playClick(); setTab('tickets'); }}
+               >
+                 <AnimatedIcon type="ticket" size={20} /> Tickets
                </button>
             </div>
 
-            {tab === 'plans' && (
-               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                  {planPackages.map(pkg => (
-                     <div key={pkg.id} className={`relative bg-gradient-to-br ${pkg.color} bg-card border rounded-3xl p-6 flex flex-col gap-4 ${pkg.pop ? `ring-2 ${pkg.ringColor} shadow-xl z-10` : 'hover:bg-secondary/50 transition-all duration-300'} ${pkg.borderColor}`}>
-                        {pkg.pop && <div className="absolute top-0 right-0 transform translate-x-3 -translate-y-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white text-[10px] uppercase font-bold py-1 px-3 w-fit rounded-full shadow-lg z-20 shadow-purple-500/50">Mais Popular</div>}
-                        
-                        <div className="flex flex-col items-center">
-                           <div className="text-2xl mt-4 border-b border-border/50 pb-4 w-full text-center font-black uppercase tracking-widest text-white">
-                              {pkg.name}
-                           </div>
-                           <div className="flex flex-col items-center mt-4 relative">
-                              {pkg.discountPercent > 0 && (
-                                 <div className="absolute -top-6 left-1/2 transform -translate-x-1/2 bg-red-500 text-white text-[10px] uppercase font-bold py-1 px-3 rounded-full shadow-lg whitespace-nowrap flex items-center gap-1">
-                                    <Zap size={10} className="fill-white" /> -{pkg.discountPercent}% OFF VIP!
-                                 </div>
-                              )}
-                              {pkg.originalPrice && <div className="text-sm text-red-500 line-through mb-1">{pkg.originalPrice}</div>}
-                              <div className={`font-bold text-4xl ${pkg.originalPrice ? 'text-green-500' : ''}`}>{pkg.price}</div>
-                           </div>
-                           <div className="text-sm mt-1 text-muted-foreground bg-black/10 dark:bg-white/5 py-1 px-3 rounded-full">Duração: <strong className="text-foreground">{pkg.period}</strong></div>
+            <AnimatePresence mode="wait">
+              {tab === 'plans' && (
+                <motion.div 
+                  key="plans-tab"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -20 }}
+                  className="grid grid-cols-1 md:grid-cols-3 gap-8"
+                >
+                  {planPackages.map((pkg, idx) => (
+                    <motion.div 
+                      key={pkg.id} 
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: idx * 0.1 }}
+                      className={`group relative bg-card border rounded-[2.5rem] p-8 flex flex-col gap-6 overflow-hidden transition-all duration-500 hover:shadow-2xl hover:-translate-y-2 ${pkg.pop ? `ring-2 ${pkg.ringColor} shadow-xl z-10` : 'hover:border-primary/50'} ${pkg.borderColor}`}
+                    >
+                      {/* Background Accents */}
+                      <div className={`absolute inset-0 bg-gradient-to-br ${pkg.color} opacity-40 group-hover:opacity-60 transition-opacity`} />
+                      
+                      {pkg.pop && (
+                        <div className="absolute top-0 right-10 transform -translate-y-1/2 bg-gradient-to-r from-yellow-500 via-orange-500 to-red-500 text-white text-[10px] uppercase font-black py-2 px-6 rounded-full shadow-2xl z-20 animate-bounce">
+                          Recomendado
                         </div>
+                      )}
 
-                        <div className="flex-1 flex flex-col gap-3 mt-4 overflow-y-auto max-h-[400px] pr-2 custom-scrollbar">
+                      {pkg.discountPercent > 0 && !pkg.isActive && (
+                        <PromoBadge percent={pkg.discountPercent} size="lg" />
+                      )}
+
+                      <div className="relative z-10">
+                        <div className="text-4xl font-black uppercase italic tracking-tighter text-foreground mb-1">
+                          {pkg.name}
+                        </div>
+                        <div className="text-muted-foreground font-medium text-sm flex items-center gap-2">
+                           MODO {pkg.id.toUpperCase()} • <span className="text-foreground/80">{pkg.period}</span>
+                        </div>
+                      </div>
+
+                      <div className="relative z-10 flex flex-col mt-4">
+                        <div className="flex items-end gap-1">
+                          <span className={`text-5xl font-black tracking-tight ${pkg.originalPrice ? 'text-green-500' : 'text-foreground'}`}>
+                            {pkg.price}
+                          </span>
+                        </div>
+                        {pkg.originalPrice && (
+                          <span className="text-sm text-red-500/80 font-bold line-through mt-1">
+                            Anteriormente {pkg.originalPrice}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="relative z-10 flex-1 flex flex-col gap-4 mt-4 bg-black/20 dark:bg-white/5 rounded-3xl p-6 backdrop-blur-md border border-white/5">
+                        <p className="text-[10px] font-black uppercase text-muted-foreground tracking-widest mb-1">Vantagens Exclusivas</p>
+                        <div className="flex flex-col gap-3 overflow-y-auto max-h-[300px] pr-2 custom-scrollbar">
                            {pkg.benefits.map((b, i) => (
-                              <div key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
-                                 <CheckCircle className="shrink-0 mt-0.5 text-primary" size={16} />
-                                 <span className="leading-tight">{b}</span>
+                              <div key={i} className="flex items-start gap-3 text-sm font-medium text-foreground/90">
+                                 <div className="w-5 h-5 rounded-full bg-primary/20 flex items-center justify-center shrink-0 mt-0.5">
+                                    <CheckCircle className="text-primary" size={12} />
+                                 </div>
+                                 <span className="leading-snug">{b}</span>
                               </div>
                            ))}
                         </div>
+                      </div>
 
-                        <Button className="w-full mt-4 h-12 text-lg shadow-lg" variant={pkg.pop ? 'primary' : 'secondary'} onClick={() => handleBuy(pkg.id, 'plan', pkg.rawPrice)} isLoading={loading}>
-                           Assinar {pkg.name}
-                        </Button>
-                     </div>
+                      <Button 
+                        className="relative z-10 w-full h-16 text-lg font-black uppercase tracking-widest rounded-2xl shadow-xl transition-all active:scale-95 group-hover:scale-[1.02]" 
+                        variant={pkg.isActive ? 'outline' : (pkg.pop ? 'primary' : 'secondary')} 
+                        disabled={pkg.isActive}
+                        onClick={() => handleBuy(pkg.id, 'plan', pkg.rawPrice)} 
+                        isLoading={loading}
+                      >
+                         {pkg.isActive ? 'Plano Ativo' : `Ativar ${pkg.name}`}
+                      </Button>
+                    </motion.div>
                   ))}
-               </div>
-            )}
+                </motion.div>
+              )}
 
-            {tab === 'credits' && (
-              <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
-                {packages.map(pkg => (
-                  <div key={pkg.c} className={`relative bg-card border rounded-3xl p-5 flex flex-col items-center gap-2 ${pkg.pop ? 'bg-gradient-to-br from-primary/20 to-blue-900/20 border-primary/30 ring-2 ring-primary/20 shadow-md z-10' : 'border-border'}`}>
-                    <div className="text-2xl mt-2 border-b border-border/50 pb-2 w-full text-center">
-                      <span className="font-bold">{pkg.c.toLocaleString('pt-BR')}</span> <span className="text-lg">💰</span>
-                    </div>
-                    <div className="text-xs text-muted-foreground text-center">Destaque por <br/> <strong className="text-foreground">{pkg.time}</strong></div>
-                    <div className="flex flex-col items-center mt-1">
-                       {pkg.originalPrice && <div className="text-xs text-red-500 line-through mb-0.5">{pkg.originalPrice}</div>}
-                       <div className={`font-bold text-lg ${pkg.originalPrice ? 'text-green-500' : ''}`}>{pkg.price}</div>
-                    </div>
-                    {pkg.discountPercent > 0 && (
-                       <div className="absolute top-0 left-0 transform -translate-x-2 -translate-y-2 bg-red-500 text-white text-[10px] uppercase font-bold py-1 px-2 rounded-lg shadow-lg z-20 flex items-center gap-1">
-                          <Zap size={10} className="fill-white" /> -{pkg.discountPercent}% OFF
-                       </div>
-                    )}
-                    <Button className="w-full mt-2" variant={pkg.pop ? 'primary' : 'secondary'} onClick={() => handleBuy(pkg.c, 'credits', pkg.rawPrice)} isLoading={loading}>
-                      Comprar
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            )}
+              {tab === 'credits' && (
+                <motion.div 
+                  key="credits-tab"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -20 }}
+                  className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6"
+                >
+                  {packages.map((pkg, idx) => (
+                    <motion.div 
+                      key={pkg.c} 
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ delay: idx * 0.05 }}
+                      className={`group relative bg-card border rounded-[2rem] p-6 flex flex-col items-center gap-4 transition-all duration-300 hover:shadow-xl hover:border-primary/50 ${pkg.pop ? 'bg-gradient-to-br from-primary/10 to-blue-900/10 border-primary/30 ring-1 ring-primary/20 z-10 scale-[1.05] shadow-lg shadow-primary/5' : 'border-border'}`}
+                    >
+                      {pkg.discountPercent > 0 && (
+                        <PromoBadge percent={pkg.discountPercent} size="md" />
+                      )}
+                      
+                      {pkg.pop && (
+                        <div className="absolute -top-3 -right-3 bg-yellow-500 text-black text-[9px] font-black uppercase py-1.5 px-3 rounded-lg shadow-xl z-20">
+                          Popular
+                        </div>
+                      )}
 
-            {tab === 'tickets' && (
-               <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
-                  {ticketPackages.map(pkg => (
-                     <div key={pkg.c} className={`relative bg-card border rounded-3xl p-5 flex flex-col items-center gap-2 ${pkg.pop ? 'bg-gradient-to-br from-primary/20 to-blue-900/20 border-primary/30 ring-2 ring-primary/20 shadow-md z-10' : 'border-border'}`}>
-                        <div className="text-2xl mt-2 border-b border-border/50 pb-2 w-full text-center">
-                           <span className="font-bold">{pkg.c.toLocaleString('pt-BR')}</span> <span className="text-lg">🎟️</span>
+                      <div className="w-full flex flex-col items-center gap-1 border-b border-border/50 pb-4">
+                        <div className="flex items-center gap-2">
+                           <span className="text-3xl font-black tracking-tight">{pkg.c.toLocaleString('pt-BR')}</span>
+                           <AnimatedIcon type="coin" size={24} />
                         </div>
-                        <div className="text-xs text-muted-foreground text-center">Gire a roleta e <br/> <strong className="text-foreground">ganhe moedas</strong></div>
-                        <div className="flex flex-col items-center mt-1">
-                           {pkg.originalPrice && <div className="text-xs text-red-500 line-through mb-0.5">{pkg.originalPrice}</div>}
-                           <div className={`font-bold text-lg ${pkg.originalPrice ? 'text-green-500' : ''}`}>{pkg.price}</div>
-                        </div>
-                        {pkg.discountPercent > 0 && (
-                           <div className="absolute top-0 left-0 transform -translate-x-2 -translate-y-2 bg-red-500 text-white text-[10px] uppercase font-bold py-1 px-2 rounded-lg shadow-lg z-20 flex items-center gap-1">
-                              <Zap size={10} className="fill-white" /> -{pkg.discountPercent}% OFF
-                           </div>
-                        )}
-                        <Button className="w-full mt-2" variant={pkg.pop ? 'primary' : 'secondary'} onClick={() => handleBuy(pkg.c, 'tickets', pkg.rawPrice)} isLoading={loading}>
-                           Comprar
-                        </Button>
-                     </div>
+                        <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Moedas</span>
+                      </div>
+
+                      <div className="flex flex-col items-center gap-1 text-center py-2 h-16 justify-center">
+                        <div className="text-xs text-muted-foreground font-medium">Destaque por</div>
+                        <div className="text-sm font-black text-foreground">{pkg.time}</div>
+                      </div>
+
+                      <div className="flex flex-col items-center gap-0.5 mt-2">
+                        {pkg.originalPrice && <span className="text-xs text-red-500/80 font-bold line-through">{pkg.originalPrice}</span>}
+                        <span className={`text-2xl font-black ${pkg.originalPrice ? 'text-green-500' : 'text-foreground'}`}>{pkg.price}</span>
+                      </div>
+
+                      <Button 
+                        className="w-full overflow-hidden relative group" 
+                        variant={pkg.pop ? 'primary' : 'secondary'} 
+                        onClick={() => handleBuy(pkg.c, 'credits', pkg.rawPrice)} 
+                        isLoading={loading}
+                        size="lg"
+                      >
+                        <span className="relative z-10">COMPRAR</span>
+                        <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
+                      </Button>
+                    </motion.div>
                   ))}
-               </div>
-            )}
-          </motion.div>
-        ) : paymentMethodSelect && !showCCForm && !paymentData ? (
-          <motion.div 
-            key="method-select"
-            initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}
-            className="flex flex-col items-center justify-center pt-10"
-          >
-             <div className="bg-card w-full max-w-md p-6 sm:p-8 rounded-3xl md:rounded-[2.5rem] border border-border/60 shadow-2xl text-center relative overflow-hidden">
-                <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-transparent pointer-events-none"></div>
-                <h3 className="text-2xl font-black mb-2 relative z-10">Forma de Pagamento</h3>
-                <p className="text-muted-foreground text-sm mb-8 leading-relaxed relative z-10">Como você deseja pagar os <span className="text-primary font-bold">{paymentMethodSelect.type === 'plan' ? 'Plano ' + String(paymentMethodSelect.credits).toUpperCase() : paymentMethodSelect.credits + (paymentMethodSelect.type === 'tickets' ? ' Tickets' : ' Moedas')}</span>?</p>
-                
-                <div className="flex flex-col gap-4 relative z-10">
-                   <Button variant="outline" className="h-20 text-lg justify-start px-8 border-2 rounded-2xl hover:border-primary hover:bg-primary/5 transition-all group" onClick={() => setShowCCForm('credit_card')}>
-                      <div className="w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
-                        <CreditCard className="text-primary" size={24} />
-                      </div>
-                      <div className="flex flex-col items-start">
-                        <span className="font-bold">Cartões</span>
-                        <span className="text-[10px] text-muted-foreground uppercase font-black tracking-widest mt-0.5">Crédito ou Débito</span>
-                      </div>
-                   </Button>
-                   <Button variant="outline" className="h-20 text-lg justify-start px-8 border-2 rounded-2xl hover:border-green-500 hover:bg-green-500/5 transition-all outline-none group" onClick={handleBuyPix} isLoading={loading}>
-                      <div className="w-12 h-12 bg-green-500/10 rounded-xl flex items-center justify-center mr-4 group-hover:scale-110 transition-transform">
-                        <QrCode className="text-green-500" size={24} />
-                      </div>
-                      <div className="flex flex-col items-start">
-                        <span className="font-bold">PIX Instantâneo</span>
-                        <span className="text-[10px] text-green-600/60 uppercase font-black tracking-widest mt-0.5">Aprovação em Segundos</span>
-                      </div>
-                   </Button>
-                </div>
-                
-                <Button variant="ghost" className="mt-8 w-full font-bold text-muted-foreground" onClick={() => setPaymentMethodSelect(null)}>
-                   Cancelar
-                </Button>
-             </div>
-          </motion.div>
-        ) : (showCCForm === 'credit_card' || showCCForm === 'debit_card') && paymentMethodSelect && !paymentData ? (
-          <motion.div key="cc-form" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="w-full flex justify-center py-4">
-             <CreditCardForm
-                 amount={paymentMethodSelect.rawPrice}
-                 itemC={paymentMethodSelect.credits}
-                 itemType={paymentMethodSelect.type}
-                 savedCards={savedCards}
-                 initialMethodType={showCCForm}
-                 onSuccess={(pid, status) => {
-                     if (status === 'approved') {
-                         setPaymentData({ id: pid, paymentMethod: 'cc', qrCode: '', pixCode: '', tickets: paymentMethodSelect.type === 'tickets' ? Number(paymentMethodSelect.credits) : 0, credits: paymentMethodSelect.type === 'credits' ? Number(paymentMethodSelect.credits) : 0, exactExpiry: Date.now() + 15 * 60 * 1000, pendingPlan: paymentMethodSelect.type === 'plan' ? String(paymentMethodSelect.credits) : undefined });
-                         setPaymentSuccess(true);
-                         refreshUser();
-                     } else {
-                         setPaymentData({ id: pid, paymentMethod: 'cc', qrCode: '', pixCode: '', tickets: paymentMethodSelect.type === 'tickets' ? Number(paymentMethodSelect.credits) : 0, credits: paymentMethodSelect.type === 'credits' ? Number(paymentMethodSelect.credits) : 0, exactExpiry: Date.now() + 15 * 60 * 1000, pendingPlan: paymentMethodSelect.type === 'plan' ? String(paymentMethodSelect.credits) : undefined });
-                         setPolling(true);
-                     }
-                 }}
-                 onCancel={() => { setShowCCForm(false); setPaymentMethodSelect(null); }}
-             />
-          </motion.div>
-        ) : paymentData && !paymentSuccess && paymentData.paymentMethod === 'cc' ? (
-           <motion.div 
-             key="payment-cc"
-             initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-             className="bg-card w-full max-w-md border border-border/60 p-6 sm:p-8 rounded-3xl md:rounded-[2.5rem] flex flex-col items-center gap-6 text-center shadow-2xl relative mx-auto overflow-hidden"
-           >
-              <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 via-transparent to-transparent pointer-events-none"></div>
-              <div className="w-16 h-16 bg-blue-500/10 text-blue-500 rounded-full flex items-center justify-center relative z-10 motion-safe:animate-pulse">
-                 <CreditCard size={32} />
-              </div>
-              <div className="relative z-10">
-                 <h3 className="text-xl font-bold">Analisando Cartão</h3>
-                 <p className="text-sm text-muted-foreground mt-2">Aguarde enquanto verificamos junto ao seu banco.</p>
-              </div>
-              
-              <div className="w-full h-1.5 bg-secondary rounded-full overflow-hidden my-2 relative z-10">
-                 <div className="relative h-full bg-blue-500 w-1/3 animate-[translateX_1.5s_infinite_ease-in-out] rounded-full"></div>
-              </div>
+                </motion.div>
+              )}
 
-              <div className="w-full flex items-center justify-center gap-3 py-2 text-primary font-bold relative z-10">
-                 <Loader2 size={24} className="animate-spin" />
-                 Processando pagamento...
-              </div>
-              <Button variant="secondary" className="mt-4 w-full relative z-10" onClick={() => { setPaymentData(null); setPolling(false); }}>
-                Cancelar Compra
-              </Button>
-           </motion.div>
-        ) : paymentData && !paymentSuccess && paymentData.paymentMethod === 'pix' ? (
+              {tab === 'tickets' && (
+                <motion.div 
+                  key="tickets-tab"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -20 }}
+                  className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6"
+                >
+                  {ticketPackages.map((pkg, idx) => (
+                    <motion.div 
+                      key={pkg.c} 
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ delay: idx * 0.05 }}
+                      className={`group relative bg-card border rounded-[2rem] p-6 flex flex-col items-center gap-4 transition-all duration-300 hover:shadow-xl hover:border-primary/50 ${pkg.pop ? 'bg-gradient-to-br from-primary/10 to-blue-900/10 border-primary/30 ring-1 ring-primary/20 z-10 scale-[1.05] shadow-lg shadow-primary/5' : 'border-border'}`}
+                    >
+                      {pkg.discountPercent > 0 && (
+                        <PromoBadge percent={pkg.discountPercent} size="md" />
+                      )}
+
+                      <div className="w-full flex flex-col items-center gap-1 border-b border-border/50 pb-4">
+                        <div className="flex items-center gap-2">
+                           <span className="text-3xl font-black tracking-tight">{pkg.c.toLocaleString('pt-BR')}</span>
+                           <AnimatedIcon type="ticket" size={24} />
+                        </div>
+                        <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Tickets</span>
+                      </div>
+
+                      <div className="flex flex-col items-center gap-1 text-center py-2 h-16 justify-center">
+                        <div className="text-xs text-muted-foreground font-medium leading-tight px-2">Gire a roleta e ganhe recompensas</div>
+                      </div>
+
+                      <div className="flex flex-col items-center gap-0.5 mt-2">
+                        {pkg.originalPrice && <span className="text-xs text-red-500/80 font-bold line-through">{pkg.originalPrice}</span>}
+                        <span className={`text-2xl font-black ${pkg.originalPrice ? 'text-green-500' : 'text-foreground'}`}>{pkg.price}</span>
+                      </div>
+
+                      <Button 
+                        className="w-full overflow-hidden relative group" 
+                        variant={pkg.pop ? 'primary' : 'secondary'} 
+                        onClick={() => handleBuy(pkg.c, 'tickets', pkg.rawPrice)} 
+                        isLoading={loading}
+                        size="lg"
+                      >
+                        <span className="relative z-10">COMPRAR</span>
+                        <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
+                      </Button>
+                    </motion.div>
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </motion.div>
+        ) : (
           <motion.div 
-            key="payment-pix"
+            key="payment"
             initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-            className="bg-card w-full max-w-md border border-border/60 p-6 sm:p-8 rounded-3xl md:rounded-[2.5rem] flex flex-col items-center gap-6 text-center shadow-2xl relative overflow-hidden mx-auto"
+            className="bg-card border border-border p-6 rounded-3xl flex flex-col items-center gap-6 text-center"
           >
-            <div className="absolute inset-0 bg-gradient-to-br from-green-500/5 via-transparent to-transparent pointer-events-none"></div>
-            <div className="flex w-full justify-between items-center bg-secondary/50 p-4 rounded-2xl border border-border relative z-10">
-              <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Tempo expira em</span>
-              <span className="text-xl font-mono font-black text-destructive animate-pulse">{formatTime(timeLeft)}</span>
+            <div className="flex w-full justify-between items-center bg-secondary/50 p-3 rounded-2xl border border-border">
+              <span className="text-sm font-semibold">Tempo restante</span>
+              <span className="text-lg font-mono font-bold text-destructive animate-pulse">{formatTime(timeLeft)}</span>
             </div>
 
             <div className="w-16 h-16 bg-green-500/10 text-green-500 rounded-full flex items-center justify-center">
@@ -586,51 +741,49 @@ export default function Store() {
                  </p>
               ) : paymentData.tickets > 0 ? (
                  <p className="font-bold text-blue-500 mt-2 bg-blue-500/10 px-3 py-1 rounded-full border border-blue-500/30 w-fit mx-auto">
-                    {paymentData.tickets?.toLocaleString('pt-BR') || paymentData.tickets} Tickets 🎟️
+                    {paymentData.tickets?.toLocaleString('pt-BR') || paymentData.tickets} Tickets <AnimatedIcon type="ticket" className="ml-1" size={16} />
                  </p>
               ) : (
                  <p className="font-bold text-green-500 mt-2 bg-green-500/10 px-3 py-1 rounded-full border border-green-500/30 w-fit mx-auto">
-                    {paymentData.credits?.toLocaleString('pt-BR') || paymentData.credits} Moedas 💰
+                    {paymentData.credits?.toLocaleString('pt-BR') || paymentData.credits} Moedas <AnimatedIcon type="coin" className="ml-1" size={16} />
                  </p>
               )}
             </div>
-
-            <>
-              {paymentData.qrCode ? (
-                <div className="p-2 bg-white rounded-xl">
-                  <img src={paymentData.qrCode} alt="PIX QR Code" className="w-48 h-48" />
+            
+                {paymentData.qrCode ? (
+                  <div className="p-2 bg-white rounded-xl">
+                    <img src={paymentData.qrCode} alt="PIX QR Code" className="w-48 h-48" />
+                  </div>
+                ) : (
+                  <div className="p-2 bg-white rounded-xl w-48 h-48 flex items-center justify-center text-xs text-black/50 text-center font-medium">
+                    QR Code apenas via app MercadoPago
+                  </div>
+                )}
+    
+                <div className="w-full flex gap-2">
+                  <div className="flex-1 bg-secondary rounded-xl px-3 py-2 text-xs truncate border border-border flex items-center text-left">
+                    {paymentData.pixCode?.substring(0, 30)}...
+                  </div>
+                  <Button 
+                     variant="outline"
+                     onClick={() => {
+                       navigator.clipboard.writeText(paymentData.pixCode);
+                       showNotification.success('Código PIX copiado!');
+                     }}
+                  >
+                    <Copy size={16} /> Copiar
+                  </Button>
                 </div>
-              ) : (
-                <div className="p-2 bg-white rounded-xl w-48 h-48 flex items-center justify-center text-xs text-black/50 text-center font-medium">
-                  QR Code apenas via app MercadoPago
+    
+                <div className="flex items-center gap-2 text-sm text-primary animate-pulse">
+                  <Loader2 className="animate-spin" size={16} /> Aguardando pagamento do PIX...
                 </div>
-              )}
-  
-              <div className="w-full flex gap-2">
-                <div className="flex-1 bg-secondary rounded-xl px-3 py-2 text-xs truncate border border-border flex items-center text-left hover:bg-secondary/80 transition-colors cursor-pointer" onClick={() => { navigator.clipboard.writeText(paymentData.pixCode); showNotification.success('Código PIX copiado!'); }}>
-                  {paymentData.pixCode?.substring(0, 30)}...
-                </div>
-                <Button 
-                   variant="outline"
-                   onClick={() => {
-                     navigator.clipboard.writeText(paymentData.pixCode);
-                     showNotification.success('Código PIX copiado!');
-                   }}
-                >
-                  <Copy size={16} /> Copiar
-                </Button>
-              </div>
-  
-              <div className="flex items-center gap-2 text-sm text-primary animate-pulse">
-                <Loader2 className="animate-spin" size={16} /> Aguardando pagamento do PIX...
-              </div>
-            </>
-
-            <Button variant="secondary" className="mt-4 w-full" onClick={() => { setPaymentData(null); setPolling(false); }}>
+            
+            <Button variant="secondary" className="mt-4" onClick={() => setPaymentData(null)}>
               Cancelar Operação
             </Button>
           </motion.div>
-        ) : null}
+        )}
       </AnimatePresence>
     </div>
   );

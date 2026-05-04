@@ -79,7 +79,7 @@ export default function Admin() {
                         </div>
                         <div className="bg-card border border-border p-6 rounded-3xl">
                             <p className="text-sm text-muted-foreground">Moedas Distribuídas</p>
-                            <h3 className="text-3xl font-black mt-1 text-primary">{Math.floor(stats.totalCoins || 0).toLocaleString()} <span className="text-sm">🪙</span></h3>
+                            <h3 className="text-3xl font-black mt-1 text-primary">{Math.floor(stats.totalCoins || 0).toLocaleString('pt-BR')} <span className="text-sm">🪙</span></h3>
                         </div>
                         <div className="bg-card border border-border p-6 rounded-3xl">
                             <p className="text-sm text-muted-foreground">Planos Ativos</p>

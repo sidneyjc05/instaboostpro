@@ -5,6 +5,7 @@ import { Button } from '../components/ui/Button';
 import { Target, Ticket, Zap, Info } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAppSound } from '../context/SoundContext';
+import { AnimatedIcon } from '../components/AnimatedIcon';
 
 // Definition of the wheel sections matching the user's requirements
 const PRIZES = [
@@ -160,13 +161,13 @@ export default function Roulette() {
         <div className="flex-1 bg-secondary/50 border border-border rounded-3xl p-4 flex flex-col items-center justify-center">
             <span className="text-sm font-medium text-muted-foreground">Meus Tickets</span>
             <span className="text-2xl font-bold font-mono tracking-tight text-foreground flex items-center gap-2">
-               {user?.tickets ?? 0} 🎟️
+               {user?.tickets ?? 0} <AnimatedIcon type="ticket" size={20} className="ml-1" />
             </span>
         </div>
         <div className="flex-1 bg-secondary/50 border border-border rounded-3xl p-4 flex flex-col items-center justify-center">
             <span className="text-sm font-medium text-muted-foreground">Minhas Moedas</span>
             <span className="text-2xl font-bold font-mono tracking-tight text-yellow-500 flex items-center gap-2">
-               {user?.credits?.toLocaleString('pt-BR') ?? 0} 💰
+               {user?.credits?.toLocaleString('pt-BR') ?? 0} <AnimatedIcon type="coin" size={20} className="ml-1" />
             </span>
         </div>
       </div>
@@ -218,7 +219,7 @@ export default function Roulette() {
             onClick={spinRoulette}
             isLoading={spinning}
          >
-            {spinning ? 'Girando...' : 'GIRAR (-1 🎟️)'}
+            {spinning ? 'Girando...' : <span className="flex items-center gap-1">GIRAR (-1 <AnimatedIcon type="ticket" size={18} />)</span>}
          </Button>
       </div>
 
@@ -230,7 +231,7 @@ export default function Roulette() {
                exit={{ opacity: 0, scale: 0.8 }}
                className="bg-gradient-to-br from-green-500/20 to-emerald-600/20 border border-green-500/30 rounded-3xl p-6 flex flex-col items-center gap-3 text-center"
             >
-               <span className="text-5xl">🎉</span>
+               <AnimatedIcon type="sparkle" size={48} className="mb-2" />
                <h3 className="text-2xl font-extrabold text-foreground">Você ganhou!</h3>
                <div className="text-green-500 font-bold text-xl px-4 py-2 bg-background rounded-full border border-green-500/20">
                   +{prizeWin.value} Moedas
