@@ -6,6 +6,7 @@ import { QrCode, Copy, Zap, CheckCircle, CreditCard } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAppSound } from '../context/SoundContext';
 import { AnimatedIcon } from '../components/AnimatedIcon';
+import { GlobalLoader } from '../components/GlobalLoader';
 
 const PromoBadge = ({ percent, size = 'md' }: { percent: number; size?: 'sm' | 'md' | 'lg' }) => {
   const sizes = {
@@ -43,6 +44,7 @@ export default function Store() {
   const { user, refreshUser } = useAuth();
   const { playSuccess, playClick } = useAppSound();
   const [loading, setLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [paymentData, setPaymentData] = useState<{ id: string, paymentMethod: string, qrCode: string, pixCode: string, tickets: number, credits: number, exactExpiry: number, pendingPlan?: string } | null>(null);
   const [polling, setPolling] = useState(false);
   const [timeLeft, setTimeLeft] = useState(15 * 60);
@@ -79,12 +81,15 @@ export default function Store() {
   useEffect(() => {
     fetch('/api/store/config')
       .then(res => res.json())
-      .then(data => setStoreConfig(data))
-      .catch(() => {});
+      .then(data => {
+        setStoreConfig(data);
+        setInitialLoading(false);
+      })
+      .catch(() => setInitialLoading(false));
   }, []);
 
   useEffect(() => {
-    // Check if there is a 'tab' search param
+    // URL Check params
     const searchParams = new URLSearchParams(window.location.search);
     if (searchParams.get('tab') === 'plans') {
        setTab('plans');
@@ -94,6 +99,9 @@ export default function Store() {
        setTab('tickets');
     }
   }, []);
+
+  // Use this rendered at the top of the return
+  // <GlobalLoader isLoading={initialLoading} />
 
   // Expiration and countdown timer
   useEffect(() => {
@@ -143,6 +151,10 @@ export default function Store() {
   }, [polling, paymentData]);
 
   const handleBuy = async (credits: number | string, type: 'credits' | 'tickets' | 'plan' = 'credits', rawPrice: number) => {
+    if (type === 'plan' && user?.plan_type && user.plan_type !== 'basic') {
+      showNotification.error('Você já possui um plano ativo!');
+      return;
+    }
     setLoading(true);
     try {
       const res = await fetch('/api/payments/pix', {
@@ -370,15 +382,20 @@ export default function Store() {
           return p;
       });
 
+      const hasActivePaidPlan = user?.plan_type && user.plan_type !== 'basic';
+      
       planPackages = planPackages.map(p => {
           const original = storeConfig.plans[p.id];
           const isActive = user?.plan_type === p.id;
+          const canPurchase = p.id !== 'basic' && !hasActivePaidPlan;
+          
           if (original !== undefined) {
               const discounted = applyPromoAndPlan(original, 'plan', p.id);
               const showDiscount = !isActive && discounted < original && original > 0;
               return { 
                   ...p, 
                   isActive,
+                  canPurchase,
                   price: isActive ? 'Ativo' : (discounted === 0 ? 'Grátis' : formatPrice(discounted)),
                   originalPrice: showDiscount ? formatPrice(original) : undefined,
                   discountPercent: showDiscount ? Math.round(((original - discounted) / original) * 100) : 0,
@@ -391,6 +408,7 @@ export default function Store() {
 
   return (
     <div className="flex flex-col gap-8 pb-20 max-w-7xl mx-auto w-full px-4 md:px-0">
+      <GlobalLoader isLoading={initialLoading} />
       <AnimatePresence mode="wait">
         {paymentSuccess ? (
           <motion.div 
@@ -533,7 +551,7 @@ export default function Store() {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -20 }}
-                  className="grid grid-cols-1 md:grid-cols-3 gap-8"
+                  className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 lg:gap-8"
                 >
                   {planPackages.map((pkg, idx) => (
                     <motion.div 
@@ -541,14 +559,16 @@ export default function Store() {
                       initial={{ opacity: 0, y: 20 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: idx * 0.1 }}
-                      className={`group relative bg-card border rounded-[2.5rem] p-8 flex flex-col gap-6 overflow-hidden transition-all duration-500 hover:shadow-2xl hover:-translate-y-2 ${pkg.pop ? `ring-2 ${pkg.ringColor} shadow-xl z-10` : 'hover:border-primary/50'} ${pkg.borderColor}`}
+                      className={`group relative bg-card border rounded-[2rem] sm:rounded-[2.5rem] p-5 sm:p-8 flex flex-col gap-4 sm:gap-6 transition-all duration-500 hover:shadow-2xl hover:-translate-y-2 ${pkg.pop ? `ring-2 ${pkg.ringColor} shadow-xl z-20` : 'hover:border-primary/50 z-10'} ${pkg.borderColor}`}
                     >
-                      {/* Background Accents */}
-                      <div className={`absolute inset-0 bg-gradient-to-br ${pkg.color} opacity-40 group-hover:opacity-60 transition-opacity`} />
+                      {/* Background Accents - Moved overflow-hidden to this specifically to allow outer badges to show */}
+                      <div className="absolute inset-0 rounded-[2rem] sm:rounded-[2.5rem] overflow-hidden pointer-events-none">
+                        <div className={`absolute inset-0 bg-gradient-to-br ${pkg.color} opacity-40 group-hover:opacity-60 transition-opacity`} />
+                      </div>
                       
                       {pkg.pop && (
-                        <div className="absolute top-0 right-10 transform -translate-y-1/2 bg-gradient-to-r from-yellow-500 via-orange-500 to-red-500 text-white text-[10px] uppercase font-black py-2 px-6 rounded-full shadow-2xl z-20 animate-bounce">
-                          Recomendado
+                        <div className="absolute -top-3 left-1/2 -translate-x-1/2 sm:left-auto sm:right-6 sm:translate-x-0 w-max bg-gradient-to-r from-amber-400 via-orange-500 to-red-600 text-white text-[9px] sm:text-[10px] uppercase font-black py-1.5 px-5 rounded-full shadow-2xl z-30 animate-bounce cursor-default border border-white/20 whitespace-nowrap">
+                          🔥 Recomendado
                         </div>
                       )}
 
@@ -557,33 +577,33 @@ export default function Store() {
                       )}
 
                       <div className="relative z-10">
-                        <div className="text-4xl font-black uppercase italic tracking-tighter text-foreground mb-1">
+                        <div className="text-2xl sm:text-3xl lg:text-4xl font-black uppercase italic tracking-tighter text-foreground mb-1 leading-none">
                           {pkg.name}
                         </div>
-                        <div className="text-muted-foreground font-medium text-sm flex items-center gap-2">
+                        <div className="text-muted-foreground font-medium text-[9px] sm:text-xs lg:text-sm flex items-center gap-2">
                            MODO {pkg.id.toUpperCase()} • <span className="text-foreground/80">{pkg.period}</span>
                         </div>
                       </div>
 
-                      <div className="relative z-10 flex flex-col mt-4">
+                      <div className="relative z-10 flex flex-col mt-2 sm:mt-4">
                         <div className="flex items-end gap-1">
-                          <span className={`text-5xl font-black tracking-tight ${pkg.originalPrice ? 'text-green-500' : 'text-foreground'}`}>
+                          <span className={`text-4xl sm:text-5xl font-black tracking-tight leading-none ${pkg.originalPrice ? 'text-green-500' : 'text-foreground'}`}>
                             {pkg.price}
                           </span>
                         </div>
                         {pkg.originalPrice && (
-                          <span className="text-sm text-red-500/80 font-bold line-through mt-1">
-                            Anteriormente {pkg.originalPrice}
+                          <span className="text-xs sm:text-sm text-red-500/80 font-bold line-through mt-1">
+                            {pkg.originalPrice}
                           </span>
                         )}
                       </div>
 
-                      <div className="relative z-10 flex-1 flex flex-col gap-4 mt-4 bg-black/20 dark:bg-white/5 rounded-3xl p-6 backdrop-blur-md border border-white/5">
-                        <p className="text-[10px] font-black uppercase text-muted-foreground tracking-widest mb-1">Vantagens Exclusivas</p>
-                        <div className="flex flex-col gap-3 overflow-y-auto max-h-[300px] pr-2 custom-scrollbar">
+                      <div className="relative z-10 flex-1 flex flex-col gap-3 sm:gap-4 mt-2 sm:mt-4 bg-black/20 dark:bg-white/5 rounded-2xl sm:rounded-3xl p-4 sm:p-6 backdrop-blur-md border border-white/5">
+                        <p className="text-[9px] sm:text-[10px] font-black uppercase text-muted-foreground tracking-widest mb-1">Vantagens Exclusivas</p>
+                        <div className="flex flex-col gap-2.5 sm:gap-3 overflow-y-auto max-h-[200px] sm:max-h-[300px] pr-1 custom-scrollbar">
                            {pkg.benefits.map((b, i) => (
-                              <div key={i} className="flex items-start gap-3 text-sm font-medium text-foreground/90">
-                                 <div className="w-5 h-5 rounded-full bg-primary/20 flex items-center justify-center shrink-0 mt-0.5">
+                              <div key={i} className="flex items-start gap-2 lg:gap-3 text-xs lg:text-sm font-medium text-foreground/90 leading-tight">
+                                 <div className="w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-primary/20 flex items-center justify-center shrink-0 mt-0.5">
                                     <CheckCircle className="text-primary" size={12} />
                                  </div>
                                  <span className="leading-snug">{b}</span>
@@ -593,13 +613,13 @@ export default function Store() {
                       </div>
 
                       <Button 
-                        className="relative z-10 w-full h-16 text-lg font-black uppercase tracking-widest rounded-2xl shadow-xl transition-all active:scale-95 group-hover:scale-[1.02]" 
+                        className="relative z-10 w-full h-14 sm:h-16 text-sm sm:text-lg font-black uppercase tracking-widest rounded-xl sm:rounded-2xl shadow-xl transition-all active:scale-95 group-hover:scale-[1.02]" 
                         variant={pkg.isActive ? 'outline' : (pkg.pop ? 'primary' : 'secondary')} 
-                        disabled={pkg.isActive}
+                        disabled={pkg.isActive || (user?.plan_type !== 'basic' && !pkg.isActive)}
                         onClick={() => handleBuy(pkg.id, 'plan', pkg.rawPrice)} 
                         isLoading={loading}
                       >
-                         {pkg.isActive ? 'Plano Ativo' : `Ativar ${pkg.name}`}
+                         {pkg.isActive ? 'Plano Ativo' : (user?.plan_type && user.plan_type !== 'basic' ? 'Indisponível' : 'Ativar Agora')}
                       </Button>
                     </motion.div>
                   ))}

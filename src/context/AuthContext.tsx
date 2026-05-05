@@ -51,6 +51,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     fetchUser();
+    
+    // Polling para atualizações "ao vivo" (cada 30 segundos)
+    const interval = setInterval(fetchUser, 30000);
+    return () => clearInterval(interval);
   }, []);
 
   const logout = async () => {

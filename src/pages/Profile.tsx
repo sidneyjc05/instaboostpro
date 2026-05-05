@@ -3,12 +3,79 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { useAuth } from '../context/AuthContext';
-import { User, Mail, LogOut, Loader2, Diamond, Users, Copy, CheckCircle, Share2, AlertTriangle, ShieldCheck, History, PlusSquare, X, Check } from 'lucide-react';
+import { User as UserIcon, Mail, LogOut, Loader2, Diamond, Users, Copy, CheckCircle, Share2, AlertTriangle, ShieldCheck, History, PlusSquare, X, Check, Clock } from 'lucide-react';
+
+// Componente do Cronômetro do Plano
+function PlanCountdown({ expiresAt }: { expiresAt: string }) {
+  const [timeLeft, setTimeLeft] = useState<{ months: number; days: number; hours: number; minutes: number; seconds: number } | null>(null);
+
+  useEffect(() => {
+    const calculateTime = () => {
+      const now = new Date().getTime();
+      const target = new Date(expiresAt).getTime();
+      const diff = target - now;
+
+      if (diff <= 0) {
+        setTimeLeft(null);
+        return;
+      }
+
+      // Aproximação simples para meses (30 dias)
+      const months = Math.floor(diff / (1000 * 60 * 60 * 24 * 30));
+      const days = Math.floor((diff % (1000 * 60 * 60 * 24 * 30)) / (1000 * 60 * 60 * 24));
+      const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+
+      setTimeLeft({ months, days, hours, minutes, seconds: 0 });
+    };
+
+    calculateTime();
+    const interval = setInterval(calculateTime, 60000); // Atualiza a cada minuto para economizar CPU
+    return () => clearInterval(interval);
+  }, [expiresAt]);
+
+  if (!timeLeft) return null;
+
+  return (
+    <div className="flex flex-col items-center mt-4 p-4 rounded-3xl bg-background/50 border border-border/50 shadow-inner">
+      <div className="flex items-center gap-1.5 mb-3 text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground/60">
+        <Clock size={12} className="text-primary" /> Tempo Restante do Plano
+      </div>
+      <div className="flex items-center justify-center gap-2">
+        {timeLeft.months > 0 && (
+          <>
+            <div className="flex flex-col items-center">
+              <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex flex-col items-center justify-center shadow-lg shadow-blue-500/5">
+                <span className="text-lg sm:text-xl font-black text-blue-500 leading-none">{timeLeft.months}</span>
+                <span className="text-[8px] sm:text-[9px] uppercase font-bold text-blue-500/60 mt-0.5">Mês</span>
+              </div>
+            </div>
+            <div className="text-muted-foreground/20 font-bold">:</div>
+          </>
+        )}
+        <div className="flex flex-col items-center">
+          <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-green-500/10 border border-green-500/20 flex flex-col items-center justify-center shadow-lg shadow-green-500/5">
+            <span className="text-lg sm:text-xl font-black text-green-500 leading-none">{timeLeft.days}</span>
+            <span className="text-[8px] sm:text-[9px] uppercase font-bold text-green-500/60 mt-0.5">Dias</span>
+          </div>
+        </div>
+        <div className="text-muted-foreground/20 font-bold">:</div>
+        <div className="flex flex-col items-center">
+          <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex flex-col items-center justify-center shadow-lg shadow-amber-500/5">
+            <span className="text-lg sm:text-xl font-black text-amber-500 leading-none">{timeLeft.hours}</span>
+            <span className="text-[8px] sm:text-[9px] uppercase font-bold text-amber-500/60 mt-0.5">Horas</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 import { useAppSound } from '../context/SoundContext';
 import { AnimatedIcon } from '../components/AnimatedIcon';
 import { showNotification } from '../context/NotificationContext';
 import { useNavigate } from 'react-router';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
+import { GlobalLoader } from '../components/GlobalLoader';
 
 export default function Profile() {
   const { user, logout, refreshUser } = useAuth();
@@ -146,6 +213,7 @@ export default function Profile() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-10 mb-20">
+      <GlobalLoader isLoading={loadingPromos} />
       
       {/* Profile Header */}
       <motion.div
@@ -171,8 +239,12 @@ export default function Profile() {
           <h1 className="text-3xl font-black mt-2">@{user?.username}</h1>
           <div className="inline-flex items-center justify-center gap-2 mt-3 px-5 py-2 rounded-full bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 font-bold mx-auto">
             <AnimatedIcon type="coin" size={18} />
-            {typeof user?.credits === 'number' ? Math.floor(user.credits).toLocaleString('pt-BR') : '0'} Moedas
+            {typeof user?.credits === 'number' ? user.credits.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0,00'} Moedas
           </div>
+
+          {user?.plan_expires_at && user.plan_type !== 'basic' && (
+            <PlanCountdown expiresAt={user.plan_expires_at} />
+          )}
         </div>
       </motion.div>
 

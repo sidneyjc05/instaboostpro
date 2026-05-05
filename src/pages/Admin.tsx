@@ -7,8 +7,7 @@ import { AdminSettings } from '../components/admin/AdminSettings';
 import AdminStore from '../components/admin/AdminStore';
 import { motion, AnimatePresence } from 'motion/react';
 import { Shield, Users, Activity, Settings as SettingsIcon, MessageSquare, Store, Zap } from 'lucide-react';
-
-
+import { GlobalLoader } from '../components/GlobalLoader';
 
 export default function Admin() {
     const { user } = useAuth();
@@ -43,10 +42,11 @@ export default function Admin() {
         { id: 'settings', label: 'Config. & Backup', icon: SettingsIcon },
     ];
 
-    if (loading) return <div className="p-8 text-center animate-pulse">Carregando painel...</div>;
+    if (loading) return <GlobalLoader isLoading={true} />;
 
     return (
         <div className="flex flex-col gap-6 pb-20 max-w-7xl mx-auto w-full">
+            <GlobalLoader isLoading={loading} />
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border pb-6">
                 <div className="flex items-center gap-3">
                     <div className="w-12 h-12 bg-red-500/10 text-red-500 rounded-xl flex items-center justify-center">

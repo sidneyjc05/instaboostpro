@@ -9,6 +9,7 @@ import { MissionsTab } from '../components/MissionsTab';
 import { InstaViewerModal } from '../components/InstaViewerModal';
 import { AnimatedIcon } from '../components/AnimatedIcon';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
+import { GlobalLoader } from '../components/GlobalLoader';
 
 interface Promotion {
   id: number;
@@ -27,6 +28,7 @@ const getInstaLinkType = (link: string) => {
 export default function Home() {
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshCount, setRefreshCount] = useState(0);
   const { user, refreshUser } = useAuth();
   
   const [showDailyModal, setShowDailyModal] = useState(false);
@@ -41,7 +43,6 @@ export default function Home() {
   useBodyScrollLock(showDailyModal || viewerOpen);
 
   const loadPromos = async () => {
-    setLoading(true);
     try {
       const res = await fetch('/api/promotions');
       if (res.ok) {
@@ -49,8 +50,6 @@ export default function Home() {
       }
     } catch {
       showNotification.error('Erro ao carregar feed');
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -61,16 +60,26 @@ export default function Home() {
         const data = await res.json();
         const available = data.plan?.some((p: any) => p.state === 'available');
         setHasDailyRewardAvailable(available);
-        if (available) {
-           setShowDailyModal(true);
-        }
       }
     } catch {}
   };
 
+  const handleRefresh = async () => {
+    setLoading(true);
+    setRefreshCount(prev => prev + 1);
+    try {
+      await Promise.all([
+        loadPromos(),
+        checkDailyRewards(),
+        refreshUser()
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    loadPromos();
-    checkDailyRewards();
+    handleRefresh();
   }, []);
 
   const handleInteract = async () => {
@@ -108,6 +117,7 @@ export default function Home() {
 
   return (
     <div className="flex flex-col gap-6 pb-20 max-w-xl mx-auto w-full">
+      <GlobalLoader isLoading={loading} />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-extrabold tracking-tight">InstaBoost <span className="text-primary">PRO</span></h1>
@@ -115,27 +125,27 @@ export default function Home() {
         </div>
         <div className="flex items-center gap-3">
           <div className="px-4 py-2 bg-yellow-500/15 border border-yellow-500/30 text-yellow-500 rounded-full font-semibold flex items-center gap-2 shadow-sm">
-             <AnimatedIcon type="coin" size={18} /> {Math.floor(user?.credits || 0).toLocaleString('pt-BR')} Moedas
+             <AnimatedIcon type="coin" size={18} /> {(user?.credits || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Moedas
           </div>
-          <button onClick={loadPromos} className="p-2 bg-secondary rounded-full hover:bg-muted text-muted-foreground hover:text-foreground relative group">
+          <button onClick={handleRefresh} className="p-2 bg-secondary rounded-full hover:bg-muted text-muted-foreground hover:text-foreground relative group">
             <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
           </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
          <button 
            onClick={() => setShowDailyModal(true)}
-           className={`relative overflow-hidden w-full text-left rounded-2xl p-5 border flex items-center justify-between transition-all shadow-sm ${hasDailyRewardAvailable ? 'bg-gradient-to-r from-yellow-500/20 to-orange-500/20 border-yellow-500/40 hover:from-yellow-500/30 hover:to-orange-500/30' : 'bg-secondary/50 border-border hover:bg-secondary'}`}
+           className={`relative overflow-hidden w-full text-left rounded-2xl p-4 sm:p-5 border flex items-center justify-between transition-all shadow-sm ${hasDailyRewardAvailable ? 'bg-gradient-to-r from-yellow-500/20 to-orange-500/20 border-yellow-500/40 hover:from-yellow-500/30 hover:to-orange-500/30' : 'bg-secondary/50 border-border hover:bg-secondary'}`}
          >
             <div className="flex items-center gap-4 relative z-10">
-               <div className={`w-12 h-12 rounded-full flex items-center justify-center ${hasDailyRewardAvailable ? 'bg-gradient-to-br from-yellow-400 to-amber-600 text-white shadow-lg' : 'bg-card text-muted-foreground border'}`}>
-                  <Gift size={24} />
+               <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center ${hasDailyRewardAvailable ? 'bg-gradient-to-br from-yellow-400 to-amber-600 text-white shadow-lg' : 'bg-card text-muted-foreground border'}`}>
+                  <Gift size={20} className="sm:w-6 sm:h-6" />
                </div>
                <div>
-                  <h3 className={`font-bold ${hasDailyRewardAvailable ? 'text-amber-600 dark:text-amber-400' : 'text-foreground'}`}>Prêmio Diário</h3>
-                  <p className="text-sm text-muted-foreground flex items-center gap-1.5">
-                     {hasDailyRewardAvailable ? <><Gift size={14} className="text-amber-500" /> Resgate o prêmio de hoje!</> : 'Ver calendário da semana'}
+                  <h3 className={`font-bold text-sm sm:text-base ${hasDailyRewardAvailable ? 'text-amber-600 dark:text-amber-400' : 'text-foreground'}`}>Prêmio Diário</h3>
+                  <p className="text-xs sm:text-sm text-muted-foreground flex items-center gap-1.5">
+                     {hasDailyRewardAvailable ? <><Gift size={14} className="text-amber-500" /> Resgate agora!</> : 'Calendário semanal'}
                   </p>
                </div>
             </div>
@@ -151,8 +161,8 @@ export default function Home() {
             <div className="flex items-start gap-3 relative z-10">
               <ShieldCheck className="text-blue-500 dark:text-blue-400 shrink-0 mt-0.5" size={20} />
               <div className="flex flex-col">
-                <h3 className="font-extrabold text-sm text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-600 animate-pulse">Termos e Dicas</h3>
-                <p className="text-xs text-blue-900/90 dark:text-blue-100/90 font-medium mt-1">
+                <h3 className="font-extrabold text-xs sm:text-sm text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-600 animate-pulse uppercase tracking-wider">Termos e Dicas</h3>
+                <p className="text-[10px] sm:text-xs text-blue-900/90 dark:text-blue-100/90 font-medium mt-1">
                   Use "fakes" para interagir. Seus perfis devem ser <b>Públicos</b>.
                 </p>
               </div>
@@ -210,10 +220,15 @@ export default function Home() {
                   ) : promotions.length === 0 ? (
                     <motion.div 
                        initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                       className="text-center p-12 bg-secondary/50 rounded-3xl border border-border"
+                       className="text-center p-6 sm:p-12 bg-secondary/50 rounded-3xl border border-border flex flex-col items-center justify-center gap-4"
                     >
-                      <p className="text-muted-foreground">Nenhuma divulgação nova no momento.</p>
-                      <p className="text-xs mt-2 opacity-60">Volte mais tarde ou crie a sua!</p>
+                      <div>
+                        <p className="text-muted-foreground">Nenhuma divulgação nova no momento.</p>
+                        <p className="text-xs mt-2 opacity-60">Volte mais tarde ou crie a sua!</p>
+                      </div>
+                      <Button variant="outline" size="sm" onClick={handleRefresh} isLoading={loading}>
+                        <RefreshCw size={14} className="mr-2" /> Recarregar Página
+                      </Button>
                     </motion.div>
                   ) : (
                     promotions.map((p, i) => {

@@ -171,30 +171,36 @@ function MissionCard({ missionKey, config, state, onUpdate, refreshUser, onOpenV
             layout
             className="bg-card border border-border rounded-3xl shadow-sm overflow-hidden flex flex-col"
         >
-            <div className="p-5 relative overflow-hidden flex flex-col gap-4">
+            <div className="p-4 sm:p-5 relative overflow-hidden flex flex-col gap-4">
                 <div className={`absolute inset-0 bg-gradient-to-r ${bgGradient} opacity-5`}></div>
                 
                 <div className="flex items-center justify-between relative z-10 w-full">
                     <div className="flex items-center gap-3">
-                        <div className={`w-12 h-12 rounded-full bg-gradient-to-br ${bgGradient} flex items-center justify-center text-white shadow-md`}>
-                            <config.icon size={22} />
+                        <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center text-white shadow-md flex-shrink-0 bg-gradient-to-br ${bgGradient}`}>
+                            <config.icon size={18} className="sm:w-[22px] sm:h-[22px]" />
                         </div>
-                        <div>
-                            <h3 className="font-bold text-foreground">{config.title}</h3>
-                            <p className="text-xs text-muted-foreground font-medium">
-                                Nível {state.level} • Prêmio:{' '}
-                                <span className="text-primary font-bold flex items-center gap-1">{reward} <AnimatedIcon type="coin" size={16} /></span>
+                        <div className="min-w-0">
+                            <h3 className="font-bold text-foreground text-sm sm:text-base truncate">{config.title}</h3>
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] sm:text-xs text-muted-foreground font-medium">
+                                <span>Nível {state.level}</span>
+                                <span className="text-muted-foreground/30">•</span>
+                                <span className="text-primary font-bold flex items-center gap-1">
+                                    {reward} <AnimatedIcon type="coin" size={14} />
+                                </span>
                                 {config.tickets && config.tickets[state.level - 1] > 0 && (
-                                  <span className="text-orange-500 font-bold ml-1">
-                                    + {config.tickets[state.level - 1]} <AnimatedIcon type="ticket" size={16} className="ml-1" />
-                                  </span>
+                                  <>
+                                    <span className="text-muted-foreground/30">•</span>
+                                    <span className="text-orange-500 font-bold flex items-center gap-0.5">
+                                      +{config.tickets[state.level - 1]} <AnimatedIcon type="ticket" size={14} />
+                                    </span>
+                                  </>
                                 )}
-                            </p>
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                <div className="w-full h-2.5 bg-secondary rounded-full overflow-hidden relative z-10 mt-2">
+                <div className="w-full h-2 bg-secondary rounded-full overflow-hidden relative z-10 mt-1">
                     <motion.div 
                         initial={{ width: 0 }}
                         animate={{ width: `${progressPercent}%` }}
@@ -202,30 +208,32 @@ function MissionCard({ missionKey, config, state, onUpdate, refreshUser, onOpenV
                     />
                 </div>
 
-                <div className="flex items-center justify-between mt-2">
-                    <div className="text-left">
-                       <span className="font-bold text-2xl text-foreground">{state.progress}</span>
-                       <span className="text-muted-foreground text-sm font-medium"> / {goal} {missionKey === 'time' ? 'min' : ''}</span>
+                <div className="flex items-center justify-between mt-1 gap-2">
+                    <div className="text-left font-mono">
+                       <span className="font-bold text-xl sm:text-2xl text-foreground">{state.progress}</span>
+                       <span className="text-muted-foreground text-[10px] sm:text-sm font-medium"> / {goal} {missionKey === 'time' ? 'min' : ''}</span>
                     </div>
                     
                     {isCompleted ? (
                         <Button 
                             onClick={handleClaim} 
                             isLoading={submitting}
-                            className={`bg-gradient-to-r ${bgGradient} text-white shadow-lg border-none hover:opacity-90 font-bold px-6`}
+                            size="sm"
+                            className={`bg-gradient-to-r ${bgGradient} text-white shadow-lg border-none hover:opacity-90 font-bold px-4 sm:px-6 h-9 sm:h-10 text-xs sm:text-sm`}
                         >
-                            Resgatar Prêmio
+                            Resgatar
                         </Button>
                     ) : missionKey !== 'time' ? (
                         <Button 
                             onClick={onOpenViewer}
                             variant="secondary"
-                            className="bg-secondary/80 hover:bg-secondary font-bold text-foreground group"
+                            size="sm"
+                            className="bg-secondary/80 hover:bg-secondary font-bold text-foreground group h-9 sm:h-10 text-xs sm:text-sm"
                         >
-                            Ir para Missão <Play size={16} className="ml-2 group-hover:scale-110 transition-transform text-primary" />
+                            Ir para Missão <Play size={14} className="ml-1 sm:ml-2 group-hover:scale-110 transition-transform text-primary" />
                         </Button>
                     ) : (
-                        <span className="text-xs font-bold text-muted-foreground uppercase opacity-70 tracking-widest px-2 py-1 bg-secondary rounded-md">Automático</span>
+                        <span className="text-[10px] font-bold text-muted-foreground uppercase opacity-70 tracking-widest px-2 py-1 bg-secondary rounded-md">Automático</span>
                     )}
                 </div>
             </div>

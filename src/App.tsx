@@ -5,10 +5,11 @@ import { ThemeProvider } from './context/ThemeContext';
 import { NotificationProvider } from './context/NotificationContext';
 import { GlobalNotificationProvider } from './context/GlobalNotificationContext';
 import { SoundProvider } from './context/SoundContext';
-import { Loader2, Wrench } from 'lucide-react';
+import { Wrench } from 'lucide-react';
 
 // Components
 import { Layout } from './components/Layout';
+import { GlobalLoader } from './components/GlobalLoader';
 
 // Pages
 import Home from './pages/Home';
@@ -24,11 +25,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center text-foreground">
-        <Loader2 className="animate-spin text-primary" size={32} />
-      </div>
-    );
+    return <GlobalLoader isLoading={true} />;
   }
   
   if (!user) {
@@ -45,11 +42,7 @@ function PublicOnlyRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center text-foreground">
-        <Loader2 className="animate-spin text-primary" size={32} />
-      </div>
-    );
+    return <GlobalLoader isLoading={true} />;
   }
   
   if (user) {
