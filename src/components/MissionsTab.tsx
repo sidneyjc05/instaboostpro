@@ -135,11 +135,19 @@ export function MissionsTab({ onGoToFeed }: { onGoToFeed: () => void }) {
 
 function MissionCard({ missionKey, config, state, onUpdate, refreshUser, onOpenViewer }: any) {
     const [submitting, setSubmitting] = useState(false);
+    const { user } = useAuth();
 
     const levelIndex = Math.min(state.level - 1, 4);
     const bgGradient = LEVEL_COLORS[levelIndex];
     const goal = config.goals[levelIndex];
-    const reward = config.rewards[levelIndex];
+    let reward = config.rewards[levelIndex];
+    const tickets = config.tickets ? config.tickets[levelIndex] : 0;
+
+    if (user?.plan_type === 'pro') reward *= 1.8;
+    else if (user?.plan_type === 'premium') reward *= 2.3;
+    else if (user?.plan_type === 'ultra') reward *= 2.8;
+
+    reward = parseFloat(reward.toFixed(1));
 
     const isCompleted = state.progress >= goal;
     const progressPercent = Math.min((state.progress / goal) * 100, 100);

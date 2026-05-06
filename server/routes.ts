@@ -387,7 +387,7 @@ apiRouter.post('/me/referral/claim', authMiddleware, (req: any, res) => {
   }
 
   // Find referrer
-  const referrer = db.prepare('SELECT id, username FROM users WHERE referral_code = ? COLLATE NOCASE').get(code) as any;
+  const referrer = db.prepare('SELECT id, username, plan_type FROM users WHERE referral_code = ? COLLATE NOCASE').get(code) as any;
   if (!referrer) {
     return res.status(400).json({ error: 'Código de indicação inválido' });
   }
@@ -402,19 +402,26 @@ apiRouter.post('/me/referral/claim', authMiddleware, (req: any, res) => {
      return res.status(400).json({ error: 'Sistema anti-fraude: limite de indicações por rede excedido.' });
   }
 
+  // Calculate Reward based on referrer's plan
+  let referrerBonus = 500;
+  const planType = referrer.plan_type || 'basic';
+  if (planType === 'pro') referrerBonus = 800;
+  if (planType === 'premium') referrerBonus = 1200;
+  if (planType === 'ultra') referrerBonus = 2000;
+
   // Reward!
   db.transaction(() => {
     // Novato: 1000 moedas
     db.prepare('UPDATE users SET credits = credits + 1000, referred_by = ? WHERE id = ?').run(referrer.id, user.id);
-    // Veterano: 500 moedas
-    db.prepare('UPDATE users SET credits = credits + 500 WHERE id = ?').run(referrer.id);
+    // Veterano (Referrer): Variable based on plan
+    db.prepare('UPDATE users SET credits = credits + ? WHERE id = ?').run(referrerBonus, referrer.id);
     
     // Log commissions
-    db.prepare('INSERT INTO commissions (referrer_id, referred_id, amount, action_type) VALUES (?, ?, ?, ?)').run(referrer.id, user.id, 500, 'signup_bonus');
+    db.prepare('INSERT INTO commissions (referrer_id, referred_id, amount, action_type) VALUES (?, ?, ?, ?)').run(referrer.id, user.id, referrerBonus, 'signup_bonus');
     
     // Notifications
     createNotification(user.id, 'Parabéns!', 'Indicação realizada com sucesso! Você recebeu 1000 moedas como boas-vindas.', 'referral');
-    createNotification(referrer.id, 'Nova Comissão!', 'O usuário que você indicou confirmou o código. Você ganhou 500 moedas.', 'referral');
+    createNotification(referrer.id, 'Nova Comissão!', `O usuário que você indicou confirmou o código. Você ganhou ${referrerBonus} moedas.`, 'referral');
   })();
 
   res.json({ success: true, message: 'Código ativado com sucesso! Você ganhou 1.000 moedas.' });
@@ -886,41 +893,47 @@ export function calculatePaymentAmount(type: string, credits: string | number, u
 
   let amount = originalAmount;
 
-  let applyPromo = false;
+  let promoDiscountVal = 0;
   const pCoins = storeConfig.promo?.applyCoins ?? true;
   const pTickets = storeConfig.promo?.applyTickets ?? true;
 
-  if (type === 'credits' && pCoins) applyPromo = true;
-  if (type === 'tickets' && pTickets) applyPromo = true;
+  let canApplyPromo = false;
+  if (type === 'credits' && pCoins) canApplyPromo = true;
+  if (type === 'tickets' && pTickets) canApplyPromo = true;
   if (type === 'plan') {
-     if (credits === 'basic' && (storeConfig.promo?.applyPlanBasic ?? true)) applyPromo = true;
-     if (credits === 'pro' && (storeConfig.promo?.applyPlanPro ?? true)) applyPromo = true;
-     if (credits === 'premium' && (storeConfig.promo?.applyPlanPremium ?? true)) applyPromo = true;
-     if (credits === 'ultra' && (storeConfig.promo?.applyPlanUltra ?? true)) applyPromo = true;
+     if (credits === 'basic' && (storeConfig.promo?.applyPlanBasic ?? true)) canApplyPromo = true;
+     if (credits === 'pro' && (storeConfig.promo?.applyPlanPro ?? true)) canApplyPromo = true;
+     if (credits === 'premium' && (storeConfig.promo?.applyPlanPremium ?? true)) canApplyPromo = true;
+     if (credits === 'ultra' && (storeConfig.promo?.applyPlanUltra ?? true)) canApplyPromo = true;
   }
 
-  if ((type === 'tickets' || type === 'credits') && user.plan_type && user.plan_type !== 'basic') {
-      applyPromo = false; 
-  }
-
-  if (applyPromo && storeConfig.promo && storeConfig.promo.active) {
+  if (canApplyPromo && storeConfig.promo && storeConfig.promo.active) {
       const now = new Date().getTime();
       const ex = storeConfig.promo.expiresAt ? new Date(storeConfig.promo.expiresAt).getTime() : Infinity;
       if (now < ex) {
           if (storeConfig.promo.type === 'percent') {
-              amount = Math.max(0.10, amount - (amount * (storeConfig.promo.value / 100)));
-          } else if (storeConfig.promo.type === 'fixed') {
-              amount = Math.max(0.10, amount - storeConfig.promo.value);
+              promoDiscountVal = storeConfig.promo.value / 100;
           }
       }
   }
 
+  let planDiscount = 0;
   if (type === 'tickets' || type === 'credits') {
-     let planDiscount = 0;
      if (user.plan_type === 'pro') planDiscount = 0.12;
      if (user.plan_type === 'premium') planDiscount = 0.25;
      if (user.plan_type === 'ultra') planDiscount = 0.40;
-     amount = Math.max(0.10, amount - (amount * planDiscount));
+  }
+
+  const finalDiscount = Math.max(promoDiscountVal, planDiscount);
+
+  if (finalDiscount > 0) {
+      amount = Math.max(0.10, amount - (amount * finalDiscount));
+  } else if (canApplyPromo && storeConfig.promo && storeConfig.promo.active && storeConfig.promo.type === 'fixed') {
+      const now = new Date().getTime();
+      const ex = storeConfig.promo.expiresAt ? new Date(storeConfig.promo.expiresAt).getTime() : Infinity;
+      if (now < ex) {
+          amount = Math.max(0.10, amount - storeConfig.promo.value);
+      }
   }
   
   return { amount, originalAmount };
@@ -1152,10 +1165,17 @@ apiRouter.get('/rewards/daily', authMiddleware, (req: any, res) => {
     const weekStart = getWeekStart(now);
     const weekStartStr = getUTCDateString(weekStart);
 
+    const user = db.prepare('SELECT created_at, plan_type FROM users WHERE id = ?').get(req.userId) as any;
+    const planType = user?.plan_type || 'basic';
+
+    let planMultiplierValue = 1;
+    if (planType === 'pro') planMultiplierValue = 2;       // Prêmios na casa dos 40-300
+    if (planType === 'premium') planMultiplierValue = 5;   // Prêmios na casa dos 100-800
+    if (planType === 'ultra') planMultiplierValue = 15;    // Prêmios na casa dos 500-2500
+
     let planRecord = db.prepare('SELECT plan_json FROM weekly_reward_plans WHERE user_id = ? AND week_start = ?').get(req.userId, weekStartStr) as any;
     
     if (!planRecord) {
-        const user = db.prepare('SELECT created_at FROM users WHERE id = ?').get(req.userId) as any;
         const createdAtStr = user.created_at.includes('Z') ? user.created_at : user.created_at.replace(' ', 'T') + 'Z';
         const createdAt = new Date(createdAtStr);
         
@@ -1179,7 +1199,20 @@ apiRouter.get('/rewards/daily', authMiddleware, (req: any, res) => {
 
         let ticketsGiven = 0;
         const plan = baseRanges.map((range, index) => {
-            const rawCoins = (Math.random() * (range.max - range.min) + range.min) * weekMultiplier;
+            let rawCoins = (Math.random() * (range.max - range.min) + range.min) * weekMultiplier;
+            
+            // Especial de domingo (index 6 é domingo)
+            if (index === 6) {
+                const rareChance = Math.random();
+                if (rareChance < 0.01) {
+                    rawCoins = 3000; // 1% de chance de pegar 3000
+                } else if (rareChance < 0.05) {
+                    rawCoins = 500;  // 4% de chance de pegar 500
+                }
+            }
+            // Não queremos que os jackpots também sejam multiplicados pelo planMultiplier (para não passar de 3000), 
+            // mas isso será ajustado no momento de multiplicar para não estourar o limite de 3000.
+            
             const coins = parseFloat(rawCoins.toFixed(1));
             let tickets = 0;
             if (ticketsGiven < 2 && Math.random() < range.tChance) {
@@ -1215,7 +1248,14 @@ apiRouter.get('/rewards/daily', authMiddleware, (req: any, res) => {
              state = 'missed';
         }
 
-        return { ...p, date: dayDateStr, state };
+        let scaledCoins = p.coins;
+        if (planMultiplierValue > 1) {
+             scaledCoins = p.coins * planMultiplierValue;
+             if (scaledCoins > 3000) scaledCoins = 3000;
+             scaledCoins = parseFloat(scaledCoins.toFixed(1));
+        }
+
+        return { ...p, coins: scaledCoins, date: dayDateStr, state };
     });
 
     res.json({
@@ -1254,6 +1294,20 @@ apiRouter.post('/rewards/daily/claim', authMiddleware, (req: any, res) => {
         const todayReward = plan.find((p: any) => p.dayIndex === todayIndex);
 
         if (!todayReward) throw new Error('REWARD_NOT_FOUND');
+
+        const user = db.prepare('SELECT plan_type FROM users WHERE id = ?').get(req.userId) as any;
+        const planType = user?.plan_type || 'basic';
+
+        let planMultiplierValue = 1;
+        if (planType === 'pro') planMultiplierValue = 2;
+        if (planType === 'premium') planMultiplierValue = 5;
+        if (planType === 'ultra') planMultiplierValue = 15;
+
+        if (planMultiplierValue > 1) {
+             todayReward.coins = todayReward.coins * planMultiplierValue;
+             if (todayReward.coins > 3000) todayReward.coins = 3000;
+             todayReward.coins = parseFloat(todayReward.coins.toFixed(1));
+        }
 
         db.prepare('UPDATE users SET credits = credits + ?, tickets = tickets + ? WHERE id = ?').run(todayReward.coins, todayReward.tickets, req.userId);
 

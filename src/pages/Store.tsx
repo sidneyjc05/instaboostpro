@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/Button';
 import { showNotification } from '../context/NotificationContext';
-import { QrCode, Copy, Zap, CheckCircle, CreditCard } from 'lucide-react';
+import { QrCode, Copy, Zap, CheckCircle, CreditCard, Gift, Coins, Diamond, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAppSound } from '../context/SoundContext';
 import { AnimatedIcon } from '../components/AnimatedIcon';
@@ -236,7 +236,7 @@ export default function Store() {
           '1x Moedas por Curtida/Seguir e Reel',
           'Indicações Ilimitadas',
           '500 moedas por Indicação Inicial',
-          '8% de Comissão Recorrente',
+          '10% de Comissão Recorrente',
           '10 Divulgações Ativas Simultâneas'
        ]
     },
@@ -251,14 +251,15 @@ export default function Store() {
        benefits: [
           'Missões Diárias ativas',
           '1.8x Moedas nas missões',
-          'Prêmios Diários: 300 moedas/dia',
+          'Prêmios Diários: até 300 moedas/dia',
           '6 Tickets Grátis por Dia',
           '1% chance no Mega Jackpot (300 moedas)',
           '50% chance do prêmio mínimo (0.5) na Roleta',
           '1.6x Moedas/Curtida e 1.7x Moedas/Reel',
           'Indicações Ilimitadas',
           '800 moedas por Indicação Inicial',
-          '12% de Comissão Recorrente',
+          '20% de Comissão Recorrente',
+          '12% de DESCONTO em Moedas e Tickets',
           '25 Divulgações Ativas Simultâneas'
        ]
     },
@@ -274,14 +275,15 @@ export default function Store() {
        benefits: [
           'Missões Diárias ativas',
           '2.3x Moedas nas missões',
-          'Prêmios Diários: 800 moedas/dia',
+          'Prêmios Diários: até 800 moedas/dia',
           '9 Tickets Grátis por Dia',
           '3% chance no Mega Jackpot (300 moedas)',
           '35% chance do prêmio mínimo (0.5) na Roleta',
           '2.1x Moedas/Curtida e 2.2x Moedas/Reel',
           'Indicações Ilimitadas',
           '1.200 moedas por Indicação Inicial',
-          '18% de Comissão Recorrente',
+          '30% de Comissão Recorrente',
+          '25% de DESCONTO em Moedas e Tickets',
           '50 Divulgações Ativas Simultâneas'
        ]
     },
@@ -296,14 +298,15 @@ export default function Store() {
        benefits: [
           'Missões Diárias ativas',
           '2.8x Moedas nas missões',
-          'Prêmios Diários: 2.000 moedas/dia',
+          'Prêmios Diários Massivos (até 2500 moedas/dia)',
           '15 Tickets Grátis por Dia',
-          '5% chance no Mega Jackpot (300 moedas)',
-          'Apenas 20% chance do prêmio mínimo (0.5) na Roleta',
-          '2.5x Moedas/Curtida e 2.6x Moedas/Reel',
+          '8% chance no Mega Jackpot (300 moedas)',
+          '25% chance do prêmio mínimo (0.5) na Roleta',
+          '2.6x Moedas/Curtida e 2.7x Moedas/Reel',
           'Indicações Ilimitadas',
           '2.000 moedas por Indicação Inicial',
-          '25% de Comissão Recorrente',
+          '50% de Comissão Recorrente',
+          '40% de DESCONTO em Moedas e Tickets',
           'Divulgações Ativas Ilimitadas'
        ]
     }
@@ -321,37 +324,48 @@ export default function Store() {
          let amt = originalAmount;
          const hasPlan = user?.plan_type && user.plan_type !== 'basic';
          
-         let applyPromo = false;
+         let promoDiscountVal = 0;
          const pCoins = storeConfig.promo?.applyCoins ?? true;
          const pTickets = storeConfig.promo?.applyTickets ?? true;
 
-         if (type === 'credits' && pCoins) applyPromo = true;
-         if (type === 'tickets' && pTickets) applyPromo = true;
+         let canApplyPromo = false;
+         if (type === 'credits' && pCoins) canApplyPromo = true;
+         if (type === 'tickets' && pTickets) canApplyPromo = true;
          if (type === 'plan') {
-             if (itemId === 'basic' && (storeConfig.promo?.applyPlanBasic ?? true)) applyPromo = true;
-             if (itemId === 'pro' && (storeConfig.promo?.applyPlanPro ?? true)) applyPromo = true;
-             if (itemId === 'premium' && (storeConfig.promo?.applyPlanPremium ?? true)) applyPromo = true;
-             if (itemId === 'ultra' && (storeConfig.promo?.applyPlanUltra ?? true)) applyPromo = true;
+             if (itemId === 'basic' && (storeConfig.promo?.applyPlanBasic ?? true)) canApplyPromo = true;
+             if (itemId === 'pro' && (storeConfig.promo?.applyPlanPro ?? true)) canApplyPromo = true;
+             if (itemId === 'premium' && (storeConfig.promo?.applyPlanPremium ?? true)) canApplyPromo = true;
+             if (itemId === 'ultra' && (storeConfig.promo?.applyPlanUltra ?? true)) canApplyPromo = true;
          }
 
-         if ((type === 'tickets' || type === 'credits') && hasPlan) {
-            applyPromo = false; 
-         }
-         
-         if (applyPromo && storeConfig.promo && storeConfig.promo.active) {
+         if (canApplyPromo && storeConfig.promo && storeConfig.promo.active) {
             const now = new Date().getTime();
             const ex = storeConfig.promo.expiresAt ? new Date(storeConfig.promo.expiresAt).getTime() : Infinity;
             if (now < ex) {
                 if (storeConfig.promo.type === 'percent') {
-                   amt = Math.max(0.10, amt - (amt * (storeConfig.promo.value / 100)));
-                } else if (storeConfig.promo.type === 'fixed') {
-                   amt = Math.max(0.10, amt - storeConfig.promo.value);
+                   promoDiscountVal = storeConfig.promo.value / 100;
                 }
             }
          }
          
+         // Select the best discount between Promo and Plan
+         // If it's a plan purchase, we usually only apply promo (if allowed)
+         let finalDiscount = 0;
          if (type !== 'plan') {
-             amt = Math.max(0.10, amt - (amt * planDiscount));
+             finalDiscount = Math.max(promoDiscountVal, planDiscount);
+         } else {
+             finalDiscount = promoDiscountVal;
+         }
+         
+         if (finalDiscount > 0) {
+            amt = Math.max(0.10, amt - (amt * finalDiscount));
+         } else if (canApplyPromo && storeConfig.promo && storeConfig.promo.active && storeConfig.promo.type === 'fixed') {
+            // Fallback for fixed value promos if no percentage discount was better
+            const now = new Date().getTime();
+            const ex = storeConfig.promo.expiresAt ? new Date(storeConfig.promo.expiresAt).getTime() : Infinity;
+            if (now < ex) {
+                amt = Math.max(0.10, amt - storeConfig.promo.value);
+            }
          }
          
          return amt;
@@ -528,24 +542,24 @@ export default function Store() {
               )}
             </div>
 
-            <div className="flex p-1.5 bg-secondary/50 border border-border rounded-2xl backdrop-blur-sm sticky top-4 z-40 shadow-xl shadow-black/5">
+            <div className="flex p-2 bg-secondary/30 border border-border/50 rounded-2xl backdrop-blur-md sticky top-4 z-40 shadow-2xl shadow-black/10 max-w-4xl mx-auto w-full">
                <button 
-                 className={`flex-1 flex items-center justify-center gap-2 py-4 text-sm font-black uppercase tracking-widest rounded-xl transition-all duration-300 ${tab === 'plans' ? 'bg-background shadow-lg text-primary scale-[1.02] border border-border/50' : 'text-muted-foreground hover:text-foreground'}`}
+                 className={`flex-1 flex items-center justify-center gap-2 py-3.5 text-[10px] md:text-xs font-black uppercase tracking-widest rounded-xl transition-all duration-500 ${tab === 'plans' ? 'bg-background shadow-[0_8px_30px_rgb(0,0,0,0.12)] text-primary scale-[1.03] border border-border/60' : 'text-muted-foreground hover:text-foreground hover:bg-white/5'}`}
                  onClick={() => { playClick(); setTab('plans'); }}
                >
-                 <AnimatedIcon type="diamond" size={20} /> Planos VIP
+                 <AnimatedIcon type="diamond" size={18} /> Planos VIP
                </button>
                <button 
-                 className={`flex-1 flex items-center justify-center gap-2 py-4 text-sm font-black uppercase tracking-widest rounded-xl transition-all duration-300 ${tab === 'credits' ? 'bg-background shadow-lg text-primary scale-[1.02] border border-border/50' : 'text-muted-foreground hover:text-foreground'}`}
+                 className={`flex-1 flex items-center justify-center gap-2 py-3.5 text-[10px] md:text-xs font-black uppercase tracking-widest rounded-xl transition-all duration-500 ${tab === 'credits' ? 'bg-background shadow-[0_8px_30px_rgb(0,0,0,0.12)] text-primary scale-[1.03] border border-border/60' : 'text-muted-foreground hover:text-foreground hover:bg-white/5'}`}
                  onClick={() => { playClick(); setTab('credits'); }}
                >
-                 <AnimatedIcon type="coin" size={20} /> Moedas
+                 <AnimatedIcon type="coin" size={18} /> Moedas
                </button>
                <button 
-                 className={`flex-1 flex items-center justify-center gap-2 py-4 text-sm font-black uppercase tracking-widest rounded-xl transition-all duration-300 ${tab === 'tickets' ? 'bg-background shadow-lg text-primary scale-[1.02] border border-border/50' : 'text-muted-foreground hover:text-foreground'}`}
+                 className={`flex-1 flex items-center justify-center gap-2 py-3.5 text-[10px] md:text-xs font-black uppercase tracking-widest rounded-xl transition-all duration-500 ${tab === 'tickets' ? 'bg-background shadow-[0_8px_30px_rgb(0,0,0,0.12)] text-primary scale-[1.03] border border-border/60' : 'text-muted-foreground hover:text-foreground hover:bg-white/5'}`}
                  onClick={() => { playClick(); setTab('tickets'); }}
                >
-                 <AnimatedIcon type="ticket" size={20} /> Tickets
+                 <AnimatedIcon type="ticket" size={18} /> Tickets
                </button>
             </div>
 
@@ -556,7 +570,7 @@ export default function Store() {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -20 }}
-                  className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 lg:gap-8"
+                  className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-4 gap-6 lg:gap-8"
                 >
                   {planPackages.map((pkg, idx) => (
                     <motion.div 
@@ -564,15 +578,16 @@ export default function Store() {
                       initial={{ opacity: 0, y: 20 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: idx * 0.1 }}
-                      className={`group relative bg-card border rounded-[2rem] sm:rounded-[2.5rem] p-5 sm:p-8 flex flex-col gap-4 sm:gap-6 transition-all duration-500 hover:shadow-2xl hover:-translate-y-2 ${pkg.pop ? `ring-2 ${pkg.ringColor} shadow-xl z-20` : 'hover:border-primary/50 z-10'} ${pkg.borderColor}`}
+                      className={`group relative bg-card border rounded-[2.5rem] p-6 lg:p-8 flex flex-col gap-6 lg:gap-8 transition-all duration-500 hover:shadow-[0_20px_50px_rgba(0,0,0,0.2)] hover:-translate-y-2 ${pkg.pop ? `ring-2 ${pkg.ringColor} shadow-xl z-20` : 'hover:border-primary/50 z-10'} ${pkg.borderColor}`}
                     >
-                      {/* Background Accents - Moved overflow-hidden to this specifically to allow outer badges to show */}
-                      <div className="absolute inset-0 rounded-[2rem] sm:rounded-[2.5rem] overflow-hidden pointer-events-none">
-                        <div className={`absolute inset-0 bg-gradient-to-br ${pkg.color} opacity-40 group-hover:opacity-60 transition-opacity`} />
+                      {/* Background Accents */}
+                      <div className="absolute inset-0 rounded-[2.5rem] overflow-hidden pointer-events-none">
+                        <div className={`absolute inset-0 bg-gradient-to-br ${pkg.color} opacity-30 group-hover:opacity-50 transition-opacity duration-500`} />
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl group-hover:bg-white/10 transition-colors" />
                       </div>
                       
                       {pkg.pop && (
-                        <div className="absolute -top-3 left-1/2 -translate-x-1/2 sm:left-auto sm:right-6 sm:translate-x-0 w-max bg-gradient-to-r from-amber-400 via-orange-500 to-red-600 text-white text-[9px] sm:text-[10px] uppercase font-black py-1.5 px-5 rounded-full shadow-2xl z-30 animate-bounce cursor-default border border-white/20 whitespace-nowrap">
+                        <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-max bg-gradient-to-r from-amber-400 via-orange-500 to-red-600 text-white text-[10px] uppercase font-black py-2 px-6 rounded-full shadow-2xl z-30 animate-pulse cursor-default border border-white/20 tracking-widest whitespace-nowrap">
                           🔥 Recomendado
                         </div>
                       )}
@@ -582,49 +597,71 @@ export default function Store() {
                       )}
 
                       <div className="relative z-10">
-                        <div className="text-2xl sm:text-3xl lg:text-4xl font-black uppercase italic tracking-tighter text-foreground mb-1 leading-none">
+                        <div className="text-3xl lg:text-4xl font-black uppercase italic tracking-tighter text-foreground mb-1.5 leading-none">
                           {pkg.name}
                         </div>
-                        <div className="text-muted-foreground font-medium text-[9px] sm:text-xs lg:text-sm flex items-center gap-2">
-                           MODO {pkg.id.toUpperCase()} • <span className="text-foreground/80">{pkg.period}</span>
+                        <div className="text-muted-foreground font-black text-[10px] lg:text-xs flex items-center gap-2 uppercase tracking-widest opacity-70">
+                           MODO {pkg.id.toUpperCase()} • <span className="text-foreground tracking-normal font-bold normal-case">{pkg.period}</span>
                         </div>
                       </div>
 
-                      <div className="relative z-10 flex flex-col mt-2 sm:mt-4">
-                        <div className="flex items-end gap-1">
-                          <span className={`text-4xl sm:text-5xl font-black tracking-tight leading-none ${pkg.originalPrice ? 'text-green-500' : 'text-foreground'}`}>
+                      <div className="relative z-10 flex flex-col mt-2">
+                        <div className="flex items-end gap-1 flex-wrap">
+                          <span className={`text-5xl lg:text-6xl font-black tracking-tighter leading-none ${pkg.originalPrice ? 'text-green-500' : 'text-foreground'}`}>
                             {pkg.price}
                           </span>
                         </div>
                         {pkg.originalPrice && (
-                          <span className="text-xs sm:text-sm text-red-500/80 font-bold line-through mt-1">
+                          <span className="text-sm lg:text-base text-red-500/80 font-black line-through mt-2 italic">
                             {pkg.originalPrice}
                           </span>
                         )}
                       </div>
 
-                      <div className="relative z-10 flex-1 flex flex-col gap-3 sm:gap-4 mt-2 sm:mt-4 bg-black/20 dark:bg-white/5 rounded-2xl sm:rounded-3xl p-4 sm:p-6 backdrop-blur-md border border-white/5">
-                        <p className="text-[9px] sm:text-[10px] font-black uppercase text-muted-foreground tracking-widest mb-1">Vantagens Exclusivas</p>
-                        <div className="flex flex-col gap-2.5 sm:gap-3 overflow-y-auto max-h-[200px] sm:max-h-[300px] pr-1 custom-scrollbar">
-                           {pkg.benefits.map((b, i) => (
-                              <div key={i} className="flex items-start gap-2 lg:gap-3 text-xs lg:text-sm font-medium text-foreground/90 leading-tight">
-                                 <div className="w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-primary/20 flex items-center justify-center shrink-0 mt-0.5">
-                                    <CheckCircle className="text-primary" size={12} />
-                                 </div>
-                                 <span className="leading-snug">{b}</span>
-                              </div>
-                           ))}
+                      <div className="relative z-10 flex-1 flex flex-col gap-4 mt-2 bg-secondary/20 dark:bg-black/40 rounded-3xl p-6 backdrop-blur-xl border border-white/5 shadow-inner">
+                        <p className="text-[10px] font-black uppercase text-muted-foreground tracking-[0.2em] mb-2 opacity-50">Vantagens Exclusivas</p>
+                        <div className="flex flex-col gap-4">
+                           {pkg.benefits.map((b, i) => {
+                                let Icon = CheckCircle;
+                                let iconColor = "text-primary";
+                                if (b.includes('x Moedas')) {
+                                    Icon = Zap;
+                                    iconColor = "text-yellow-500 fill-yellow-500/20";
+                                } else if (b.includes('Prêmios Diários')) {
+                                    Icon = Gift;
+                                    iconColor = "text-purple-500";
+                                } else if (b.includes('Jackpot') || b.includes('Roleta') || b.includes('Tickets')) {
+                                    Icon = Coins;
+                                    iconColor = "text-orange-500";
+                                } else if (b.includes('Comissão')) {
+                                    Icon = Diamond;
+                                    iconColor = "text-cyan-400";
+                                }
+
+                                return (
+                                <div key={i} className="flex items-start gap-3 text-sm font-bold text-foreground/90 leading-tight group/item">
+                                   <div className={`w-5 h-5 rounded-lg flex items-center justify-center shrink-0 mt-0.5 group-hover/item:bg-foreground/5 transition-colors`}>
+                                      <Icon className={iconColor} size={14} />
+                                   </div>
+                                   <span className="leading-snug tracking-tight">{b}</span>
+                                </div>
+                           )})}
                         </div>
                       </div>
 
                       <Button 
-                        className="relative z-10 w-full h-14 sm:h-16 text-sm sm:text-lg font-black uppercase tracking-widest rounded-xl sm:rounded-2xl shadow-xl transition-all active:scale-95 group-hover:scale-[1.02]" 
+                        className={`relative z-10 w-full h-16 lg:h-20 text-base lg:text-xl font-black uppercase tracking-widest rounded-2xl shadow-2xl transition-all duration-300 overflow-hidden group/btn ${pkg.isActive ? 'opacity-80' : 'active:scale-[0.98] hover:scale-[1.02]'}`} 
                         variant={pkg.isActive ? 'outline' : (pkg.pop ? 'primary' : 'secondary')} 
                         disabled={pkg.isActive || (user?.plan_type !== 'basic' && !pkg.isActive)}
                         onClick={() => handleBuy(pkg.id, 'plan', pkg.rawPrice)} 
                         isLoading={loading}
                       >
-                         {pkg.isActive ? 'Plano Ativo' : (user?.plan_type && user.plan_type !== 'basic' ? 'Indisponível' : 'Ativar Agora')}
+                         <span className="relative z-20">
+                            {pkg.isActive ? 'Plano Ativo' : (user?.plan_type && user.plan_type !== 'basic' ? 'Indisponível' : 'Ativar Agora')}
+                         </span>
+                         {!pkg.isActive && (
+                           <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/10 to-white/0 -translate-x-full group-hover/btn:translate-x-full transition-transform duration-1000" />
+                         )}
                       </Button>
                     </motion.div>
                   ))}
@@ -637,7 +674,7 @@ export default function Store() {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -20 }}
-                  className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6"
+                  className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6 lg:gap-8"
                 >
                   {packages.map((pkg, idx) => (
                     <motion.div 
@@ -645,45 +682,49 @@ export default function Store() {
                       initial={{ opacity: 0, scale: 0.9 }}
                       animate={{ opacity: 1, scale: 1 }}
                       transition={{ delay: idx * 0.05 }}
-                      className={`group relative bg-card border rounded-[2rem] p-6 flex flex-col items-center gap-4 transition-all duration-300 hover:shadow-xl hover:border-primary/50 ${pkg.pop ? 'bg-gradient-to-br from-primary/10 to-blue-900/10 border-primary/30 ring-1 ring-primary/20 z-10 scale-[1.05] shadow-lg shadow-primary/5' : 'border-border'}`}
+                      className={`group relative bg-card border rounded-[2.5rem] p-6 lg:p-8 flex flex-col items-center gap-4 transition-all duration-500 hover:shadow-[0_20px_50px_rgba(0,0,0,0.15)] hover:-translate-y-2 ${pkg.pop ? 'bg-gradient-to-br from-primary/10 to-blue-900/10 border-primary/30 ring-1 ring-primary/20 z-10 scale-[1.05] shadow-lg shadow-primary/5' : 'border-border hover:border-primary/40'}`}
                     >
+                      <div className="absolute inset-0 rounded-[2.5rem] overflow-hidden pointer-events-none">
+                         <div className="absolute top-0 right-0 w-24 h-24 bg-primary/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-2xl group-hover:bg-primary/10 transition-colors" />
+                      </div>
+
                       {pkg.discountPercent > 0 && (
                         <PromoBadge percent={pkg.discountPercent} size="md" />
                       )}
                       
                       {pkg.pop && (
-                        <div className="absolute -top-3 -right-3 bg-yellow-500 text-black text-[9px] font-black uppercase py-1.5 px-3 rounded-lg shadow-xl z-20">
+                        <div className="absolute -top-3 -right-3 bg-gradient-to-r from-yellow-500 to-orange-500 text-black text-[9px] font-black uppercase py-1.5 px-4 rounded-full shadow-xl z-20 border border-white/20 tracking-widest animate-bounce">
                           Popular
                         </div>
                       )}
 
-                      <div className="w-full flex flex-col items-center gap-1 border-b border-border/50 pb-4">
-                        <div className="flex items-center gap-2">
-                           <span className="text-3xl font-black tracking-tight">{pkg.c.toLocaleString('pt-BR')}</span>
-                           <AnimatedIcon type="coin" size={24} />
+                      <div className="w-full flex flex-col items-center gap-1 border-b border-white/5 pb-4 relative z-10">
+                        <div className="flex items-center gap-2 group-hover:scale-110 transition-transform duration-500">
+                           <span className="text-3xl lg:text-4xl font-black tracking-tight">{pkg.c.toLocaleString('pt-BR')}</span>
+                           <AnimatedIcon type="coin" size={28} />
                         </div>
-                        <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Moedas</span>
+                        <span className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em] opacity-60">Moedas</span>
                       </div>
 
-                      <div className="flex flex-col items-center gap-1 text-center py-2 h-16 justify-center">
-                        <div className="text-xs text-muted-foreground font-medium">Destaque por</div>
-                        <div className="text-sm font-black text-foreground">{pkg.time}</div>
+                      <div className="flex flex-col items-center gap-1 text-center py-2 h-16 justify-center relative z-10">
+                        <div className="text-[10px] lg:text-xs text-muted-foreground font-black uppercase tracking-widest opacity-40">Destaque por</div>
+                        <div className="text-sm lg:text-base font-black text-foreground italic">{pkg.time}</div>
                       </div>
 
-                      <div className="flex flex-col items-center gap-0.5 mt-2">
-                        {pkg.originalPrice && <span className="text-xs text-red-500/80 font-bold line-through">{pkg.originalPrice}</span>}
-                        <span className={`text-2xl font-black ${pkg.originalPrice ? 'text-green-500' : 'text-foreground'}`}>{pkg.price}</span>
+                      <div className="flex flex-col items-center gap-0.5 mt-2 relative z-10">
+                        {pkg.originalPrice && <span className="text-xs text-red-500/80 font-black line-through italic">{pkg.originalPrice}</span>}
+                        <span className={`text-3xl font-black tracking-tighter ${pkg.originalPrice ? 'text-green-500' : 'text-foreground'}`}>{pkg.price}</span>
                       </div>
 
                       <Button 
-                        className="w-full overflow-hidden relative group" 
+                        className="w-full h-12 lg:h-14 overflow-hidden relative group/btn2 rounded-xl lg:rounded-2xl shadow-lg hover:shadow-primary/20 transition-all font-black uppercase tracking-widest" 
                         variant={pkg.pop ? 'primary' : 'secondary'} 
                         onClick={() => handleBuy(pkg.c, 'credits', pkg.rawPrice)} 
                         isLoading={loading}
                         size="lg"
                       >
                         <span className="relative z-10">COMPRAR</span>
-                        <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
+                        <div className="absolute inset-0 bg-white/10 translate-y-full group-hover/btn2:translate-y-0 transition-transform duration-300" />
                       </Button>
                     </motion.div>
                   ))}
@@ -696,7 +737,7 @@ export default function Store() {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -20 }}
-                  className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6"
+                  className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6 lg:gap-8"
                 >
                   {ticketPackages.map((pkg, idx) => (
                     <motion.div 
@@ -704,38 +745,49 @@ export default function Store() {
                       initial={{ opacity: 0, scale: 0.9 }}
                       animate={{ opacity: 1, scale: 1 }}
                       transition={{ delay: idx * 0.05 }}
-                      className={`group relative bg-card border rounded-[2rem] p-6 flex flex-col items-center gap-4 transition-all duration-300 hover:shadow-xl hover:border-primary/50 ${pkg.pop ? 'bg-gradient-to-br from-primary/10 to-blue-900/10 border-primary/30 ring-1 ring-primary/20 z-10 scale-[1.05] shadow-lg shadow-primary/5' : 'border-border'}`}
+                      className={`group relative bg-card border rounded-[2.5rem] p-6 lg:p-8 flex flex-col items-center gap-4 transition-all duration-500 hover:shadow-[0_20px_50px_rgba(0,0,0,0.15)] hover:-translate-y-2 ${pkg.pop ? 'bg-gradient-to-br from-primary/10 to-blue-900/10 border-primary/30 ring-1 ring-primary/20 z-10 scale-[1.05] shadow-lg shadow-primary/5' : 'border-border hover:border-primary/40'}`}
                     >
+                      <div className="absolute inset-0 rounded-[2.5rem] overflow-hidden pointer-events-none">
+                         <div className="absolute top-0 right-0 w-24 h-24 bg-primary/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-2xl group-hover:bg-primary/10 transition-colors" />
+                      </div>
+
                       {pkg.discountPercent > 0 && (
                         <PromoBadge percent={pkg.discountPercent} size="md" />
                       )}
 
-                      <div className="w-full flex flex-col items-center gap-1 border-b border-border/50 pb-4">
-                        <div className="flex items-center gap-2">
-                           <span className="text-3xl font-black tracking-tight">{pkg.c.toLocaleString('pt-BR')}</span>
-                           <AnimatedIcon type="ticket" size={24} />
+                      {pkg.pop && (
+                        <div className="absolute -top-3 -right-3 bg-gradient-to-r from-blue-500 to-indigo-600 text-white text-[9px] font-black uppercase py-1.5 px-4 rounded-full shadow-xl z-20 border border-white/20 tracking-widest animate-bounce">
+                          Melhor Valor
                         </div>
-                        <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Tickets</span>
+                      )}
+
+                      <div className="w-full flex flex-col items-center gap-1 border-b border-white/5 pb-4 relative z-10">
+                        <div className="flex items-center gap-2 group-hover:scale-110 transition-transform duration-500">
+                           <span className="text-3xl lg:text-4xl font-black tracking-tight">{pkg.c.toLocaleString('pt-BR')}</span>
+                           <AnimatedIcon type="ticket" size={28} />
+                        </div>
+                        <span className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em] opacity-60">Tickets</span>
                       </div>
 
-                      <div className="flex flex-col items-center gap-1 text-center py-2 h-16 justify-center">
-                        <div className="text-xs text-muted-foreground font-medium leading-tight px-2">Gire a roleta e ganhe recompensas</div>
+                      <div className="flex flex-col items-center gap-1 text-center py-2 h-16 justify-center relative z-10">
+                        <div className="text-[10px] lg:text-xs text-muted-foreground font-black uppercase tracking-widest opacity-40">Recompensas</div>
+                        <div className="text-xs lg:text-sm font-bold text-foreground leading-tight px-1 italic">Gire a roleta e ganhe prêmios reais</div>
                       </div>
 
-                      <div className="flex flex-col items-center gap-0.5 mt-2">
-                        {pkg.originalPrice && <span className="text-xs text-red-500/80 font-bold line-through">{pkg.originalPrice}</span>}
-                        <span className={`text-2xl font-black ${pkg.originalPrice ? 'text-green-500' : 'text-foreground'}`}>{pkg.price}</span>
+                      <div className="flex flex-col items-center gap-0.5 mt-2 relative z-10">
+                        {pkg.originalPrice && <span className="text-xs text-red-500/80 font-black line-through italic">{pkg.originalPrice}</span>}
+                        <span className={`text-3xl font-black tracking-tighter ${pkg.originalPrice ? 'text-green-500' : 'text-foreground'}`}>{pkg.price}</span>
                       </div>
 
                       <Button 
-                        className="w-full overflow-hidden relative group" 
+                        className="w-full h-12 lg:h-14 overflow-hidden relative group/btn2 rounded-xl lg:rounded-2xl shadow-lg hover:shadow-primary/20 transition-all font-black uppercase tracking-widest" 
                         variant={pkg.pop ? 'primary' : 'secondary'} 
                         onClick={() => handleBuy(pkg.c, 'tickets', pkg.rawPrice)} 
                         isLoading={loading}
                         size="lg"
                       >
                         <span className="relative z-10">COMPRAR</span>
-                        <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
+                        <div className="absolute inset-0 bg-white/10 translate-y-full group-hover/btn2:translate-y-0 transition-transform duration-300" />
                       </Button>
                     </motion.div>
                   ))}

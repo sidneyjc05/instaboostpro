@@ -26,9 +26,9 @@ export function NotificationsDropdown() {
             </button>
 
             {isOpen && document.body && createPortal(
-                <div className="relative z-[9999]">
+                <div className="fixed inset-0 z-[9999] overflow-y-auto overflow-x-hidden flex items-center justify-center p-4 custom-scrollbar">
                     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setIsOpen(false)}></div>
-                    <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[90vw] max-w-md md:w-96 max-h-[80vh] overflow-y-auto border border-white/10 rounded-2xl shadow-2xl flex flex-col hidden-scrollbar origin-center animate-in fade-in zoom-in duration-200 backdrop-blur-2xl bg-black/80">
+                    <div className="relative w-full max-w-md max-h-[80vh] overflow-y-auto border border-white/10 rounded-2xl shadow-2xl flex flex-col hidden-scrollbar origin-center animate-in fade-in zoom-in duration-200 backdrop-blur-2xl bg-black/80 my-auto">
                         <div className="p-4 border-b border-white/10 sticky top-0 bg-black/60 flex items-center justify-between z-10 rounded-t-2xl backdrop-blur-md">
                             <h3 className="font-bold">Notificações</h3>
                             <div className="flex items-center gap-4">

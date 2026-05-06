@@ -76,12 +76,20 @@ export function InstaViewerModal({ open, onClose, url, type, username, onInterac
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-foreground/20 backdrop-blur-sm">
+      <div className="fixed inset-0 z-[100] overflow-y-auto overflow-x-hidden flex items-center justify-center p-4 custom-scrollbar">
+        <motion.div 
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 bg-foreground/20 backdrop-blur-sm"
+          onClick={onClose}
+        />
         <motion.div 
           initial={{ opacity: 0, scale: 0.95, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 20 }}
-          className="w-full max-w-sm bg-gradient-to-br from-[#1a0033] to-[#2a004d] rounded-[24px] shadow-2xl shadow-purple-900/50 border border-purple-500/20 overflow-hidden flex flex-col relative"
+          className="relative w-full max-w-sm bg-gradient-to-br from-[#1a0033] to-[#2a004d] rounded-[24px] shadow-2xl shadow-purple-900/50 border border-purple-500/20 overflow-hidden flex flex-col my-auto"
+          onClick={e => e.stopPropagation()}
         >
           {/* Header */}
           <div className="flex items-center justify-between p-4 bg-background border-b border-white/5">

@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { useAuth } from '../context/AuthContext';
-import { User as UserIcon, Mail, LogOut, Loader2, Diamond, Users, Copy, CheckCircle, Share2, AlertTriangle, ShieldCheck, History, PlusSquare, X, Check, Clock } from 'lucide-react';
+import { User as UserIcon, Mail, LogOut, Loader2, Diamond, Users, Copy, CheckCircle, Share2, AlertTriangle, ShieldCheck, History, PlusSquare, X, Check, Clock, Zap, Gift, Coins } from 'lucide-react';
 
 // Componente do Cronômetro do Plano
 function PlanCountdown({ expiresAt }: { expiresAt: string }) {
@@ -224,56 +224,59 @@ export default function Profile() {
 
   const planBenefits: Record<string, string[]> = {
     'basic': [
-      'Missões Diárias Normais',
-      '1x Moedas nas missões',
-      'Sem Prêmios Diários',
-      '3 Tickets Grátis por Dia',
-      '0.001% chance no Mega Jackpot (300 moedas)',
-      '68% chance do prêmio mínimo (0.5) na Roleta',
-      '1x Moedas por Curtida/Seguir e Reel',
-      'Indicações Ilimitadas',
-      '500 moedas por Indicação Inicial',
-      '8% de Comissão Recorrente',
-      '10 Divulgações Ativas Simultâneas'
+       'Missões Diárias Normais',
+       '1x Moedas nas missões',
+       'Sem Prêmios Diários',
+       '3 Tickets Grátis por Dia',
+       '0.001% chance no Mega Jackpot (300 moedas)',
+       '68% chance do prêmio mínimo (0.5) na Roleta',
+       '1x Moedas por Curtida/Seguir e Reel',
+       'Indicações Ilimitadas',
+       '500 moedas por Indicação Inicial',
+       '10% de Comissão Recorrente',
+       '10 Divulgações Ativas Simultâneas'
     ],
     'pro': [
-      'Missões Diárias ativas',
-      '1.8x Moedas nas missões',
-      'Prêmios Diários: 300 moedas/dia',
-      '6 Tickets Grátis por Dia',
-      '1% chance no Mega Jackpot (300 moedas)',
-      '50% chance do prêmio mínimo (0.5) na Roleta',
-      '1.6x Moedas/Curtida e 1.7x Moedas/Reel',
-      'Indicações Ilimitadas',
-      '800 moedas por Indicação Inicial',
-      '12% de Comissão Recorrente',
-      '25 Divulgações Ativas Simultâneas'
+       'Missões Diárias ativas',
+       '1.8x Moedas nas missões',
+       'Prêmios Diários: até 300 moedas/dia',
+       '6 Tickets Grátis por Dia',
+       '1% chance no Mega Jackpot (300 moedas)',
+       '50% chance do prêmio mínimo (0.5) na Roleta',
+       '1.6x Moedas/Curtida e 1.7x Moedas/Reel',
+       'Indicações Ilimitadas',
+       '800 moedas por Indicação Inicial',
+       '20% de Comissão Recorrente',
+       '12% de DESCONTO em Moedas e Tickets',
+       '25 Divulgações Ativas Simultâneas'
     ],
     'premium': [
-      'Missões Diárias ativas',
-      '2.3x Moedas nas missões',
-      'Prêmios Diários: 800 moedas/dia',
-      '9 Tickets Grátis por Dia',
-      '3% chance no Mega Jackpot (300 moedas)',
-      '35% chance do prêmio mínimo (0.5) na Roleta',
-      '2.1x Moedas/Curtida e 2.2x Moedas/Reel',
-      'Indicações Ilimitadas',
-      '1.200 moedas por Indicação Inicial',
-      '18% de Comissão Recorrente',
-      '50 Divulgações Ativas Simultâneas'
+       'Missões Diárias ativas',
+       '2.3x Moedas nas missões',
+       'Prêmios Diários: até 800 moedas/dia',
+       '9 Tickets Grátis por Dia',
+       '3% chance no Mega Jackpot (300 moedas)',
+       '35% chance do prêmio mínimo (0.5) na Roleta',
+       '2.1x Moedas/Curtida e 2.2x Moedas/Reel',
+       'Indicações Ilimitadas',
+       '1.200 moedas por Indicação Inicial',
+       '30% de Comissão Recorrente',
+       '25% de DESCONTO em Moedas e Tickets',
+       '50 Divulgações Ativas Simultâneas'
     ],
     'ultra': [
-      'Missões Diárias ativas',
-      '2.8x Moedas nas missões',
-      'Prêmios Diários: 2.000 moedas/dia',
-      '15 Tickets Grátis por Dia',
-      '5% chance no Mega Jackpot (300 moedas)',
-      'Apenas 20% chance do prêmio mínimo (0.5) na Roleta',
-      '2.5x Moedas/Curtida e 2.6x Moedas/Reel',
-      'Indicações Ilimitadas',
-      '2.000 moedas por Indicação Inicial',
-      '25% de Comissão Recorrente',
-      'Divulgações Ativas Ilimitadas'
+       'Missões Diárias ativas',
+       '2.8x Moedas nas missões',
+       'Prêmios Diários Massivos (até 2500 moedas/dia)',
+       '15 Tickets Grátis por Dia',
+       '8% chance no Mega Jackpot (300 moedas)',
+       '25% chance do prêmio mínimo (0.5) na Roleta',
+       '2.6x Moedas/Curtida e 2.7x Moedas/Reel',
+       'Indicações Ilimitadas',
+       '2.000 moedas por Indicação Inicial',
+       '50% de Comissão Recorrente',
+       '40% de DESCONTO em Moedas e Tickets',
+       'Divulgações Ativas Ilimitadas'
     ]
   };
 
@@ -458,7 +461,11 @@ export default function Profile() {
           </div>
           <h2 className="text-3xl font-black mb-4 tracking-tight">Indique e Ganhe!</h2>
           <p className="text-white/80 w-full max-w-sm mb-8 leading-relaxed">
-            Convide seus amigos para o InstaBoost PRO e ganhe <strong className="text-yellow-400">500 moedas</strong> quando eles entrarem, e <strong className="text-yellow-400">+10%</strong> de todas as moedas que eles ganharem!
+            Convide seus amigos para o InstaBoost PRO e ganhe <strong className="text-yellow-400">
+            {user?.plan_type === 'ultra' ? '2.000' : user?.plan_type === 'premium' ? '1.200' : user?.plan_type === 'pro' ? '800' : '500'} moedas
+            </strong> quando eles entrarem, e <strong className="text-yellow-400">+
+            {user?.plan_type === 'ultra' ? '50' : user?.plan_type === 'premium' ? '30' : user?.plan_type === 'pro' ? '20' : '10'}%
+            </strong> de todas as moedas que eles ganharem!
           </p>
 
           <div className="w-full max-w-md space-y-4">
@@ -650,19 +657,19 @@ export default function Profile() {
 
       <AnimatePresence>
         {selectedPlanModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[100] overflow-y-auto overflow-x-hidden flex items-center justify-center p-4 custom-scrollbar">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm"
               onClick={() => setSelectedPlanModal(null)}
             />
             <motion.div
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className={`relative w-full max-w-sm rounded-[2rem] p-8 border ${
+              className={`relative w-full max-w-sm rounded-[2rem] p-8 border my-auto ${
                   selectedPlanModal.id === 'pro' ? 'bg-background/95 border-green-500/50 shadow-[0_0_40px_rgba(34,197,94,0.1)]' :
                   selectedPlanModal.id === 'premium' ? 'bg-background/95 border-primary/50 shadow-[0_0_40px_rgba(126,34,206,0.1)]' :
                   selectedPlanModal.id === 'ultra' ? 'bg-background/95 border-amber-500/50 shadow-[0_0_40px_rgba(245,158,11,0.1)]' :
@@ -689,12 +696,29 @@ export default function Profile() {
               </div>
 
               <div className="space-y-4 mb-8">
-                {planBenefits[selectedPlanModal.id]?.map((benefit: string, i: number) => (
+                {planBenefits[selectedPlanModal.id]?.map((benefit: string, i: number) => {
+                  let Icon = Check;
+                  let iconColor = "text-green-500";
+                  if (benefit.includes('x Moedas')) {
+                      Icon = Zap;
+                      iconColor = "text-yellow-500 fill-yellow-500/20";
+                  } else if (benefit.includes('Prêmios Diários')) {
+                      Icon = Gift;
+                      iconColor = "text-purple-500";
+                  } else if (benefit.includes('Jackpot') || benefit.includes('Roleta') || benefit.includes('Tickets')) {
+                      Icon = Coins;
+                      iconColor = "text-orange-500";
+                  } else if (benefit.includes('Comissão')) {
+                      Icon = Diamond;
+                      iconColor = "text-cyan-400";
+                  }
+                  
+                  return (
                   <div key={i} className="flex items-start gap-3">
-                    <Check size={18} className="text-green-500 shrink-0 mt-0.5" />
+                    <Icon size={18} className={`${iconColor} shrink-0 mt-0.5`} />
                     <span className="text-sm opacity-90 font-medium">{benefit}</span>
                   </div>
-                ))}
+                )})}
               </div>
 
               <Button 

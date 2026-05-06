@@ -110,8 +110,9 @@ export function UserSupportModal({ open, onClose }: { open: boolean, onClose: ()
 
     return (
         <AnimatePresence>
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
-                <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} className="bg-card w-full max-w-lg h-[80vh] border border-border shadow-2xl rounded-3xl flex flex-col relative overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="fixed inset-0 z-[100] overflow-y-auto overflow-x-hidden flex items-center justify-center p-4 custom-scrollbar">
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-background/80 backdrop-blur-sm" onClick={onClose} />
+                <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} className="relative bg-card w-full max-w-lg h-[80vh] border border-border shadow-2xl rounded-3xl flex flex-col overflow-hidden my-auto" onClick={e => e.stopPropagation()}>
                     <div className="p-4 border-b border-border bg-secondary/50 flex justify-between items-center z-10 w-full relative shrink-0">
                         <div className="flex items-center gap-2">
                             <MessageSquare className="text-primary" />
@@ -168,7 +169,7 @@ export function UserSupportModal({ open, onClose }: { open: boolean, onClose: ()
                         )}
                     </div>
                 </motion.div>
-            </motion.div>
+            </div>
         </AnimatePresence>
     );
 }
