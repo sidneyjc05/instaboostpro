@@ -77,6 +77,135 @@ import { useNavigate } from 'react-router';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import { GlobalLoader } from '../components/GlobalLoader';
 
+// Componente Item de Divulgação com Countdown
+function PromotionItem({ promo, onRefresh, isExpired, playClick, playSuccess }: any) {
+  const [timeLeft, setTimeLeft] = useState<{ m: number; s: number; totalSec: number } | null>(null);
+  const [deleteIn, setDeleteIn] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const calculate = () => {
+      const now = Date.now();
+      const target = new Date(promo.expires_at).getTime();
+      const diff = target - now;
+
+      if (diff <= 0) {
+        setTimeLeft(null);
+        // Lógica de 5 minutos para deletar após expirar
+        const deleteTarget = target + 5 * 60 * 1000;
+        const deleteDiff = deleteTarget - now;
+        if (deleteDiff > 0) {
+           setDeleteIn(Math.floor(deleteDiff / 1000));
+        } else {
+           setDeleteIn(0);
+           onRefresh(); // Trigger refresh to remove from list
+        }
+        return;
+      }
+
+      const m = Math.floor(diff / (1000 * 60));
+      const s = Math.floor((diff % (1000 * 60)) / 1000);
+      setTimeLeft({ m, s, totalSec: Math.floor(diff / 1000) });
+    };
+
+    calculate();
+    const timer = setInterval(calculate, 1000);
+    return () => clearInterval(timer);
+  }, [promo.expires_at, onRefresh]);
+
+  const handleReboost = async () => {
+    playClick();
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/promotions/${promo.id}/reboost`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        playSuccess();
+        showNotification.success('Divulgação renovada!');
+        onRefresh();
+      } else {
+        showNotification.error(data.error || 'Erro ao renovar');
+      }
+    } catch {
+      showNotification.error('Erro de conexão');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getInstaType = (url: string) => {
+     if (url.includes('/reel/')) return 'REEL';
+     if (url.includes('/p/')) return 'POST';
+     return 'PERFIL';
+  };
+
+  return (
+    <div className={`p-4 rounded-2xl border transition-all flex flex-col gap-4 ${isExpired ? 'bg-destructive/5 border-destructive/20 grayscale opacity-80 shadow-inner' : 'bg-background/40 border-border/50 hover:border-primary/30 hover:bg-background/60 shadow-lg shadow-black/5'}`}>
+       <div className="flex justify-between items-start">
+          <div className="flex flex-col gap-1 overflow-hidden">
+             <div className="flex items-center gap-2">
+                <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-md ${getInstaType(promo.url) === 'REEL' ? 'bg-purple-500/20 text-purple-600' : getInstaType(promo.url) === 'POST' ? 'bg-blue-500/20 text-blue-600' : 'bg-primary/20 text-primary'}`}>
+                   {getInstaType(promo.url)}
+                </span>
+                {isExpired && (
+                   <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-md bg-destructive/20 text-destructive">Expirado</span>
+                )}
+             </div>
+             <span className="text-xs font-bold truncate opacity-50 max-w-[150px] sm:max-w-xs">{promo.url}</span>
+          </div>
+          
+          <div className="text-right">
+             <div className="flex items-center gap-1.5 justify-end">
+                <AnimatedIcon type="coin" size={12} />
+                <span className="text-xs font-black">Ganhou: {promo.interactions_count * 0.2}</span>
+             </div>
+             <span className="text-[10px] font-bold text-muted-foreground italic">Interações: {promo.interactions_count}</span>
+          </div>
+       </div>
+
+       <div className="flex items-center justify-between gap-4 pt-4 border-t border-border/20">
+          <div className="flex flex-col">
+             <span className="text-[9px] font-black uppercase text-muted-foreground mb-1 tracking-widest">{isExpired ? 'Sone em' : 'Expirando em'}</span>
+             <div className="flex items-center gap-2">
+                <Clock size={16} className={isExpired ? 'text-destructive animate-pulse' : 'text-primary'} />
+                <span className={`text-xl font-black tabular-nums tracking-tighter ${isExpired ? 'text-destructive font-mono' : 'text-foreground'}`}>
+                   {timeLeft ? (
+                      `${timeLeft.m.toString().padStart(2, '0')}:${timeLeft.s.toString().padStart(2, '0')}`
+                   ) : (
+                      deleteIn !== null ? (
+                         `00:${deleteIn.toString().padStart(2, '0')}`
+                      ) : '---'
+                   )}
+                </span>
+             </div>
+          </div>
+
+          {isExpired ? (
+             <Button 
+                onClick={handleReboost} 
+                isLoading={loading}
+                variant="destructive" 
+                size="sm" 
+                className="rounded-xl h-10 px-4 font-black uppercase text-[10px] tracking-widest active:scale-95"
+             >
+                Republicar
+             </Button>
+          ) : (
+             <div className="flex gap-1">
+                <Button 
+                  variant="ghost" 
+                  className="rounded-xl p-2 h-10 w-10 text-primary hover:bg-primary/10 border border-primary/20"
+                  onClick={() => window.open(promo.url, '_blank')}
+                >
+                  <Share2 size={16} />
+                </Button>
+             </div>
+          )}
+       </div>
+    </div>
+  );
+}
+
 export default function Profile() {
   const { user, logout, refreshUser } = useAuth();
   const { playClick, playSuccess } = useAppSound();
@@ -88,49 +217,68 @@ export default function Profile() {
 
   const [promotions, setPromotions] = useState<any[]>([]);
   const [loadingPromos, setLoadingPromos] = useState(true);
+  const [promoTab, setPromoTab] = useState<'active' | 'expired'>('active');
   const [selectedPlanModal, setSelectedPlanModal] = useState<any | null>(null);
 
   useBodyScrollLock(!!selectedPlanModal);
 
   const planBenefits: Record<string, string[]> = {
     'basic': [
-      'Moedas normais em missões',
-      'Chances normais na roleta',
-      '1 publicação por dia',
-      'Feed Geral',
-      'Análise de desempenho básica'
+      'Missões Diárias Normais',
+      '1x Moedas nas missões',
+      'Sem Prêmios Diários',
+      '3 Tickets Grátis por Dia',
+      '0.001% chance no Mega Jackpot (300 moedas)',
+      '68% chance do prêmio mínimo (0.5) na Roleta',
+      '1x Moedas por Curtida/Seguir e Reel',
+      'Indicações Ilimitadas',
+      '500 moedas por Indicação Inicial',
+      '8% de Comissão Recorrente',
+      '10 Divulgações Ativas Simultâneas'
     ],
     'pro': [
-      'Dobro de moedas em todas as missões',
-      '+20% chances na roleta',
-      '10 publicações por dia',
-      'Prioridade no Feed Geral',
-      'Análise de desempenho básica',
-      '+500 moedas de bônus mensal',
-      '+10% de comissão extra'
+      'Missões Diárias ativas',
+      '1.8x Moedas nas missões',
+      'Prêmios Diários: 300 moedas/dia',
+      '6 Tickets Grátis por Dia',
+      '1% chance no Mega Jackpot (300 moedas)',
+      '50% chance do prêmio mínimo (0.5) na Roleta',
+      '1.6x Moedas/Curtida e 1.7x Moedas/Reel',
+      'Indicações Ilimitadas',
+      '800 moedas por Indicação Inicial',
+      '12% de Comissão Recorrente',
+      '25 Divulgações Ativas Simultâneas'
     ],
     'premium': [
-      'Triplo de moedas nas missões',
-      '+50% chances na roleta',
-      '30 publicações por dia',
-      'Destaque no Feed Geral',
-      'Análise de desempenho avançada',
-      '+1500 moedas de bônus mensal',
-      '+20% de comissão extra'
+      'Missões Diárias ativas',
+      '2.3x Moedas nas missões',
+      'Prêmios Diários: 800 moedas/dia',
+      '9 Tickets Grátis por Dia',
+      '3% chance no Mega Jackpot (300 moedas)',
+      '35% chance do prêmio mínimo (0.5) na Roleta',
+      '2.1x Moedas/Curtida e 2.2x Moedas/Reel',
+      'Indicações Ilimitadas',
+      '1.200 moedas por Indicação Inicial',
+      '18% de Comissão Recorrente',
+      '50 Divulgações Ativas Simultâneas'
     ],
     'ultra': [
-      'Quíntuplo de moedas nas missões',
-      '+100% chances na roleta',
-      'Publicações ilimitadas',
-      'Top Destaque no Feed Geral',
-      'Análise de desempenho premium',
-      '+5000 moedas de bônus mensal',
-      '+50% de comissão extra',
-      'Suporte VIP'
+      'Missões Diárias ativas',
+      '2.8x Moedas nas missões',
+      'Prêmios Diários: 2.000 moedas/dia',
+      '15 Tickets Grátis por Dia',
+      '5% chance no Mega Jackpot (300 moedas)',
+      'Apenas 20% chance do prêmio mínimo (0.5) na Roleta',
+      '2.5x Moedas/Curtida e 2.6x Moedas/Reel',
+      'Indicações Ilimitadas',
+      '2.000 moedas por Indicação Inicial',
+      '25% de Comissão Recorrente',
+      'Divulgações Ativas Ilimitadas'
     ]
   };
 
-  useEffect(() => {
+  const fetchPromos = () => {
+    setLoadingPromos(true);
     fetch('/api/users/me/promotions')
       .then(r => r.json())
       .then(data => {
@@ -138,6 +286,10 @@ export default function Profile() {
          setLoadingPromos(false);
       })
       .catch(() => setLoadingPromos(false));
+  };
+
+  useEffect(() => {
+    fetchPromos();
   }, []);
 
   const handleCopyCode = () => {
@@ -347,43 +499,100 @@ export default function Profile() {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, delay: 0.2 }}
-        className="bg-card/40 backdrop-blur-xl border border-border rounded-3xl p-6 lg:p-8 relative overflow-hidden"
+        className="bg-card/40 backdrop-blur-xl border border-border rounded-[2rem] sm:rounded-[2.5rem] p-5 sm:p-8 relative overflow-hidden shadow-xl"
       >
-         <div className="flex items-center justify-between mb-6 border-b border-border/50 pb-4">
+         <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-8 gap-4">
             <div className="flex items-center gap-3">
-               <History className="text-primary" />
-               <h2 className="text-lg font-bold">Minhas Divulgações</h2>
+               <div className="p-2.5 rounded-xl bg-primary/10 border border-primary/20">
+                  <History className="text-primary" size={20} />
+               </div>
+               <div>
+                  <h2 className="text-lg font-black uppercase tracking-tight">Minhas Divulgações</h2>
+                  <p className="text-[10px] uppercase font-bold text-muted-foreground opacity-60">Gerencie seu engajamento</p>
+               </div>
             </div>
-            <span className="text-xs font-bold bg-secondary/50 px-3 py-1 rounded-full">{promotions.length} / 10 Ativas</span>
+            
+            <div className="flex bg-background/50 p-1 rounded-xl border border-border/50 self-start sm:self-auto">
+               <button 
+                  onClick={() => { playClick(); setPromoTab('active'); }}
+                  className={`px-4 py-2 rounded-lg text-xs font-black uppercase transition-all ${promoTab === 'active' ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'text-muted-foreground hover:text-foreground'}`}
+               >
+                  Ativas
+               </button>
+               <button 
+                  onClick={() => { playClick(); setPromoTab('expired'); }}
+                  className={`px-4 py-2 rounded-lg text-xs font-black uppercase transition-all ${promoTab === 'expired' ? 'bg-destructive text-white shadow-lg shadow-destructive/20' : 'text-muted-foreground hover:text-foreground'}`}
+               >
+                  Expiradas
+               </button>
+            </div>
+         </div>
+
+         {/* Limits Display */}
+         <div className="flex gap-4 mb-6">
+            <div className={`flex-1 p-3 rounded-2xl border flex flex-col items-center justify-center gap-1 ${promoTab === 'active' ? 'bg-primary/5 border-primary/20' : 'bg-background/20 border-border/20 opacity-50'}`}>
+               <span className="text-[9px] uppercase font-black text-muted-foreground">Ativas</span>
+               <span className="text-sm font-black">{promotions.filter(p => new Date(p.expires_at).getTime() > Date.now()).length} / {user?.plan_type === 'ultra' ? '∞' : user?.plan_type === 'premium' ? '50' : user?.plan_type === 'pro' ? '25' : '10'}</span>
+            </div>
+            <div className={`flex-1 p-3 rounded-2xl border flex flex-col items-center justify-center gap-1 ${promoTab === 'expired' ? 'bg-destructive/5 border-destructive/20' : 'bg-background/20 border-border/20 opacity-50'}`}>
+               <span className="text-[9px] uppercase font-black text-muted-foreground">Expiradas</span>
+               <span className="text-sm font-black text-destructive">{promotions.filter(p => new Date(p.expires_at).getTime() < Date.now()).length} / ∞</span>
+            </div>
          </div>
          
-         <div className="min-h-[120px] flex flex-col items-center justify-center text-center gap-4 py-4">
+         <div className="min-h-[160px] flex flex-col">
             {loadingPromos ? (
-              <Loader2 className="animate-spin text-primary" />
-            ) : promotions.length === 0 ? (
-              <>
-                <p className="text-muted-foreground text-sm">Você não tem nenhuma divulgação ativa no momento.</p>
-                <Button variant="secondary" onClick={() => navigate('/new')} className="rounded-xl font-bold bg-background/50 hover:bg-background border">
-                  Criar Divulgação
-                </Button>
-              </>
-            ) : (
-              <div className="w-full space-y-3">
-                 {promotions.map(p => (
-                    <div key={p.id} className="bg-background/50 border border-border/50 rounded-2xl p-4 flex justify-between items-center text-left">
-                       <div>
-                         <span className="text-xs font-bold text-primary mb-1 block uppercase">{p.type}</span>
-                         <span className="text-sm font-medium opacity-80 max-w-[200px] truncate block">{p.url}</span>
-                       </div>
-                       <div className="text-right">
-                         <span className="text-xl font-black">{Math.floor(p.progress)} <span className="opacity-50 text-sm">/ {p.goal}</span></span>
-                       </div>
-                    </div>
-                 ))}
-                 <Button variant="ghost" onClick={() => navigate('/new')} className="w-full mt-4 flex justify-center gap-2 text-primary opacity-80 hover:opacity-100">
-                    <PlusSquare size={18} /> Adicionar Nova
-                 </Button>
+              <div className="flex-1 flex items-center justify-center py-10">
+                 <Loader2 className="animate-spin text-primary" size={32} />
               </div>
+            ) : (
+               <AnimatePresence mode="wait">
+                  <motion.div
+                    key={promoTab}
+                    initial={{ opacity: 0, x: 10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -10 }}
+                    transition={{ duration: 0.2 }}
+                    className="space-y-3"
+                  >
+                     {(() => {
+                        const filtered = promotions.filter(p => {
+                           const isExpired = new Date(p.expires_at).getTime() < Date.now();
+                           return promoTab === 'active' ? !isExpired : isExpired;
+                        });
+
+                        if (filtered.length === 0) {
+                           return (
+                              <div className="py-10 flex flex-col items-center justify-center text-center px-4">
+                                 <p className="text-muted-foreground text-sm font-medium mb-4">Nenhuma divulgação {promoTab === 'active' ? 'ativa' : 'expirada'} encontrada.</p>
+                                 {promoTab === 'active' && (
+                                    <Button variant="secondary" onClick={() => navigate('/new')} className="rounded-xl font-bold bg-background/50 hover:bg-background border px-6">
+                                       Impulsionar Agora
+                                    </Button>
+                                 )}
+                              </div>
+                           );
+                        }
+
+                        return filtered.map((p: any) => (
+                           <PromotionItem 
+                              key={p.id} 
+                              promo={p} 
+                              onRefresh={fetchPromos} 
+                              isExpired={promoTab === 'expired'}
+                              playClick={playClick}
+                              playSuccess={playSuccess}
+                           />
+                        ));
+                     })()}
+                  </motion.div>
+               </AnimatePresence>
+            )}
+
+            {promoTab === 'active' && promotions.filter(p => new Date(p.expires_at).getTime() > Date.now()).length > 0 && (
+               <Button variant="ghost" onClick={() => navigate('/new')} className="w-full mt-6 flex justify-center gap-2 text-primary font-bold opacity-80 hover:opacity-100 py-6 border border-dashed border-primary/20 rounded-2xl transition-all hover:bg-primary/5">
+                  <PlusSquare size={18} /> Novo Impulsionamento
+               </Button>
             )}
          </div>
       </motion.div>

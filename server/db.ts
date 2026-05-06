@@ -217,13 +217,20 @@ db.exec(`
   );
 `);
 
-// Fast Garbage Collector for Payments: every 1 minute
+// Fast Garbage Collector for Payments and Expired Promotions: every 1 minute
 setInterval(() => {
   try {
     // Delete payments that have been stuck in pending for > 17 minutes
     db.prepare(`
       DELETE FROM payments 
       WHERE status = 'pending' AND datetime(created_at, '+17 minutes') < datetime('now')
+    `).run();
+
+    // EXCLUIR DEFINITIVAMENTE: Publicações expiradas a mais de 5 minutos
+    // O usuário tem 5 minutos de "vizinhança" para republicar, caso contrário some.
+    db.prepare(`
+      DELETE FROM promotions 
+      WHERE datetime(expires_at, '+5 minutes') < datetime('now')
     `).run();
 
     // Limpar e-mails não verificados em 7 dias (exigirá que o usuário cadastre outro e-mail na proxima sessao)

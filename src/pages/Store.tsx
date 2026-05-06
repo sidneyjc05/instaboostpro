@@ -227,15 +227,17 @@ export default function Store() {
        borderColor: 'border-blue-500/30',
        ringColor: 'ring-blue-500/20',
        benefits: [
-          '1.0x moedas nas missões',
-          '1.0x moedas ao curtir e seguir',
-          'Sem desconto na loja',
-          '5 publicações por dia',
-          'Tempo máximo de destaque: 12h',
-          '2 Tickets grátis diários',
-          '0% chance no Mega Jackpot',
-          '0 moedas de bônus mensal',
-          '+0% de comissão extra'
+          'Missões Diárias Normais',
+          '1x Moedas nas missões',
+          'Sem Prêmios Diários',
+          '3 Tickets Grátis por Dia',
+          '0.001% chance no Mega Jackpot (300 moedas)',
+          '68% chance do prêmio mínimo (0.5) na Roleta',
+          '1x Moedas por Curtida/Seguir e Reel',
+          'Indicações Ilimitadas',
+          '500 moedas por Indicação Inicial',
+          '8% de Comissão Recorrente',
+          '10 Divulgações Ativas Simultâneas'
        ]
     },
     { 
@@ -247,15 +249,17 @@ export default function Store() {
        borderColor: 'border-green-500/50',
        ringColor: 'ring-green-500/30',
        benefits: [
-          '1.8x moedas nas missões',
-          '1.5x moedas ao curtir e seguir',
-          '12% de desconto na loja',
-          '12 publicações por dia',
-          'Tempo máximo de destaque: 24h',
-          '6 Tickets grátis diários',
+          'Missões Diárias ativas',
+          '1.8x Moedas nas missões',
+          'Prêmios Diários: 300 moedas/dia',
+          '6 Tickets Grátis por Dia',
           '1% chance no Mega Jackpot (300 moedas)',
-          '+1.000 moedas de bônus mensal',
-          '+10% de comissão extra'
+          '50% chance do prêmio mínimo (0.5) na Roleta',
+          '1.6x Moedas/Curtida e 1.7x Moedas/Reel',
+          'Indicações Ilimitadas',
+          '800 moedas por Indicação Inicial',
+          '12% de Comissão Recorrente',
+          '25 Divulgações Ativas Simultâneas'
        ]
     },
     { 
@@ -268,16 +272,17 @@ export default function Store() {
        ringColor: 'ring-purple-500/30',
        pop: true,
        benefits: [
-          '2.3x moedas nas missões',
-          '2x moedas ao curtir e seguir',
-          '25% de desconto na loja',
-          '22 publicações por dia',
-          'Tempo máximo de destaque: 36h',
-          '9 Tickets grátis diários',
+          'Missões Diárias ativas',
+          '2.3x Moedas nas missões',
+          'Prêmios Diários: 800 moedas/dia',
+          '9 Tickets Grátis por Dia',
           '3% chance no Mega Jackpot (300 moedas)',
-          '+2.500 moedas de bônus mensal',
-          'Remoção de anúncios / Ultra clean',
-          '+20% de comissão extra'
+          '35% chance do prêmio mínimo (0.5) na Roleta',
+          '2.1x Moedas/Curtida e 2.2x Moedas/Reel',
+          'Indicações Ilimitadas',
+          '1.200 moedas por Indicação Inicial',
+          '18% de Comissão Recorrente',
+          '50 Divulgações Ativas Simultâneas'
        ]
     },
     { 
@@ -289,17 +294,17 @@ export default function Store() {
        borderColor: 'border-yellow-500/50',
        ringColor: 'ring-yellow-500/30',
        benefits: [
-          '2.8x moedas nas missões',
-          '2.6x moedas ao curtir e seguir',
-          '40% de desconto na loja',
-          '40 publicações por dia',
-          'Tempo máximo de destaque: 48h',
-          '15 Tickets grátis diários',
+          'Missões Diárias ativas',
+          '2.8x Moedas nas missões',
+          'Prêmios Diários: 2.000 moedas/dia',
+          '15 Tickets Grátis por Dia',
           '5% chance no Mega Jackpot (300 moedas)',
-          '+6.000 moedas de bônus mensal',
-          'Suporte VIP 24h & Maior prioridade no Feed',
-          'Remoção de anúncios / Ultra clean',
-          '+40% de comissão extra'
+          'Apenas 20% chance do prêmio mínimo (0.5) na Roleta',
+          '2.5x Moedas/Curtida e 2.6x Moedas/Reel',
+          'Indicações Ilimitadas',
+          '2.000 moedas por Indicação Inicial',
+          '25% de Comissão Recorrente',
+          'Divulgações Ativas Ilimitadas'
        ]
     }
   ];

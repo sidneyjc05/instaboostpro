@@ -504,10 +504,11 @@ apiRouter.post('/me/email/verify', authMiddleware, (req: any, res) => {
 
 apiRouter.get('/users/me/promotions', authMiddleware, (req: any, res) => {
   const promos = db.prepare(`
-    SELECT id, url, expires_at, created_at, cost 
-    FROM promotions 
-    WHERE user_id = ? 
-    ORDER BY created_at DESC
+    SELECT p.id, p.url, p.expires_at, p.created_at, p.cost,
+           (SELECT COUNT(*) FROM interactions i WHERE i.promotion_id = p.id) as interactions_count
+    FROM promotions p
+    WHERE p.user_id = ? 
+    ORDER BY p.expires_at DESC
   `).all(req.userId);
   res.json(promos);
 });
@@ -594,10 +595,10 @@ apiRouter.post('/promotions', authMiddleware, (req: any, res) => {
   const userRecord = db.prepare('SELECT plan_type FROM users WHERE id = ?').get(req.userId) as any;
   const planType = userRecord?.plan_type || 'basic';
 
-  let maxActive = 5;
-  if (planType === 'pro') maxActive = 12;
-  if (planType === 'premium') maxActive = 22;
-  if (planType === 'ultra') maxActive = 40;
+  let maxActive = 10;
+  if (planType === 'pro') maxActive = 25;
+  if (planType === 'premium') maxActive = 50;
+  if (planType === 'ultra') maxActive = 999999;
 
   let maxDurationHours = 24;
   if (planType === 'premium') maxDurationHours = 36;
