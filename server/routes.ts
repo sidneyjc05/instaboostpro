@@ -770,7 +770,7 @@ apiRouter.post('/roulette/claim', authMiddleware, (req: any, res) => {
   }
 });
 
-apiRouter.post('/roulette/spin', authMiddleware, (req: any, res) => {
+   apiRouter.post('/roulette/spin', authMiddleware, (req: any, res) => {
    // Check if user has at least 1 ticket
    const user = db.prepare('SELECT tickets, plan_type FROM users WHERE id = ?').get(req.userId) as any;
    if (!user || user.tickets < 1) {
@@ -784,7 +784,7 @@ apiRouter.post('/roulette/spin', authMiddleware, (req: any, res) => {
    switch (pType) {
       case 'ultra':
          probabilities = [
-            { prize: 0.5, prob: 20 },
+            { prize: 0.5, prob: 22 },
             { prize: 1, prob: 10 },
             { prize: 5, prob: 12 },
             { prize: 10, prob: 13 },
@@ -793,12 +793,12 @@ apiRouter.post('/roulette/spin', authMiddleware, (req: any, res) => {
             { prize: 100, prob: 8 },
             { prize: 150, prob: 6 },
             { prize: 200, prob: 4 },
-            { prize: 300, prob: 5 }
+            { prize: 300, prob: 0.5 }
          ];
          break;
       case 'premium':
          probabilities = [
-            { prize: 0.5, prob: 35 },
+            { prize: 0.5, prob: 33 },
             { prize: 1, prob: 12 },
             { prize: 5, prob: 13 },
             { prize: 10, prob: 12 },
@@ -807,12 +807,12 @@ apiRouter.post('/roulette/spin', authMiddleware, (req: any, res) => {
             { prize: 100, prob: 5 },
             { prize: 150, prob: 3 },
             { prize: 200, prob: 2 },
-            { prize: 300, prob: 3 }
+            { prize: 300, prob: 0.2 }
          ];
          break;
       case 'pro':
          probabilities = [
-            { prize: 0.5, prob: 50 },
+            { prize: 0.5, prob: 48 },
             { prize: 1, prob: 15 },
             { prize: 5, prob: 12 },
             { prize: 10, prob: 8 },
@@ -820,23 +820,23 @@ apiRouter.post('/roulette/spin', authMiddleware, (req: any, res) => {
             { prize: 50, prob: 4 },
             { prize: 100, prob: 2.5 },
             { prize: 150, prob: 1.2 },
-            { prize: 200, prob: 0.8 },
-            { prize: 300, prob: 1 }
+            { prize: 200, prob: 0.3 },
+            { prize: 300, prob: 0.05 }
          ];
          break;
       case 'basic':
       default:
          probabilities = [
-            { prize: 0.5, prob: 68 },
+            { prize: 0.5, prob: 65 },
             { prize: 1, prob: 18 },
             { prize: 5, prob: 8 },
             { prize: 10, prob: 3.5 },
             { prize: 20, prob: 1.5 },
             { prize: 50, prob: 0.5 },
             { prize: 100, prob: 0.2 },
-            { prize: 150, prob: 0.1 },
-            { prize: 200, prob: 0.05 },
-            { prize: 300, prob: 0.001 } // wait, this sums to 99.851? Let's check: 68+18+8+3.5+1.5+0.5+0.2+0.1+0.05+0.001 = 99.851. Let's make it up to 100 on 0.5 by subtracting the rest or just rolling random up to total prob.
+            { prize: 150, prob: 0.2 },
+            { prize: 200, prob: 0.1 },
+            { prize: 300, prob: 0.003 }
          ];
          break;
    }
@@ -857,14 +857,17 @@ apiRouter.post('/roulette/spin', authMiddleware, (req: any, res) => {
    }
 
    try {
+      const finalWinAmount = wonPrize;
+
       const tx = db.transaction(() => {
          // Deduct 1 ticket and add the prize
-         db.prepare('UPDATE users SET tickets = tickets - 1, credits = credits + ? WHERE id = ?').run(wonPrize, req.userId);
+         db.prepare('UPDATE users SET tickets = tickets - 1, credits = credits + ? WHERE id = ?').run(finalWinAmount, req.userId);
       });
       tx();
 
-      res.json({ success: true, prize: wonPrize });
+      res.json({ success: true, prize: wonPrize, winAmount: finalWinAmount });
    } catch(e) {
+      console.error(e);
       res.status(500).json({ error: 'Erro ao girar a roleta.' });
    }
 });
@@ -1360,6 +1363,39 @@ const MISSION_CONFIG = {
   }
 };
 
+function getMissionConfig(type: string, level: number) {
+    const baseConfig = MISSION_CONFIG[type as keyof typeof MISSION_CONFIG];
+    if (!baseConfig) return null;
+
+    if (level <= 5) {
+        return {
+            goal: baseConfig.goals[level - 1],
+            reward: baseConfig.rewards[level - 1],
+            tickets: baseConfig.tickets ? baseConfig.tickets[level - 1] : 0
+        };
+    }
+
+    // Dynamic calculation for level > 5
+    // Each level increases goal by ~50% and reward by ~40%
+    const lastPaidLevel = 5;
+    const baseGoal = baseConfig.goals[lastPaidLevel - 1];
+    const baseReward = baseConfig.rewards[lastPaidLevel - 1];
+    const baseTickets = baseConfig.tickets ? baseConfig.tickets[lastPaidLevel - 1] : 0;
+
+    const diff = level - lastPaidLevel;
+    const goalMultiplier = Math.pow(1.5, diff);
+    const rewardMultiplier = Math.pow(1.4, diff);
+
+    // Round goals to nice numbers
+    let goal = Math.floor(baseGoal * goalMultiplier);
+    if (goal > 100) goal = Math.round(goal / 10) * 10;
+    
+    const reward = parseFloat((baseReward * rewardMultiplier).toFixed(1));
+    const tickets = Math.floor(baseTickets + diff / 2);
+
+    return { goal, reward, tickets };
+}
+
 apiRouter.get('/missions', authMiddleware, (req: any, res) => {
     // 10 minutes timeout reset (progress = 0)
     db.prepare(`
@@ -1400,7 +1436,6 @@ apiRouter.post('/missions/progress', authMiddleware, (req: any, res) => {
        WHERE user_id = ? AND mission_type = ? AND datetime(updated_at, '+10 minutes') < datetime('now')
     `).run(req.userId, type);
 
-    const config = MISSION_CONFIG[type as keyof typeof MISSION_CONFIG];
     const row = db.prepare('SELECT level, progress FROM missions_progress WHERE user_id = ? AND mission_type = ?').get(req.userId, type) as any;
     
     if (!row) return res.status(404).json({ error: 'Mission state not initialized' });
@@ -1408,12 +1443,10 @@ apiRouter.post('/missions/progress', authMiddleware, (req: any, res) => {
     let currentLevel = row.level;
     let currentProgress = row.progress;
 
-    if (currentLevel > 5) {
-       // max level reached / repeatable level 5
-       currentLevel = 5;
-    }
+    const missionConfig = getMissionConfig(type, currentLevel);
+    if (!missionConfig) return res.status(400).json({ error: 'Config not found' });
 
-    const goal = config.goals[currentLevel - 1];
+    const goal = missionConfig.goal;
 
     if (currentProgress < goal) {
         db.prepare('UPDATE missions_progress SET progress = MIN(progress + ?, ?), updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND mission_type = ?')
@@ -1438,11 +1471,12 @@ apiRouter.post('/missions/claim', authMiddleware, (req: any, res) => {
         const userRecord = db.prepare('SELECT plan_type FROM users WHERE id = ?').get(req.userId) as any;
         const planType = userRecord?.plan_type || 'basic';
 
-        const config = MISSION_CONFIG[type as keyof typeof MISSION_CONFIG];
-        const realLevel = Math.min(row.level, 5);
-        const goal = config.goals[realLevel - 1];
-        let reward = config.rewards[realLevel - 1];
-        let tickets = config.tickets ? config.tickets[realLevel - 1] : 0;
+        const missionConfig = getMissionConfig(type, row.level);
+        if (!missionConfig) throw new Error('CONFIG_NOT_FOUND');
+
+        const goal = missionConfig.goal;
+        let reward = missionConfig.reward;
+        let tickets = missionConfig.tickets;
         
         if (planType === 'pro') {
             reward *= 1.8;
@@ -1458,7 +1492,7 @@ apiRouter.post('/missions/claim', authMiddleware, (req: any, res) => {
         db.prepare('UPDATE users SET credits = credits + ?, tickets = tickets + ? WHERE id = ?').run(reward, tickets, req.userId);
 
         // Move to next level, reset progress
-        const nextLevel = Math.min(row.level + 1, 5);
+        const nextLevel = row.level + 1;
         db.prepare('UPDATE missions_progress SET level = ?, progress = 0, updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND mission_type = ?')
           .run(nextLevel, req.userId, type);
 

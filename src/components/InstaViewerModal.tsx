@@ -19,7 +19,8 @@ export function InstaViewerModal({ open, onClose, url, type, username, onInterac
   const [isPlaying, setIsPlaying] = useState(false);
   const [watchedSecs, setWatchedSecs] = useState(0);
   const [completed, setCompleted] = useState(false);
-  const REQUIRED_SECS = 12;
+  const [hasInteracted, setHasInteracted] = useState(false);
+  const REQUIRED_SECS = 5;
 
   useBodyScrollLock(open);
 
@@ -28,21 +29,52 @@ export function InstaViewerModal({ open, onClose, url, type, username, onInterac
       setIsPlaying(false);
       setWatchedSecs(0);
       setCompleted(false);
+      setHasInteracted(false);
       return;
     }
     
-    // Auto-complete if it's a profile, as you just follow them.
-    if (type === 'profile') {
-        setCompleted(true);
+    if (type === 'profile' || type === 'post') {
+        setIsPlaying(true);
+        setHasInteracted(true);
     }
   }, [open, type]);
 
   useEffect(() => {
+    const handleBlur = () => {
+       setTimeout(() => {
+          if (document.activeElement?.tagName === 'IFRAME') {
+             setHasInteracted(true);
+             setIsPlaying(true);
+          }
+       }, 50);
+    };
+    window.addEventListener('blur', handleBlur);
+    return () => window.removeEventListener('blur', handleBlur);
+  }, []);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+       if (document.visibilityState === 'hidden') {
+          setWatchedSecs(0);
+          setIsPlaying(false);
+          setHasInteracted(false);
+       } else if (document.visibilityState === 'visible') {
+          if (type === 'profile' || type === 'post') {
+             setIsPlaying(true);
+             setHasInteracted(true);
+          }
+       }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [type]);
+
+  useEffect(() => {
     let interval: NodeJS.Timeout;
     
-    if (isPlaying && open && !completed && type !== 'profile') {
+    if (isPlaying && open && !completed) {
       interval = setInterval(() => {
-        if (document.visibilityState === 'visible') {
+        if (document.visibilityState === 'visible' && hasInteracted) {
            setWatchedSecs(prev => {
              if (prev >= REQUIRED_SECS - 1) {
                 setCompleted(true);
@@ -55,7 +87,13 @@ export function InstaViewerModal({ open, onClose, url, type, username, onInterac
     }
 
     return () => clearInterval(interval);
-  }, [isPlaying, open, completed, type]);
+  }, [isPlaying, open, completed, type, hasInteracted, REQUIRED_SECS]);
+
+  const formatTime = (secs: number) => {
+     const m = Math.floor(secs / 60);
+     const s = secs % 60;
+     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
 
   if (!open) return null;
 
@@ -115,7 +153,7 @@ export function InstaViewerModal({ open, onClose, url, type, username, onInterac
           {/* Player Area */}
           <div className="w-full relative bg-background flex items-center justify-center min-h-[400px]">
              {type === 'profile' ? (
-                <div className="w-full h-[400px] flex flex-col items-center justify-center gap-4 text-center p-6 bg-gradient-to-b from-[#1a0033] to-black">
+                <div className="w-full h-[400px] flex flex-col items-center justify-center gap-4 text-center p-6 bg-gradient-to-b from-[#1a0033] to-black relative">
                    <div className="w-24 h-24 rounded-full bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-500 p-1 mb-2">
                        <div className="w-full h-full bg-card rounded-full flex items-center justify-center text-4xl font-bold uppercase text-white">
                           {profileUser.charAt(0)}
@@ -123,46 +161,82 @@ export function InstaViewerModal({ open, onClose, url, type, username, onInterac
                     </div>
                     <h3 className="font-bold text-xl text-white">@{profileUser}</h3>
                     <p className="text-sm text-zinc-400">Visite e siga este perfil para completar a ação.</p>
+                    
+                    {/* Timer Overlay for Profile */}
+                    {isPlaying && !completed && (
+                       <div className="absolute top-4 right-4 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/20 flex items-center gap-2 pointer-events-none z-30">
+                          <div className="w-4 h-4 text-purple-400 animate-pulse"><Play size={16} /></div>
+                          <span className="text-white text-xs font-bold font-mono">
+                             {formatTime(Math.max(0, REQUIRED_SECS - watchedSecs))}
+                          </span>
+                       </div>
+                    )}
+                    {completed && (
+                       <div className="absolute top-4 right-4 bg-emerald-500/90 backdrop-blur-md px-3 py-1.5 rounded-full border border-emerald-400/50 flex items-center gap-2 pointer-events-none z-30 shadow-lg shadow-emerald-500/20">
+                          <CheckCircle2 size={16} className="text-white" />
+                          <span className="text-white text-xs font-bold">Concluído ✓</span>
+                       </div>
+                    )}
+                    {!completed && (
+                      <div className="absolute bottom-0 left-0 w-full h-2 bg-black/50 pointer-events-none z-30">
+                         <div 
+                            className="h-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all duration-1000 ease-linear"
+                            style={{ width: `${(watchedSecs / REQUIRED_SECS) * 100}%` }}
+                         />
+                      </div>
+                    )}
                 </div>
              ) : (
-                !isPlaying ? (
-                  <div className="absolute inset-0 flex items-center justify-center bg-card">
-                    <button 
-                       onClick={() => setIsPlaying(true)}
-                       className="group relative w-16 h-16 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/30 transition-all backdrop-blur-md"
-                    >
-                       <Play size={32} className="text-white ml-2 drop-shadow-md group-hover:scale-110 transition-transform" />
-                    </button>
-                  </div>
-                ) : (
-                  <div className="w-full h-[450px] relative pointer-events-none">
-                     {/* Lock interaction inside iframe so we only use our buttons */}
-                     <div className="absolute inset-0 z-10 hidden"></div>
-                     <iframe 
-                       src={`${embedUrl}/embed/`} 
-                       className="w-full h-[500px] -mt-12 bg-white" 
-                       frameBorder="0" 
-                       scrolling="no" 
-                       allowtransparency="true"
-                     ></iframe>
-                  </div>
-                )
-             )}
+                <div 
+                   className="w-full h-[450px] relative overflow-hidden"
+                >
+                   {/* Remove hidden interceptor so iframe can be clicked for reels */}
+                   <iframe 
+                     src={`${embedUrl}/embed/`} 
+                     className={`w-full h-[500px] -mt-12 bg-white ${type === 'reel' ? 'pointer-events-auto' : 'pointer-events-none'}`} 
+                     frameBorder="0" 
+                     scrolling="no" 
+                     allowtransparency="true"
+                   ></iframe>
 
-             {/* Timer Overlay */}
-             {isPlaying && !completed && type !== 'profile' && (
-                <div className="absolute top-4 right-4 bg-foreground/20 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10 flex items-center gap-2">
-                   <div className="w-4 h-4 text-purple-400 animate-pulse"><Play size={16} /></div>
-                   <span className="text-white text-xs font-bold font-mono">
-                      {Math.max(0, REQUIRED_SECS - watchedSecs)}s
-                   </span>
-                </div>
-             )}
+                   {!hasInteracted && !completed && type === 'reel' && (
+                      <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center p-6 text-center pointer-events-none z-20">
+                         <Play size={48} className="text-white opacity-50 mb-4 animate-pulse" />
+                         <p className="text-white font-bold text-lg mb-2">
+                           Clique no vídeo para iniciar
+                         </p>
+                         <p className="text-white/80 text-sm tracking-wide">
+                           O tempo só conta depois de clicar no player e interagir. Não feche nem tire o foco do vídeo!
+                         </p>
+                      </div>
+                   )}
+                   
+                   {/* Timer Overlay */}
+                   {isPlaying && !completed && (
+                      <div className="absolute top-4 right-4 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/20 flex items-center gap-2 pointer-events-none z-30">
+                         <div className="w-4 h-4 text-purple-400 animate-pulse"><Play size={16} /></div>
+                         <span className="text-white text-xs font-bold font-mono">
+                            {formatTime(Math.max(0, REQUIRED_SECS - watchedSecs))}
+                         </span>
+                      </div>
+                   )}
 
-             {completed && type !== 'profile' && (
-                <div className="absolute top-4 right-4 bg-emerald-500/80 backdrop-blur-md px-3 py-1.5 rounded-full border border-emerald-400/50 flex items-center gap-2">
-                   <CheckCircle2 size={16} className="text-white" />
-                   <span className="text-white text-xs font-bold">Assistido ✓</span>
+                   {completed && (
+                      <div className="absolute top-4 right-4 bg-emerald-500/90 backdrop-blur-md px-3 py-1.5 rounded-full border border-emerald-400/50 flex items-center gap-2 pointer-events-none z-30 shadow-lg shadow-emerald-500/20">
+                         <CheckCircle2 size={16} className="text-white" />
+                         <span className="text-white text-xs font-bold">Assistido ✓</span>
+                      </div>
+                   )}
+
+                   {/* Underline Progress Bar for Video */}
+                   {!completed && (
+                      <div className="absolute bottom-0 left-0 w-full h-2 bg-black/50 pointer-events-none z-30">
+                         <div 
+                            className="h-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all duration-1000 ease-linear"
+                            style={{ width: `${(watchedSecs / REQUIRED_SECS) * 100}%` }}
+                         />
+                      </div>
+                   )}
                 </div>
              )}
           </div>
@@ -191,11 +265,11 @@ export function InstaViewerModal({ open, onClose, url, type, username, onInterac
              <div className="flex gap-3">
                 {type === 'reel' && (
                    <Button 
-                      onClick={() => handleActionClick('watch')}
-                      className={`flex-1 font-bold text-white shadow-lg border-none py-6 transition-all ${completed ? 'bg-gradient-to-r from-emerald-500 to-green-600 hover:scale-[1.02]' : 'bg-muted text-muted-foreground cursor-not-allowed'}`}
+                      onClick={() => handleActionClick('like')}
+                      className={`flex-1 font-bold text-white shadow-lg border-none py-6 transition-all ${completed ? 'bg-gradient-to-r from-rose-500 to-red-600 hover:scale-[1.02]' : 'bg-muted text-muted-foreground cursor-not-allowed'}`}
                       disabled={!completed}
                    >
-                      <CheckCircle2 size={20} className={completed ? "text-white mr-2" : "text-muted-foreground mr-2"} /> Confirmar Visualização
+                      <Heart size={20} className={completed ? "text-white mr-2" : "text-muted-foreground mr-2"} /> Curtir e Confirmar
                    </Button>
                 )}
                 {type === 'post' && (
@@ -210,16 +284,17 @@ export function InstaViewerModal({ open, onClose, url, type, username, onInterac
                 {type === 'profile' && (
                    <Button 
                       onClick={() => handleActionClick('follow')}
-                      className={`flex-1 font-bold text-white shadow-lg border-none py-6 transition-all bg-gradient-to-r from-emerald-500 to-green-600 hover:scale-[1.02]`}
+                      className={`flex-1 font-bold text-white shadow-lg border-none py-6 transition-all ${completed ? 'bg-gradient-to-r from-emerald-500 to-green-600 hover:scale-[1.02]' : 'bg-muted text-muted-foreground cursor-not-allowed'}`}
+                      disabled={!completed}
                    >
-                      <UserPlus size={20} className="text-white mr-2" /> Seguir e Confirmar
+                      <UserPlus size={20} className={completed ? "text-white mr-2" : "text-muted-foreground mr-2"} /> Seguir e Confirmar
                    </Button>
                 )}
              </div>
              
-             {type !== 'profile' && !completed && (
+             {!completed && (
                 <p className="text-center text-[10px] text-white/40 uppercase tracking-widest font-bold">
-                   Assista {REQUIRED_SECS}s para liberar
+                   {!hasInteracted && type === 'reel' ? 'Clique no player para iniciar' : `Aguarde ${formatTime(REQUIRED_SECS)} para liberar as ações`}
                 </p>
              )}
           </div>

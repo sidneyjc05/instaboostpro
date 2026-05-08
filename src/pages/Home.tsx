@@ -17,8 +17,19 @@ interface Promotion {
   user_id: number;
   username: string;
   expires_at: string;
+  plan?: 'ultra' | 'premium' | 'pro' | 'basic';
 }
 
+const getPlanConfig = (plan?: string) => {
+  switch (plan) {
+    case 'ultra': return { priority: 4, label: 'Ultra - Prioridade Máxima', color: 'amber', icon: ShieldCheck };
+    case 'premium': return { priority: 3, label: 'Premium - Destaque', color: 'purple', icon: Gift };
+    case 'pro': return { priority: 2, label: 'Pro - Vantagem', color: 'blue', icon: Target };
+    default: return { priority: 1, label: 'Básico', color: 'slate', icon: null };
+  }
+};
+
+// ... inside Home component, sort promotions
 const getInstaLinkType = (link: string) => {
   if (!link) return 'profile';
   if (link.includes('/reel/')) return 'reel';
@@ -27,6 +38,7 @@ const getInstaLinkType = (link: string) => {
 
 export default function Home() {
   const [promotions, setPromotions] = useState<Promotion[]>([]);
+  const sortedPromotions = [...promotions].sort((a, b) => getPlanConfig(b.plan).priority - getPlanConfig(a.plan).priority);
   const [loading, setLoading] = useState(true);
   const [refreshCount, setRefreshCount] = useState(0);
   const { user, refreshUser } = useAuth();
@@ -231,11 +243,57 @@ export default function Home() {
                       </Button>
                     </motion.div>
                   ) : (
-                    promotions.map((p, i) => {
+                    sortedPromotions.map((p, i) => {
                       const linkType = getInstaLinkType(p.url);
                       const isContent = linkType === 'post' || linkType === 'reel';
                       const promoTypeLabel = linkType === 'post' ? 'Divulgação de Postagem' : (linkType === 'reel' ? 'Divulgação de Reel' : 'Divulgação de Perfil');
+                      const config = getPlanConfig(p.plan);
+                      const isPromoted = p.plan && p.plan !== 'basic';
                       
+                      const BGS = {
+                        amber: 'bg-amber-500/10',
+                        purple: 'bg-purple-500/10',
+                        blue: 'bg-blue-500/10',
+                        slate: 'bg-slate-500/10'
+                      };
+                      const BORDERS = {
+                        amber: 'border-amber-500/30',
+                        purple: 'border-purple-500/30',
+                        blue: 'border-blue-500/30',
+                        slate: 'border-border'
+                      };
+                      const TEXTS = {
+                        amber: 'text-amber-500',
+                        purple: 'text-purple-500',
+                        blue: 'text-blue-500',
+                        slate: ''
+                      };
+                      const AVATARS = {
+                        amber: 'bg-gradient-to-tr from-amber-400 to-orange-500',
+                        purple: 'bg-gradient-to-tr from-purple-400 to-pink-500',
+                        blue: 'bg-gradient-to-tr from-blue-400 to-indigo-500',
+                        slate: isContent ? 'bg-gradient-to-tr from-purple-500 to-pink-500' : 'bg-gradient-to-tr from-yellow-400 to-orange-500'
+                      };
+                      const BADGES = {
+                        amber: 'bg-amber-500/20 text-amber-600',
+                        purple: 'bg-purple-500/20 text-purple-600',
+                        blue: 'bg-blue-500/20 text-blue-600',
+                        slate: 'bg-primary/10 text-primary'
+                      };
+                      const GRADIENTS = {
+                        amber: 'bg-gradient-to-tr from-amber-500/10 to-transparent',
+                        purple: 'bg-gradient-to-tr from-purple-500/10 to-transparent',
+                        blue: 'bg-gradient-to-tr from-blue-500/10 to-transparent',
+                        slate: 'bg-card'
+                      };
+
+                      const bgColor = isPromoted ? GRADIENTS[config.color as keyof typeof GRADIENTS] : 'bg-card';
+                      const borderColor = BORDERS[config.color as keyof typeof BORDERS];
+                      const textColor = TEXTS[config.color as keyof typeof TEXTS];
+                      const iconBg = BGS[config.color as keyof typeof BGS];
+                      const avatarBg = AVATARS[config.color as keyof typeof AVATARS];
+                      const badgeClasses = BADGES[config.color as keyof typeof BADGES];
+
                       return (
                       <motion.div 
                         key={p.id}
@@ -243,31 +301,45 @@ export default function Home() {
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.9 }}
                         transition={{ delay: i * 0.1 }}
-                        className="p-5 bg-card rounded-2xl border border-border shadow-sm flex flex-col gap-4 overflow-hidden"
+                        className={`p-5 rounded-3xl border ${bgColor} ${borderColor} shadow-lg flex flex-col gap-4 overflow-hidden relative`}
                       >
+                        {isPromoted && (
+                           <div className={`text-[10px] font-bold ${textColor} uppercase flex items-center gap-1 mb-1 ${iconBg} px-2 py-0.5 rounded-full self-start`}>
+                              <motion.div
+                                animate={{ scale: [1, 1.2, 1] }}
+                                transition={{ repeat: Infinity, duration: 2 }}
+                              >
+                                {config.icon && <config.icon size={12} />}
+                              </motion.div>
+                              {config.label}
+                           </div>
+                        )}
                         <div className="flex items-center gap-3 w-full">
-                          <div className={`w-10 h-10 rounded-full flex items-center flex-shrink-0 justify-center text-white font-bold text-xs bg-gradient-to-tr ${isContent ? 'from-purple-500 to-pink-500' : 'from-yellow-400 to-orange-500'}`}>
+                          <div className={`w-12 h-12 rounded-full flex items-center flex-shrink-0 justify-center text-white font-bold text-sm ${avatarBg}`}>
                             {p.username.substring(0, 2).toUpperCase()}
                           </div>
                           <div className="flex flex-col">
-                            <span className="font-semibold text-sm">@{p.username}</span>
+                            <span className="font-bold text-sm">@{p.username}</span>
                             <span className="text-[10px] text-muted-foreground uppercase tracking-widest">{promoTypeLabel}</span>
                           </div>
-                          <span className="text-primary font-bold ml-auto bg-primary/10 px-2 py-1 rounded-md text-sm flex items-center gap-1 border border-primary/20">
+                          <motion.span 
+                             whileHover={{ scale: 1.05 }}
+                             className={`${badgeClasses} font-bold ml-auto px-3 py-1 rounded-full text-xs flex items-center gap-1 border border-current`}
+                          >
                             +0.2 <AnimatedIcon type="coin" size={14} className="ml-1" />
-                          </span>
+                          </motion.span>
                         </div>
 
                         {/* Thumbnail View */}
                         <div 
                            onClick={() => openViewer(p)}
-                           className="w-full h-40 bg-zinc-900 rounded-xl mt-2 relative overflow-hidden flex items-center justify-center cursor-pointer group"
+                           className="w-full h-40 bg-zinc-900 rounded-2xl mt-2 relative overflow-hidden flex items-center justify-center cursor-pointer group shadow-inner"
                         >
                             <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent"></div>
-                            <div className="w-16 h-16 rounded-full bg-white/20 backdrop-blur-sm border border-white/20 flex flex-col items-center justify-center text-white group-hover:scale-110 transition-transform">
+                            <div className="w-16 h-16 rounded-full bg-white/20 backdrop-blur-md border border-white/20 flex flex-col items-center justify-center text-white group-hover:scale-110 transition-transform duration-500">
                                {isContent ? <Play size={28} className="ml-1" /> : <UserPlus size={24} />}
                             </div>
-                            <span className="absolute bottom-4 text-white text-xs font-bold uppercase tracking-widest">
+                            <span className="absolute bottom-4 text-white text-xs font-bold uppercase tracking-widest bg-black/40 px-3 py-1 rounded-full backdrop-blur-sm">
                                {isContent ? 'Assistir Conteúdo' : 'Ver Perfil'}
                             </span>
                         </div>

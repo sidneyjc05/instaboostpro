@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { useAuth } from '../context/AuthContext';
-import { User as UserIcon, Mail, LogOut, Loader2, Diamond, Users, Copy, CheckCircle, Share2, AlertTriangle, ShieldCheck, History, PlusSquare, X, Check, Clock, Zap, Gift, Coins } from 'lucide-react';
+import { User as UserIcon, Mail, LogOut, Loader2, Diamond, Users, Copy, CheckCircle, Share2, AlertTriangle, ShieldCheck, History, PlusSquare, X, Check, Clock, Zap, Gift, Coins, PlaySquare, Heart } from 'lucide-react';
 
 // Componente do Cronômetro do Plano
 function PlanCountdown({ expiresAt }: { expiresAt: string }) {
@@ -113,6 +113,12 @@ function PromotionItem({ promo, onRefresh, isExpired, playClick, playSuccess }: 
     return () => clearInterval(timer);
   }, [promo.expires_at, onRefresh]);
 
+  const formatTime = (seconds: number) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
+
   const handleReboost = async () => {
     playClick();
     setLoading(true);
@@ -139,73 +145,95 @@ function PromotionItem({ promo, onRefresh, isExpired, playClick, playSuccess }: 
      return 'PERFIL';
   };
 
+  const type = getInstaType(promo.url);
+  const typeColors = {
+    'REEL': 'bg-purple-500/10 text-purple-400 border-purple-500/20',
+    'POST': 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+    'PERFIL': 'bg-primary/10 text-primary border-primary/20'
+  };
+
   return (
-    <div className={`p-4 rounded-2xl border transition-all flex flex-col gap-4 ${isExpired ? 'bg-destructive/5 border-destructive/20 grayscale opacity-80 shadow-inner' : 'bg-background/40 border-border/50 hover:border-primary/30 hover:bg-background/60 shadow-lg shadow-black/5'}`}>
-       <div className="flex justify-between items-start">
-          <div className="flex flex-col gap-1 overflow-hidden">
-             <div className="flex items-center gap-2">
-                <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-md ${getInstaType(promo.url) === 'REEL' ? 'bg-purple-500/20 text-purple-600' : getInstaType(promo.url) === 'POST' ? 'bg-blue-500/20 text-blue-600' : 'bg-primary/20 text-primary'}`}>
-                   {getInstaType(promo.url)}
+    <div className={`group relative p-5 rounded-[2rem] border transition-all flex flex-col gap-5 ${
+      isExpired 
+        ? 'bg-destructive/5 border-destructive/10 opacity-70 hover:opacity-100 hover:border-destructive/30 grayscale-[0.5]' 
+        : 'bg-white/5 border-white/10 hover:bg-white/[0.08] hover:border-primary/30 shadow-xl shadow-black/20'
+    }`}>
+       {/* Status Badges */}
+       <div className="flex justify-between items-center">
+          <div className="flex items-center gap-2">
+             <span className={`text-[10px] font-black uppercase px-2.5 py-1 rounded-full border ${typeColors[type]}`}>
+                {type}
+             </span>
+             {isExpired && (
+                <span className="text-[10px] font-black uppercase px-2.5 py-1 rounded-full bg-destructive/10 text-destructive border border-destructive/20 flex items-center gap-1">
+                  Expirado
                 </span>
-                {isExpired && (
-                   <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-md bg-destructive/20 text-destructive">Expirado</span>
-                )}
-             </div>
-             <span className="text-xs font-bold truncate opacity-50 max-w-[150px] sm:max-w-xs">{promo.url}</span>
+             )}
           </div>
           
-          <div className="text-right">
-             <div className="flex items-center gap-1.5 justify-end">
-                <AnimatedIcon type="coin" size={12} />
-                <span className="text-xs font-black">Ganhou: {promo.interactions_count * 0.2}</span>
+          <div className="flex items-center gap-3">
+             <div className="text-right">
+                <div className="flex items-center gap-1.5 justify-end">
+                   <AnimatedIcon type="coin" size={14} />
+                   <span className="text-sm font-black whitespace-nowrap">{(promo.interactions_count * 0.2).toFixed(1)}</span>
+                </div>
+                <div className="flex items-center gap-1 justify-end opacity-60">
+                   <Users size={10} />
+                   <span className="text-[10px] font-bold uppercase tracking-tight">{promo.interactions_count} Envios</span>
+                </div>
              </div>
-             <span className="text-[10px] font-bold text-muted-foreground italic">Interações: {promo.interactions_count}</span>
           </div>
        </div>
 
-       <div className="flex items-center justify-between gap-4 pt-4 border-t border-border/20">
+       {/* URL Content */}
+       <div className="flex items-center gap-3 bg-black/20 rounded-2xl p-3 border border-white/5 group-hover:border-white/10 transition-colors">
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${isExpired ? 'bg-destructive/20 text-destructive' : 'bg-primary/20 text-primary'}`}>
+             {type === 'REEL' ? <PlaySquare size={20} /> : type === 'POST' ? <Heart size={20} /> : <UserIcon size={20} />}
+          </div>
+          <div className="flex flex-col min-w-0">
+             <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest leading-none mb-1">Link Impulsionado</span>
+             <span className="text-xs font-bold truncate text-foreground/80">{promo.url}</span>
+          </div>
+       </div>
+
+       {/* Timer and Action */}
+       <div className={`flex items-center justify-between gap-4 pt-3 border-t border-white/5`}>
           <div className="flex flex-col">
-             <span className="text-[9px] font-black uppercase text-muted-foreground mb-1 tracking-widest">{isExpired ? 'Sone em' : 'Expirando em'}</span>
+             <span className="text-[10px] font-black uppercase text-muted-foreground mb-1 tracking-widest">
+                {isExpired ? 'Sone em' : 'Tempo Restante'}
+             </span>
              <div className="flex items-center gap-2">
-                <Clock size={16} className={isExpired ? 'text-destructive animate-pulse' : 'text-primary'} />
-                <span className={`text-xl font-black tabular-nums tracking-tighter ${isExpired ? 'text-destructive font-mono' : 'text-foreground'}`}>
+                <Clock size={18} className={isExpired ? 'text-destructive' : 'text-primary animate-pulse'} />
+                <span className={`text-2xl font-black tabular-nums tracking-tighter ${isExpired ? 'text-destructive italic' : 'text-foreground'}`}>
                    {timeLeft ? (
                       `${timeLeft.m.toString().padStart(2, '0')}:${timeLeft.s.toString().padStart(2, '0')}`
                    ) : (
-                      deleteIn !== null ? (
-                         `00:${deleteIn.toString().padStart(2, '0')}`
-                      ) : '---'
+                      deleteIn !== null ? formatTime(deleteIn) : '00:00'
                    )}
                 </span>
              </div>
           </div>
 
-          {isExpired ? (
-             <Button 
-                onClick={handleReboost} 
-                isLoading={loading}
-                variant="destructive" 
-                size="sm" 
-                className="rounded-xl h-10 px-4 font-black uppercase text-[10px] tracking-widest active:scale-95"
-             >
-                Republicar
-             </Button>
-          ) : (
-             <div className="flex gap-1">
+          <div className="flex gap-2">
+             {isExpired ? (
                 <Button 
-                  variant="ghost" 
-                  className="rounded-xl p-2 h-10 w-10 text-primary hover:bg-primary/10 border border-primary/20"
-                  onClick={() => window.open(promo.url, '_blank')}
+                   onClick={handleReboost} 
+                   isLoading={loading}
+                   className="rounded-2xl font-black bg-primary text-primary-foreground hover:bg-primary/90 px-6 h-12 shadow-lg shadow-primary/20"
                 >
-                  <Share2 size={16} />
+                   RENOVAR
                 </Button>
-             </div>
-          )}
+             ) : (
+                <div className="p-3 bg-secondary/50 rounded-2xl border border-white/5 flex items-center gap-2 opacity-50">
+                   <Zap size={16} className="text-primary fill-primary" />
+                   <span className="text-[10px] font-black uppercase tracking-wider">Ativo</span>
+                </div>
+             )}
+          </div>
        </div>
     </div>
   );
 }
-
 export default function Profile() {
   const { user, logout, refreshUser } = useAuth();
   const { playClick, playSuccess } = useAppSound();

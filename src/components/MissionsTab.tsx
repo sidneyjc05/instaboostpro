@@ -61,87 +61,124 @@ const LEVEL_COLORS = [
   'from-purple-500 to-violet-600'
 ];
 
-export function MissionsTab({ onGoToFeed }: { onGoToFeed: () => void }) {
-  const [state, setState] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const { refreshUser } = useAuth();
-  
-  const loadMissions = async () => {
-    try {
-      const res = await fetch('/api/missions');
-      if (res.ok) setState(await res.json());
-    } catch {
-      showNotification.error('Erro ao carregar missões');
-    } finally {
-      setLoading(false);
+const getDynamicMissionConfig = (type: string, level: number) => {
+    const baseConfig = MISSION_CONFIG[type as keyof typeof MISSION_CONFIG];
+    if (!baseConfig) return null;
+
+    if (level <= 5) {
+        return {
+            goal: baseConfig.goals[level - 1],
+            reward: baseConfig.rewards[level - 1],
+            tickets: baseConfig.tickets ? baseConfig.tickets[level - 1] : 0
+        };
     }
-  };
 
-  useEffect(() => {
-    loadMissions();
+    const lastPaidLevel = 5;
+    const baseGoal = baseConfig.goals[lastPaidLevel - 1];
+    const baseReward = baseConfig.rewards[lastPaidLevel - 1];
+    const baseTickets = baseConfig.tickets ? baseConfig.tickets[lastPaidLevel - 1] : 0;
+
+    const diff = level - lastPaidLevel;
+    const goalMultiplier = Math.pow(1.5, diff);
+    const rewardMultiplier = Math.pow(1.4, diff);
+
+    let goal = Math.floor(baseGoal * goalMultiplier);
+    if (goal > 100) goal = Math.round(goal / 10) * 10;
     
-    // Increment time mission every minute
-    const interval = setInterval(async () => {
-        if (!document.hidden) {
-            try {
-                await fetch('/api/missions/progress', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ type: 'time', amount: 1 })
-                });
-                loadMissions();
-            } catch {}
+    const reward = parseFloat((baseReward * rewardMultiplier).toFixed(1));
+    const tickets = Math.floor(baseTickets + diff / 2);
+
+    return { goal, reward, tickets };
+};
+
+export function MissionsTab({ onGoToFeed }: { onGoToFeed: () => void }) {
+    const [state, setState] = useState<any>(null);
+    const [loading, setLoading] = useState(true);
+    const [timeSeconds, setTimeSeconds] = useState(0);
+    const { refreshUser } = useAuth();
+    
+    const loadMissions = async () => {
+        try {
+            const res = await fetch('/api/missions');
+            if (res.ok) setState(await res.json());
+        } catch {
+            showNotification.error('Erro ao carregar missões');
+        } finally {
+            setLoading(false);
         }
-    }, 60000);
+    };
 
-    return () => clearInterval(interval);
-  }, []);
+    useEffect(() => {
+        loadMissions();
+        
+        // Local sub-minute progress for time mission
+        const smoothInterval = setInterval(() => {
+            if (!document.hidden) {
+                setTimeSeconds(prev => {
+                    if (prev >= 59) return 0;
+                    return prev + 1;
+                });
+            }
+        }, 1000);
 
-  if (loading || !state) {
+        // Refresh mission data every 30s to sync with global progress
+        const interval = setInterval(loadMissions, 30000);
+
+        return () => {
+            clearInterval(interval);
+            clearInterval(smoothInterval);
+        };
+    }, []);
+
+    if (loading || !state) {
+        return (
+            <div className="flex flex-col gap-4">
+                {[1,2,3,4].map(i => (
+                   <div key={i} className="h-32 bg-secondary animate-pulse rounded-2xl"></div>
+                ))}
+            </div>
+        );
+    }
+
     return (
-      <div className="flex flex-col gap-4">
-        {[1,2,3,4].map(i => (
-           <div key={i} className="h-32 bg-secondary animate-pulse rounded-2xl"></div>
-        ))}
-      </div>
+        <div className="flex flex-col gap-5">
+            <div className="bg-primary/10 border border-primary/20 rounded-2xl p-4 flex items-start gap-3">
+               <Clock className="text-primary mt-1 shrink-0" />
+               <p className="text-sm text-foreground/90">
+                  Após 10 minutos de inatividade, o progresso da sua missão é zerado (exceto recompensas resgatadas). Foco total!
+               </p>
+            </div>
+
+            {Object.entries(MISSION_CONFIG).map(([key, config]) => (
+              <MissionCard 
+                 key={key} 
+                 missionKey={key} 
+                 config={config} 
+                 state={state[key]} 
+                 timeSeconds={key === 'time' ? timeSeconds : 0}
+                 onUpdate={loadMissions}
+                 refreshUser={refreshUser}
+                 onOpenViewer={() => {
+                     if (key !== 'time') onGoToFeed();
+                 }}
+              />
+            ))}
+        </div>
     );
-  }
-
-  return (
-    <div className="flex flex-col gap-5">
-       <div className="bg-primary/10 border border-primary/20 rounded-2xl p-4 flex items-start gap-3">
-          <Clock className="text-primary mt-1 shrink-0" />
-          <p className="text-sm text-foreground/90">
-             Após 10 minutos de inatividade, o progresso da sua missão é zerado (exceto recompensas resgatadas). Foco total!
-          </p>
-       </div>
-
-       {Object.entries(MISSION_CONFIG).map(([key, config]) => (
-         <MissionCard 
-            key={key} 
-            missionKey={key} 
-            config={config} 
-            state={state[key]} 
-            onUpdate={loadMissions}
-            refreshUser={refreshUser}
-            onOpenViewer={() => {
-                if (key !== 'time') onGoToFeed();
-            }}
-         />
-       ))}
-    </div>
-  );
 }
 
-function MissionCard({ missionKey, config, state, onUpdate, refreshUser, onOpenViewer }: any) {
+function MissionCard({ missionKey, config, state, onUpdate, refreshUser, onOpenViewer, timeSeconds }: any) {
     const [submitting, setSubmitting] = useState(false);
     const { user } = useAuth();
 
+    const dynamicConfig = getDynamicMissionConfig(missionKey, state.level);
+    if (!dynamicConfig) return null;
+
     const levelIndex = Math.min(state.level - 1, 4);
-    const bgGradient = LEVEL_COLORS[levelIndex];
-    const goal = config.goals[levelIndex];
-    let reward = config.rewards[levelIndex];
-    const tickets = config.tickets ? config.tickets[levelIndex] : 0;
+    const bgGradient = LEVEL_COLORS[levelIndex % LEVEL_COLORS.length];
+    const goal = dynamicConfig.goal;
+    let reward = dynamicConfig.reward;
+    const tickets = dynamicConfig.tickets;
 
     if (user?.plan_type === 'pro') reward *= 1.8;
     else if (user?.plan_type === 'premium') reward *= 2.3;
@@ -149,8 +186,13 @@ function MissionCard({ missionKey, config, state, onUpdate, refreshUser, onOpenV
 
     reward = parseFloat(reward.toFixed(1));
 
+    // Smooth progress for time mission
+    const displayProgress = missionKey === 'time' && state.progress < goal 
+        ? state.progress + (timeSeconds / 60)
+        : state.progress;
+
     const isCompleted = state.progress >= goal;
-    const progressPercent = Math.min((state.progress / goal) * 100, 100);
+    const progressPercent = Math.min((displayProgress / goal) * 100, 100);
 
     const handleClaim = async (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -195,11 +237,11 @@ function MissionCard({ missionKey, config, state, onUpdate, refreshUser, onOpenV
                                 <span className="text-primary font-bold flex items-center gap-1">
                                     {reward} <AnimatedIcon type="coin" size={14} />
                                 </span>
-                                {config.tickets && config.tickets[state.level - 1] > 0 && (
+                                {tickets > 0 && (
                                   <>
                                     <span className="text-muted-foreground/30">•</span>
                                     <span className="text-orange-500 font-bold flex items-center gap-0.5">
-                                      +{config.tickets[state.level - 1]} <AnimatedIcon type="ticket" size={14} />
+                                      +{tickets} <AnimatedIcon type="ticket" size={14} />
                                     </span>
                                   </>
                                 )}
@@ -218,7 +260,9 @@ function MissionCard({ missionKey, config, state, onUpdate, refreshUser, onOpenV
 
                 <div className="flex items-center justify-between mt-1 gap-2">
                     <div className="text-left font-mono">
-                       <span className="font-bold text-xl sm:text-2xl text-foreground">{state.progress}</span>
+                       <span className="font-bold text-xl sm:text-2xl text-foreground">
+                          {missionKey === 'time' ? displayProgress.toFixed(1) : state.progress}
+                       </span>
                        <span className="text-muted-foreground text-[10px] sm:text-sm font-medium"> / {goal} {missionKey === 'time' ? 'min' : ''}</span>
                     </div>
                     

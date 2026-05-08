@@ -61,6 +61,7 @@ const hasDeviceChangeCount = userCols.some(c => c.name === 'device_change_count'
 const hasActiveDeviceHash = userCols.some(c => c.name === 'active_device_hash');
 const hasReferralCode = userCols.some(c => c.name === 'referral_code');
 const hasReferredBy = userCols.some(c => c.name === 'referred_by');
+const hasLastRoulettePrize = userCols.some(c => c.name === 'last_roulette_prize');
 
 const paymentCols = db.prepare('PRAGMA table_info(payments)').all() as any[];
 const hasPaymentTickets = paymentCols.some(c => c.name === 'tickets');
@@ -82,6 +83,7 @@ if (!hasSessionVersion) db.exec('ALTER TABLE users ADD COLUMN session_version IN
 if (!hasDeviceChangeCount) db.exec('ALTER TABLE users ADD COLUMN device_change_count INTEGER DEFAULT 0;');
 if (!hasActiveDeviceHash) db.exec('ALTER TABLE users ADD COLUMN active_device_hash TEXT;');
 if (!hasReferredBy) db.exec('ALTER TABLE users ADD COLUMN referred_by INTEGER;');
+if (!hasLastRoulettePrize) db.exec('ALTER TABLE users ADD COLUMN last_roulette_prize REAL DEFAULT 0;');
 
 const hasPlanType = userCols.some(c => c.name === 'plan_type');
 const hasPlanExpiresAt = userCols.some(c => c.name === 'plan_expires_at');

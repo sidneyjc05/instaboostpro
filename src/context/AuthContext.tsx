@@ -54,8 +54,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     
     // Polling para atualizações "ao vivo" (cada 30 segundos)
     const interval = setInterval(fetchUser, 30000);
-    return () => clearInterval(interval);
-  }, []);
+
+    // Global Time in App mission tracking (increment every minute)
+    const missionInterval = setInterval(async () => {
+        if (!document.hidden && user) {
+            try {
+                await fetch('/api/missions/progress', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ type: 'time', amount: 1 })
+                });
+            } catch {}
+        }
+    }, 60000);
+
+    return () => {
+        clearInterval(interval);
+        clearInterval(missionInterval);
+    };
+  }, [user?.id]); // Restart if user changes
 
   const logout = async () => {
     await fetch('/api/auth/logout', { method: 'POST' });
