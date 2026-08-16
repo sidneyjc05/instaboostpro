@@ -3,17 +3,18 @@ import { useSearchParams, useNavigate } from 'react-router';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
-import { OTPInput } from '../components/ui/OTPInput';
 import { showNotification } from '../context/NotificationContext';
-import { Instagram, ShieldAlert, Eye, EyeOff, Mail } from 'lucide-react';
+import { Instagram, Eye, EyeOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
+import { doc, setDoc, getDoc } from 'firebase/firestore';
+import { auth, db } from '../lib/firebase';
 
 export default function Login() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [isLogin, setIsLogin] = useState(!searchParams.get('register'));
   const [forgotMode, setForgotMode] = useState(false);
-  const [forgotStep, setForgotStep] = useState<1 | 2>(1); // 1 = enter email, 2 = enter code & generic new password
 
   useEffect(() => {
      if (searchParams.get('register')) {
@@ -25,50 +26,21 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [verificationCode, setVerificationCode] = useState('');
-  const [requiresVerification, setRequiresVerification] = useState(false);
   const [loading, setLoading] = useState(false);
   const { refreshUser } = useAuth();
 
   const handleForgotSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    
     try {
-       if (forgotStep === 1) {
-          const res = await fetch('/api/auth/recover/send', {
-             method: 'POST',
-             headers: { 'Content-Type': 'application/json' },
-             body: JSON.stringify({ email })
-          });
-          const data = await res.json();
-          if (res.ok) {
-             showNotification.success('Se o e-mail estiver cadastrado, um código foi enviado.');
-             setForgotStep(2);
-          } else {
-             showNotification.error(data.error);
-          }
-       } else {
-          const res = await fetch('/api/auth/recover/reset', {
-             method: 'POST',
-             headers: { 'Content-Type': 'application/json' },
-             body: JSON.stringify({ email, code: verificationCode, newPassword: password })
-          });
-          const data = await res.json();
-          if (res.ok) {
-             showNotification.success('Senha atualizada com sucesso! Faça login.');
-             setForgotMode(false);
-             setIsLogin(true);
-             setPassword('');
-             setVerificationCode('');
-          } else {
-             showNotification.error(data.error);
-          }
-       }
-    } catch {
-       showNotification.error('Erro de conexão');
+      await sendPasswordResetEmail(auth, email);
+      showNotification.success('E-mail de recuperação enviado com sucesso!');
+      setForgotMode(false);
+    } catch (err: any) {
+      console.error(err);
+      showNotification.error('Erro ao enviar e-mail. Verifique se o e-mail está correto.');
     } finally {
-       setLoading(false);
+      setLoading(false);
     }
   };
 
@@ -76,67 +48,41 @@ export default function Login() {
     e.preventDefault();
     setLoading(true);
     try {
-      const endpoint = isLogin ? '/api/auth/login' : '/api/auth/register';
-      const body = isLogin 
-         ? { username, password, verificationCode } 
-         : { username, email, password };
-
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
-      
-      const contentType = res.headers.get('content-type');
-      let data: any;
-      if (contentType && contentType.includes('application/json')) {
-        data = await res.json();
-      } else {
-        const text = await res.text();
-        console.error("Non-JSON response received:", text.substring(0, 500));
-        throw new Error(`O servidor retornou uma resposta inválida (Status ${res.status}). Veja o console para detalhes.`);
-      }
-      
-      if (res.ok) {
-        if (data.bypassed) {
-           showNotification.success(`Código de bypass injetado (Bypass Ativado) - ${data.code}`);
-           setRequiresVerification(true); // it still acts like required verify screen
-           // setVerificationCode(data.code) // Auto fill or let user type it?
-        } else {
-           // Claim referral code if it exists and we just registered
-           if (!isLogin) {
-             const refCode = localStorage.getItem('referral_code');
-             if (refCode) {
-                try {
-                   await fetch('/api/me/referral/claim', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ code: refCode })
-                   });
-                   // we just ignore errors, if it applied it applied
-                } catch(e) {}
-             }
-           }
-
-           showNotification.success(isLogin ? 'Autenticação concluída!' : 'Conta criada com sucesso!');
-           await refreshUser();
+      if (isLogin) {
+        // Firebase Auth usa email para login. Se o usuário digitou username, 
+        // seria necessário buscar o email no Firestore antes, mas vamos focar em email no Firebase.
+        const loginEmail = email || username; // Permitindo que ele use o campo username como email se quiser
+        if (!loginEmail.includes('@')) {
+           throw new Error("Por favor, use seu E-mail cadastrado para fazer login.");
         }
+        await signInWithEmailAndPassword(auth, loginEmail, password);
+        await refreshUser();
+        showNotification.success('Autenticação concluída!');
       } else {
-        if (data.requiresVerification) {
-          setRequiresVerification(true);
-          if (data.bypassed) {
-            setVerificationCode(data.code);
-            showNotification.success(`Bypass: Use o código ${data.code}`);
-          } else {
-            showNotification.info(data.error || 'Verificação necessária.');
-          }
-        } else {
-          showNotification.error(data.error || 'Usuário ou senha incorretos.');
+        if (!email.includes('@')) {
+           throw new Error("Por favor, forneça um e-mail válido.");
         }
+        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        const user = userCredential.user;
+        
+        // Criar perfil no Firestore
+        await setDoc(doc(db, "users", user.uid), {
+           username,
+           email,
+           role: 'user',
+           is_verified: false,
+           is_blocked: false,
+           credits: 0,
+           tickets: 0,
+           created_at: new Date().toISOString()
+        });
+
+        await refreshUser();
+        showNotification.success('Conta criada com sucesso!');
       }
-    } catch (err) {
-      console.error("Login Fetch Error:", err);
-      showNotification.error('Erro de conexão com o servidor. Tente novamente.');
+    } catch (err: any) {
+      console.error("Login Error:", err);
+      showNotification.error(err.message || 'Erro na autenticação. Verifique os dados.');
     } finally {
       setLoading(false);
     }
@@ -150,162 +96,93 @@ export default function Login() {
         className="w-full max-w-sm p-6 bg-card rounded-3xl shadow-xl border border-border"
       >
         <div className="flex flex-col items-center mb-8">
-           {requiresVerification || forgotMode ? (
-              <div className="w-16 h-16 bg-orange-500 rounded-2xl flex items-center justify-center text-white mb-4 shadow-[0_0_25px_rgba(249,115,22,0.4)]">
-                 <ShieldAlert size={32} />
-              </div>
-           ) : (
-              <div className="w-16 h-16 bg-primary rounded-2xl flex items-center justify-center text-white mb-4 shadow-[0_0_25px_rgba(139,92,246,0.4)]">
-                <Instagram size={32} />
-              </div>
-           )}
+           <div className="w-16 h-16 bg-primary rounded-2xl flex items-center justify-center text-white mb-4 shadow-[0_0_25px_rgba(139,92,246,0.4)]">
+             <Instagram size={32} />
+           </div>
           <h1 className="text-2xl font-extrabold tracking-tight">InstaBoost <span className="text-primary">PRO</span></h1>
           <p className="text-sm text-muted-foreground mt-1 text-center">
-            {requiresVerification 
-                ? 'Verificação de Segurança Restrita' 
-                : forgotMode ? 'Recuperação de Conta' : 'Conecte-se para começar'
-            }
+            {forgotMode ? 'Recuperação de Conta' : 'Conecte-se para começar'}
           </p>
         </div>
 
         {forgotMode ? (
            <form onSubmit={handleForgotSubmit} className="flex flex-col gap-4">
-               <AnimatePresence mode="popLayout">
-                 {forgotStep === 1 ? (
-                    <motion.div key="step1" exit={{ opacity: 0 }} className="flex flex-col gap-4">
-                       <p className="text-sm text-center text-muted-foreground mb-2">
-                          Digite seu e-mail cadastrado. Se ele existir na nossa base, enviaremos um código.
-                       </p>
-                       <Input 
-                         type="email"
-                         placeholder="Seu E-mail" 
-                         value={email}
-                         onChange={(e) => setEmail(e.target.value)}
-                         required
-                       />
-                       <Button type="submit" isLoading={loading} className="w-full mt-2">
-                          Enviar Código
-                       </Button>
-                    </motion.div>
-                 ) : (
-                    <motion.div key="step2" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="flex flex-col gap-4">
-                       <div className="p-3 bg-orange-500/10 border border-orange-500/20 text-orange-600 dark:text-orange-300 text-sm rounded-xl text-center">
-                          Código enviado! Verifique seu E-mail.
-                       </div>
-                       <OTPInput value={verificationCode} onChange={setVerificationCode} />
-                       <Input 
-                          type="password"
-                          placeholder="Nova Senha" 
-                          value={password}
-                          onChange={(e) => setPassword(e.target.value)}
-                          required
-                       />
-                       <Button type="submit" isLoading={loading} className="w-full mt-2">
-                          Redefinir Senha
-                       </Button>
-                    </motion.div>
-                 )}
-              </AnimatePresence>
-              <div className="mt-4 text-center">
-                <button 
-                  type="button"
-                  className="text-sm font-bold text-muted-foreground hover:underline focus:outline-none"
-                  onClick={() => {
-                     setForgotMode(false);
-                     setForgotStep(1);
-                     setVerificationCode('');
-                     setPassword('');
-                  }}
-                >
-                  Voltar ao Login
-                </button>
-              </div>
+               <p className="text-sm text-center text-muted-foreground mb-2">
+                  Digite seu e-mail cadastrado para redefinir a senha.
+               </p>
+               <Input 
+                 type="email"
+                 placeholder="Seu E-mail" 
+                 value={email}
+                 onChange={(e) => setEmail(e.target.value)}
+                 required
+               />
+               <Button type="submit" isLoading={loading} className="w-full mt-2">
+                  Enviar E-mail de Recuperação
+               </Button>
+               <div className="mt-4 text-center">
+                 <button 
+                   type="button"
+                   className="text-sm font-bold text-muted-foreground hover:underline focus:outline-none"
+                   onClick={() => setForgotMode(false)}
+                 >
+                   Voltar ao Login
+                 </button>
+               </div>
            </form>
         ) : (
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <AnimatePresence mode="popLayout">
-            {requiresVerification ? (
-               <motion.div key="verify" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="flex flex-col gap-5">
-                  <div className="flex flex-col items-center justify-center p-6 bg-orange-500/10 border border-orange-500/20 rounded-[2rem] text-center">
-                     <div className="w-12 h-12 bg-orange-500/20 text-orange-500 rounded-full flex items-center justify-center mb-4">
-                        <Mail size={24} />
-                     </div>
-                     <h3 className="text-lg font-bold text-orange-600 dark:text-orange-400 mb-2">Verificação Requerida</h3>
-                     <p className="text-xs text-muted-foreground leading-relaxed">
-                        Detectamos um acesso de um novo dispositivo ou rede. Enviamos um código de segurança de 6 dígitos para o seu Gmail cadastrado.
-                     </p>
-                  </div>
-                  
-                  <div className="space-y-4">
-                     <OTPInput 
-                        value={verificationCode}
-                        onChange={setVerificationCode}
-                     />
-                     <p className="text-[10px] text-center text-muted-foreground px-2">
-                        O código pode demorar até 10 minutos. Se não encontrar, verifique a pasta de SPAM.
-                     </p>
-                  </div>
-               </motion.div>
-            ) : (
-               <motion.div key="auth" exit={{ opacity: 0 }} className="flex flex-col gap-4">
+             <motion.div key="auth" exit={{ opacity: 0 }} className="flex flex-col gap-4">
+                {!isLogin && (
                   <Input 
-                    placeholder="Nome de usuário ou E-mail" 
+                    placeholder="Nome de usuário (Ex: @seu_insta)" 
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
-                    required
+                    required={!isLogin}
                   />
-                  {!isLogin && (
-                    <div className="flex flex-col gap-1">
-                      <Input 
-                        type="email"
-                        placeholder="E-mail" 
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                      />
-                      <p className="text-[10px] text-muted-foreground ml-1">
-                         Opcional. Extremamente recomendado para recuperar a conta e essencial se for o primeiro usuário (Admin) do sistema.
-                      </p>
-                    </div>
-                  )}
-                  <div className="relative">
-                    <Input 
-                      type={showPassword ? "text" : "password"} 
-                      placeholder="Senha" 
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      required
-                      className="pr-10"
-                    />
-                    <button 
-                       type="button" 
-                       onClick={() => setShowPassword(!showPassword)}
-                       className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground/80 focus:outline-none"
-                    >
-                       {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                    </button>
-                  </div>
-               </motion.div>
-            )}
+                )}
+                <Input 
+                  type="email"
+                  placeholder="Seu E-mail" 
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                />
+                <div className="relative">
+                  <Input 
+                    type={showPassword ? "text" : "password"} 
+                    placeholder="Senha" 
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    className="pr-10"
+                  />
+                  <button 
+                     type="button" 
+                     onClick={() => setShowPassword(!showPassword)}
+                     className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground/80 focus:outline-none"
+                  >
+                     {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+             </motion.div>
           </AnimatePresence>
           
           <Button type="submit" isLoading={loading} className="w-full mt-2">
-            {requiresVerification ? 'Validar Código' : (isLogin ? 'Entrar' : 'Criar Conta')}
+            {isLogin ? 'Entrar' : 'Criar Conta'}
           </Button>
         </form>
         )}
 
-        {!requiresVerification && !forgotMode && (
+        {!forgotMode && (
            <>
              <p className="mt-6 text-center text-sm text-muted-foreground">
                {isLogin ? 'Não tem uma conta?' : 'Já tem uma conta?'}
                <button 
                  type="button" 
                  onClick={() => {
-                   if (isLogin) {
-                     navigate('/indicar');
-                   } else {
-                     setIsLogin(true);
-                   }
+                   setIsLogin(!isLogin);
                  }} 
                  className="ml-1 text-primary hover:underline font-medium"
                >
@@ -324,19 +201,6 @@ export default function Login() {
                </div>
              )}
            </>
-        )}
-        {requiresVerification && (
-           <div className="mt-4 text-center">
-             <button 
-               className="text-sm font-bold text-muted-foreground hover:underline focus:outline-none"
-               onClick={() => {
-                  setRequiresVerification(false);
-                  setVerificationCode('');
-               }}
-             >
-               Voltar
-             </button>
-           </div>
         )}
       </motion.div>
     </div>

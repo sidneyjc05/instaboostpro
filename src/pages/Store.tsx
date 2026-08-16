@@ -8,6 +8,7 @@ import { useAppSound } from '../context/SoundContext';
 import { AnimatedIcon } from '../components/AnimatedIcon';
 import { GlobalLoader } from '../components/GlobalLoader';
 import { CheckoutModal, CheckoutItem } from '../components/CheckoutModal';
+import { getStoreConfig } from '../lib/store';
 
 const PromoBadge = ({ percent, size = 'md' }: { percent: number; size?: 'sm' | 'md' | 'lg' }) => {
   const sizes = {
@@ -86,8 +87,7 @@ export default function Store() {
   }, [storeConfig]);
 
   useEffect(() => {
-    fetch('/api/store/config')
-      .then(res => res.json())
+    getStoreConfig()
       .then(data => {
         setStoreConfig(data);
         setInitialLoading(false);

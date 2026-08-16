@@ -1,7 +1,10 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { auth, db } from '../lib/firebase';
 
 export interface User {
-  id: number;
+  id: string; // Firebase UID
   username: string;
   email?: string;
   role: string;
@@ -26,61 +29,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchUser = async () => {
+  const fetchUser = async (uid: string) => {
     try {
-      const res = await fetch('/api/me');
-      if (res.status === 401) {
-        setUser(null);
-        return;
-      }
-      if (res.ok) {
-        const userData = await res.json();
-        setUser(userData);
-        if (userData) {
-          localStorage.setItem('has_account', 'true');
-        }
+      const userDoc = await getDoc(doc(db, 'users', uid));
+      if (userDoc.exists()) {
+        const userData = userDoc.data() as User;
+        setUser({ ...userData, id: uid });
+        localStorage.setItem('has_account', 'true');
       } else {
         setUser(null);
       }
-    } catch {
+    } catch (err) {
+      console.error("Error fetching user data from Firestore:", err);
       setUser(null);
-    } finally {
-      setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchUser();
-    
-    // Polling para atualizações "ao vivo" (cada 30 segundos)
-    const interval = setInterval(fetchUser, 30000);
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        await fetchUser(firebaseUser.uid);
+      } else {
+        setUser(null);
+      }
+      setLoading(false);
+    });
 
-    // Global Time in App mission tracking (increment every minute)
-    const missionInterval = setInterval(async () => {
-        if (!document.hidden && user) {
-            try {
-                await fetch('/api/missions/progress', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ type: 'time', amount: 1 })
-                });
-            } catch {}
-        }
-    }, 60000);
+    return () => unsubscribe();
+  }, []);
 
-    return () => {
-        clearInterval(interval);
-        clearInterval(missionInterval);
-    };
-  }, [user?.id]); // Restart if user changes
+  // Update loop for specific real-time needs (if necessary, later we can use onSnapshot)
+  useEffect(() => {
+    if (!user) return;
+    const interval = setInterval(() => fetchUser(user.id), 30000);
+    return () => clearInterval(interval);
+  }, [user?.id]);
 
   const logout = async () => {
-    await fetch('/api/auth/logout', { method: 'POST' });
+    await signOut(auth);
     setUser(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, refreshUser: fetchUser, logout }}>
+    <AuthContext.Provider value={{ user, loading, refreshUser: async () => { if (auth.currentUser) await fetchUser(auth.currentUser.uid); }, logout }}>
       {children}
     </AuthContext.Provider>
   );

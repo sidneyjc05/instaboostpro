@@ -5,6 +5,8 @@ import { Button } from './ui/Button';
 import { showNotification } from '../context/NotificationContext';
 import { useAuth } from '../context/AuthContext';
 import { AnimatedIcon } from './AnimatedIcon';
+import { doc, getDoc, updateDoc, increment } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 
 const MISSION_CONFIG = {
   likes: {
@@ -95,12 +97,41 @@ export function MissionsTab({ onGoToFeed }: { onGoToFeed: () => void }) {
     const [state, setState] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [timeSeconds, setTimeSeconds] = useState(0);
-    const { refreshUser } = useAuth();
+    const { user, refreshUser } = useAuth();
     
     const loadMissions = async () => {
+        if (!user) return;
         try {
-            const res = await fetch('/api/missions');
-            if (res.ok) setState(await res.json());
+            const userDoc = await getDoc(doc(db, 'users', user.id));
+            const userData = userDoc.data();
+            const missionsProgress = userData?.missions_progress || {};
+            
+            const newState: Record<string, any> = {};
+            const now = new Date();
+            let hasChanges = false;
+            
+            for (const key of Object.keys(MISSION_CONFIG)) {
+                let mState = missionsProgress[key] || { level: 1, progress: 0, updated_at: null };
+                
+                // 10 minutes timeout reset
+                if (mState.updated_at) {
+                    const lastUpdate = new Date(mState.updated_at);
+                    if (now.getTime() - lastUpdate.getTime() > 10 * 60 * 1000) {
+                        mState.progress = 0;
+                        hasChanges = true;
+                    }
+                }
+                
+                newState[key] = mState;
+            }
+
+            if (hasChanges) {
+                await updateDoc(doc(db, 'users', user.id), {
+                    missions_progress: newState
+                });
+            }
+
+            setState(newState);
         } catch {
             showNotification.error('Erro ao carregar missões');
         } finally {
@@ -109,7 +140,7 @@ export function MissionsTab({ onGoToFeed }: { onGoToFeed: () => void }) {
     };
 
     useEffect(() => {
-        loadMissions();
+        if (user) loadMissions();
         
         // Local sub-minute progress for time mission
         const smoothInterval = setInterval(() => {
@@ -122,13 +153,52 @@ export function MissionsTab({ onGoToFeed }: { onGoToFeed: () => void }) {
         }, 1000);
 
         // Refresh mission data every 30s to sync with global progress
-        const interval = setInterval(loadMissions, 30000);
+        const interval = setInterval(() => {
+            if (user) loadMissions();
+        }, 30000);
 
         return () => {
             clearInterval(interval);
             clearInterval(smoothInterval);
         };
-    }, []);
+    }, [user]);
+
+    // Handle Time Mission Auto-Progress
+    useEffect(() => {
+        if (!user || !state || !state['time']) return;
+        
+        // Automatically progress the time mission every minute
+        const timeInterval = setInterval(async () => {
+             try {
+                const userRef = doc(db, 'users', user.id);
+                const userDoc = await getDoc(userRef);
+                const userData = userDoc.data();
+                const mProg = userData?.missions_progress || {};
+                const timeProg = mProg['time'] || { level: 1, progress: 0 };
+                
+                // Also reset timeout logic for time
+                const now = new Date();
+                if (timeProg.updated_at) {
+                    const lastUpdate = new Date(timeProg.updated_at);
+                    if (now.getTime() - lastUpdate.getTime() > 10 * 60 * 1000) {
+                        timeProg.progress = 0;
+                    }
+                }
+                
+                timeProg.progress += 1;
+                timeProg.updated_at = now.toISOString();
+
+                await updateDoc(userRef, {
+                    [`missions_progress.time`]: timeProg
+                });
+                
+                loadMissions();
+             } catch {}
+        }, 60000);
+
+        return () => clearInterval(timeInterval);
+    }, [user, state?.time?.level]);
+
 
     if (loading || !state) {
         return (
@@ -196,21 +266,46 @@ function MissionCard({ missionKey, config, state, onUpdate, refreshUser, onOpenV
 
     const handleClaim = async (e: React.MouseEvent) => {
         e.stopPropagation();
+        if (!user) return;
         setSubmitting(true);
         try {
-            const res = await fetch('/api/missions/claim', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ type: missionKey })
-            });
-            const data = await res.json();
-            if (res.ok) {
-                showNotification.success(`Nível ${state.level} completo! Você ganhou ${data.reward} moedas.`);
-                onUpdate();
-                refreshUser();
-            } else {
-                showNotification.error(data.error);
+            const userRef = doc(db, 'users', user.id);
+            const userDoc = await getDoc(userRef);
+            const userData = userDoc.data();
+            const missionsProgress = userData?.missions_progress || {};
+            const mState = missionsProgress[missionKey] || { level: 1, progress: 0 };
+
+            const dynConfig = getDynamicMissionConfig(missionKey, mState.level);
+            if (!dynConfig) throw new Error('Config not found');
+            
+            if (mState.progress < dynConfig.goal) {
+                throw new Error('Missão não completada');
             }
+
+            // Calculate actual reward
+            let actualReward = dynConfig.reward;
+            if (user.plan_type === 'pro') actualReward *= 1.8;
+            else if (user.plan_type === 'premium') actualReward *= 2.3;
+            else if (user.plan_type === 'ultra') actualReward *= 2.8;
+            actualReward = parseFloat(actualReward.toFixed(1));
+
+            const newLevel = mState.level + 1;
+            
+            await updateDoc(userRef, {
+                credits: increment(actualReward),
+                tickets: increment(dynConfig.tickets || 0),
+                [`missions_progress.${missionKey}`]: {
+                    level: newLevel,
+                    progress: 0,
+                    updated_at: new Date().toISOString()
+                }
+            });
+
+            showNotification.success(`Nível ${mState.level} completo! Você ganhou ${actualReward} moedas.`);
+            onUpdate();
+            refreshUser();
+        } catch (err: any) {
+            showNotification.error(err.message || 'Erro ao resgatar missão');
         } finally {
             setSubmitting(false);
         }

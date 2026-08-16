@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react';
+import { collection, getDocs, doc, getDoc, updateDoc, increment, arrayUnion } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { showNotification } from '../context/NotificationContext';
 import { Button } from '../components/ui/Button';
@@ -12,9 +14,9 @@ import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import { GlobalLoader } from '../components/GlobalLoader';
 
 interface Promotion {
-  id: number;
+  id: string;
   url: string;
-  user_id: number;
+  user_id: string;
   username: string;
   expires_at: string;
   plan?: 'ultra' | 'premium' | 'pro' | 'basic';
@@ -56,23 +58,28 @@ export default function Home() {
 
   const loadPromos = async () => {
     try {
-      const res = await fetch('/api/promotions');
-      if (res.ok) {
-        setPromotions(await res.json());
-      }
-    } catch {
+      const promosSnapshot = await getDocs(collection(db, 'promotions'));
+      const now = new Date().toISOString();
+      const loadedPromos = promosSnapshot.docs
+        .map(d => ({ id: d.id, ...d.data() } as Promotion))
+        .filter(p => !p.expires_at || p.expires_at > now);
+      
+      const interacted = (user as any)?.interacted_promos || [];
+      const availablePromos = loadedPromos.filter(p => !interacted.includes(p.id));
+      
+      setPromotions(availablePromos);
+    } catch (error) {
+      console.error('Error fetching promos:', error);
       showNotification.error('Erro ao carregar feed');
     }
   };
 
   const checkDailyRewards = async () => {
     try {
-      const res = await fetch('/api/rewards/daily');
-      if (res.ok) {
-        const data = await res.json();
-        const available = data.plan?.some((p: any) => p.state === 'available');
-        setHasDailyRewardAvailable(available);
-      }
+      // Determine daily reward availability based on user document
+      const lastClaim = (user as any)?.last_daily_claim;
+      const today = new Date().toISOString().split('T')[0];
+      setHasDailyRewardAvailable(lastClaim !== today);
     } catch {}
   };
 
@@ -95,22 +102,62 @@ export default function Home() {
   }, []);
 
   const handleInteract = async () => {
-    if (!activePromo) return;
+    if (!activePromo || !user) return;
     try {
-      const res = await fetch(`/api/promotions/${activePromo.id}/interact`, { method: 'POST' });
-      const data = await res.json();
-      if (res.ok) {
-        showNotification.success(`Você ganhou ${data.reward} moedas!`);
-        setPromotions(prev => prev.filter(p => p.id !== activePromo.id));
-        refreshUser();
-      } else {
-        if (data.error === 'CANT_INTERACT_OWN') {
-          showNotification.error('Você não pode interagir com a própria divulgação!');
-        } else {
-          showNotification.error(data.error);
+      if (user.id === activePromo.user_id) {
+         showNotification.error('Você não pode interagir com a própria divulgação!');
+         return;
+      }
+
+      // Determine mission type
+      let missionType = 'follows';
+      if (activePromo.url.includes('/reel/')) {
+        missionType = 'reels';
+      } else if (activePromo.url.includes('/p/') || activePromo.url.includes('/tv/')) {
+        missionType = 'likes';
+      }
+
+      const userRef = doc(db, 'users', user.id);
+      
+      // We will store missions progress inside the user document 
+      // under a map: missions_progress: { 'likes': { level: 1, progress: 5, updated_at: ... }, 'follows': ... }
+      // To simplify, we can just fetch the user doc first to check and update the map correctly,
+      // but an easier way for a basic implementation is to do it transactionally or just read it first.
+      
+      const userDoc = await getDoc(userRef);
+      const userData = userDoc.data();
+      const missionsProgress = userData?.missions_progress || {};
+      const missionData = missionsProgress[missionType] || { level: 1, progress: 0 };
+      
+      // Reset progress if it hasn't been updated in 10 minutes
+      const now = new Date();
+      if (missionData.updated_at) {
+        const lastUpdate = new Date(missionData.updated_at);
+        if (now.getTime() - lastUpdate.getTime() > 10 * 60 * 1000) {
+          missionData.progress = 0;
         }
       }
-    } catch {
+      
+      missionData.progress += 1;
+      missionData.updated_at = now.toISOString();
+
+      await updateDoc(userRef, {
+        credits: increment(0.2),
+        interacted_promos: arrayUnion(activePromo.id),
+        [`missions_progress.${missionType}`]: missionData
+      });
+
+      // Increment the interaction count for the promotion
+      const promoRef = doc(db, 'promotions', activePromo.id);
+      await updateDoc(promoRef, {
+        interactions_count: increment(1)
+      });
+
+      showNotification.success(`Você ganhou 0.2 moedas!`);
+      setPromotions(prev => prev.filter(p => p.id !== activePromo.id));
+      refreshUser();
+    } catch (error) {
+      console.error('Error interacting:', error);
       showNotification.error('Erro ao interagir');
     } finally {
       setViewerOpen(false);

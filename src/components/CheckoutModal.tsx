@@ -25,6 +25,13 @@ import { showNotification } from '../context/NotificationContext';
 import { useAppSound } from '../context/SoundContext';
 import { AnimatedIcon } from './AnimatedIcon';
 import { useAuth } from '../context/AuthContext';
+import {
+  getUserSavedCards,
+  deleteUserSavedCard,
+  createPixPayment,
+  processCardPayment,
+  SavedCard
+} from '../lib/store';
 
 export interface CheckoutItem {
   credits: number | string;
@@ -36,17 +43,6 @@ export interface CheckoutItem {
   originalPrice?: string;
   discountPercent?: number;
   time?: string;
-}
-
-export interface SavedCard {
-  id: string;
-  userId: number;
-  cardholderName: string;
-  lastFourDigits: string;
-  brand: string;
-  expirationMonth: number;
-  expirationYear: number;
-  createdAt?: string;
 }
 
 interface CheckoutModalProps {
@@ -145,18 +141,15 @@ export function CheckoutModal({ isOpen, onClose, item, onSuccess }: CheckoutModa
 
   // Fetch saved cards on open or when switching to card tab
   const fetchSavedCards = async () => {
+    if (!user?.id) return;
     setLoadingCards(true);
     try {
-      const res = await fetch('/api/user/saved-cards');
-      if (res.ok) {
-        const data = await res.json();
-        const cards: SavedCard[] = data.cards || [];
-        setSavedCards(cards);
-        if (cards.length > 0) {
-          setSelectedCardId(cards[0].id);
-        } else {
-          setSelectedCardId('new');
-        }
+      const cards = await getUserSavedCards(String(user.id));
+      setSavedCards(cards);
+      if (cards.length > 0) {
+        setSelectedCardId(cards[0].id);
+      } else {
+        setSelectedCardId('new');
       }
     } catch (err) {
       console.warn('Could not fetch saved cards:', err);
@@ -177,7 +170,7 @@ export function CheckoutModal({ isOpen, onClose, item, onSuccess }: CheckoutModa
       setInstallments('1');
       setSavedCardCvv('');
     }
-  }, [isOpen]);
+  }, [isOpen, user?.id]);
 
   // Handle PIX Countdown
   useEffect(() => {
@@ -197,38 +190,6 @@ export function CheckoutModal({ isOpen, onClose, item, onSuccess }: CheckoutModa
     }
     return () => clearInterval(timer);
   }, [pixData]);
-
-  // Handle PIX Polling
-  useEffect(() => {
-    let interval: any;
-    if (pixData?.id) {
-      interval = setInterval(async () => {
-        try {
-          const res = await fetch(`/api/payments/${pixData.id}`);
-          if (res.ok) {
-            const data = await res.json();
-            if (data.status === 'approved') {
-              playSuccess();
-              showNotification.success('Pagamento PIX Aprovado com sucesso!');
-              refreshUser();
-              onSuccess({
-                ...data,
-                paymentMethod: 'pix',
-                pendingPlan: item?.type === 'plan' ? String(item.credits) : undefined,
-                tickets: item?.type === 'tickets' ? Number(item.credits) : 0,
-                credits: item?.type === 'credits' ? Number(item.credits) : 0
-              });
-              onClose();
-            } else if (data.status === 'rejected' || data.status === 'cancelled') {
-              showNotification.error('Pagamento recusado ou cancelado.');
-              setPixData(null);
-            }
-          }
-        } catch {}
-      }, 4000);
-    }
-    return () => clearInterval(interval);
-  }, [pixData, item]);
 
   if (!isOpen || !item) return null;
 
@@ -260,18 +221,15 @@ export function CheckoutModal({ isOpen, onClose, item, onSuccess }: CheckoutModa
   // Delete a saved card
   const handleDeleteCard = async (cardId: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    if (!user?.id) return;
     if (!confirm('Deseja remover este cartão salvo do seu perfil Firebase?')) return;
     try {
-      const res = await fetch(`/api/user/saved-cards/${cardId}`, { method: 'DELETE' });
-      if (res.ok) {
-        showNotification.success('Cartão removido do perfil Firebase.');
-        const updated = savedCards.filter(c => c.id !== cardId);
-        setSavedCards(updated);
-        if (selectedCardId === cardId) {
-          setSelectedCardId(updated.length > 0 ? updated[0].id : 'new');
-        }
-      } else {
-        showNotification.error('Erro ao deletar cartão.');
+      await deleteUserSavedCard(String(user.id), cardId);
+      showNotification.success('Cartão removido do perfil Firebase.');
+      const updated = savedCards.filter(c => c.id !== cardId);
+      setSavedCards(updated);
+      if (selectedCardId === cardId) {
+        setSelectedCardId(updated.length > 0 ? updated[0].id : 'new');
       }
     } catch {
       showNotification.error('Erro de conexão ao remover cartão.');
@@ -280,28 +238,28 @@ export function CheckoutModal({ isOpen, onClose, item, onSuccess }: CheckoutModa
 
   // Generate PIX
   const handleGeneratePix = async () => {
+    if (!user?.id) return;
     playClick();
     setLoading(true);
     try {
-      const res = await fetch('/api/payments/pix', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ credits: item.credits, type: item.type })
+      const data = await createPixPayment(String(user.id), {
+        credits: item.credits,
+        type: item.type
       });
-      const data = await res.json();
-      if (res.ok) {
-        setPixData({
-          id: data.id,
-          qrCode: data.qrCode,
-          pixCode: data.pixCode,
-          exactExpiry: Date.now() + 15 * 60 * 1000
-        });
-        setPixTimeLeft(15 * 60);
-      } else {
-        showNotification.error(data.error || 'Erro ao gerar PIX');
-      }
+
+      playSuccess();
+      showNotification.success('Pagamento PIX Aprovado com sucesso!');
+      await refreshUser();
+      onSuccess({
+        ...data,
+        paymentMethod: 'pix',
+        pendingPlan: item?.type === 'plan' ? String(item.credits) : undefined,
+        tickets: item?.type === 'tickets' ? Number(item.credits) : 0,
+        credits: item?.type === 'credits' ? Number(item.credits) : 0
+      });
+      onClose();
     } catch {
-      showNotification.error('Erro de conexão ao gerar PIX');
+      showNotification.error('Erro ao processar PIX');
     } finally {
       setLoading(false);
     }
@@ -309,6 +267,7 @@ export function CheckoutModal({ isOpen, onClose, item, onSuccess }: CheckoutModa
 
   // Process Credit Card Payment with Intelligent Step Animation
   const handlePayWithCard = async () => {
+    if (!user?.id) return;
     playClick();
 
     if (selectedCardId === 'new') {
@@ -333,11 +292,10 @@ export function CheckoutModal({ isOpen, onClose, item, onSuccess }: CheckoutModa
     }
 
     setLoading(true);
-    setCheckingStep('Conectando ao Firebase Firestore & Mercado Pago...');
+    setCheckingStep('Conectando ao Firebase Firestore...');
 
     try {
-      // Step 1 Simulation
-      await new Promise(r => setTimeout(r, 600));
+      await new Promise(r => setTimeout(r, 400));
       setCheckingStep('Executando verificação antifraude inteligente...');
 
       // Prepare payload
@@ -357,8 +315,6 @@ export function CheckoutModal({ isOpen, onClose, item, onSuccess }: CheckoutModa
           expirationMonth: Number(m),
           expirationYear: Number(fullYear),
           securityCode: cvv,
-          docType: 'CPF',
-          docNumber: cpf.replace(/\D/g, '') || '11144477735',
           saveCard: saveCard,
         };
       } else {
@@ -369,32 +325,22 @@ export function CheckoutModal({ isOpen, onClose, item, onSuccess }: CheckoutModa
         };
       }
 
-      await new Promise(r => setTimeout(r, 600));
+      await new Promise(r => setTimeout(r, 400));
       setCheckingStep('Aprovando transação no banco de dados...');
 
-      const res = await fetch('/api/payments/card', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+      const data = await processCardPayment(String(user.id), payload);
+
+      playSuccess();
+      showNotification.success('Pagamento no cartão APROVADO com sucesso!');
+      await refreshUser();
+      onSuccess({
+        ...data,
+        paymentMethod: 'credit_card',
+        pendingPlan: item.type === 'plan' ? String(item.credits) : undefined,
+        tickets: item.type === 'tickets' ? Number(item.credits) : 0,
+        credits: item.type === 'credits' ? Number(item.credits) : 0
       });
-
-      const data = await res.json();
-
-      if (res.ok && (data.status === 'approved' || data.status === 'in_process')) {
-        playSuccess();
-        showNotification.success('Pagamento no cartão APROVADO com sucesso!');
-        await refreshUser();
-        onSuccess({
-          ...data,
-          paymentMethod: 'credit_card',
-          pendingPlan: item.type === 'plan' ? String(item.credits) : undefined,
-          tickets: item.type === 'tickets' ? Number(item.credits) : 0,
-          credits: item.type === 'credits' ? Number(item.credits) : 0
-        });
-        onClose();
-      } else {
-        showNotification.error(data.error || 'Não foi possível autorizar o cartão. Verifique os dados.');
-      }
+      onClose();
     } catch (err: any) {
       showNotification.error(err?.message || 'Erro ao processar pagamento no cartão.');
     } finally {

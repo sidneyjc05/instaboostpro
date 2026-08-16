@@ -4,6 +4,8 @@ import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { useAuth } from '../context/AuthContext';
 import { User as UserIcon, Mail, LogOut, Loader2, Diamond, Users, Copy, CheckCircle, Share2, AlertTriangle, ShieldCheck, History, PlusSquare, X, Check, Clock, Zap, Gift, Coins, PlaySquare, Heart } from 'lucide-react';
+import { collection, query, where, getDocs, doc, updateDoc, increment } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 
 // Componente do Cronômetro do Plano
 function PlanCountdown({ expiresAt }: { expiresAt: string }) {
@@ -78,7 +80,7 @@ import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import { GlobalLoader } from '../components/GlobalLoader';
 
 // Componente Item de Divulgação com Countdown
-function PromotionItem({ promo, onRefresh, isExpired, playClick, playSuccess }: any) {
+function PromotionItem({ promo, onRefresh, isExpired, playClick, playSuccess, user, refreshUser }: any) {
   const [timeLeft, setTimeLeft] = useState<{ m: number; s: number; totalSec: number } | null>(null);
   const [deleteIn, setDeleteIn] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
@@ -120,20 +122,45 @@ function PromotionItem({ promo, onRefresh, isExpired, playClick, playSuccess }: 
   };
 
   const handleReboost = async () => {
+    if (!user) return;
+    if ((user.credits || 0) < promo.cost) {
+      showNotification.error('Moedas insuficientes. Vá para a Loja.');
+      return;
+    }
+
     playClick();
     setLoading(true);
     try {
-      const res = await fetch(`/api/promotions/${promo.id}/reboost`, { method: 'POST' });
-      const data = await res.json();
-      if (res.ok) {
-        playSuccess();
-        showNotification.success('Divulgação renovada!');
-        onRefresh();
-      } else {
-        showNotification.error(data.error || 'Erro ao renovar');
+      const durationMinutes = promo.cost / 5;
+      const now = Date.now();
+      const expiresAtMs = new Date(promo.expires_at).getTime();
+
+      if (expiresAtMs > now + 60 * 60 * 1000) {
+        showNotification.error('Ainda resta muito tempo de destaque.');
+        setLoading(false);
+        return;
       }
-    } catch {
-      showNotification.error('Erro de conexão');
+
+      const baseTime = expiresAtMs < now ? now : expiresAtMs;
+      const newExpiresAt = new Date(baseTime + durationMinutes * 60 * 1000).toISOString();
+
+      const promoRef = doc(db, 'promotions', promo.id);
+      await updateDoc(promoRef, {
+        expires_at: newExpiresAt
+      });
+
+      const userRef = doc(db, 'users', user.id);
+      await updateDoc(userRef, {
+        credits: increment(-promo.cost)
+      });
+
+      playSuccess();
+      showNotification.success('Divulgação renovada!');
+      refreshUser();
+      onRefresh();
+    } catch (err: any) {
+      console.error(err);
+      showNotification.error(err.message || 'Erro ao renovar');
     } finally {
       setLoading(false);
     }
@@ -308,15 +335,21 @@ export default function Profile() {
     ]
   };
 
-  const fetchPromos = () => {
+  const fetchPromos = async () => {
     setLoadingPromos(true);
-    fetch('/api/users/me/promotions')
-      .then(r => r.json())
-      .then(data => {
-         if (Array.isArray(data)) setPromotions(data);
-         setLoadingPromos(false);
-      })
-      .catch(() => setLoadingPromos(false));
+    try {
+      if (!user) return;
+      const q = query(collection(db, 'promotions'), where('user_id', '==', user.id));
+      const querySnapshot = await getDocs(q);
+      const data = querySnapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      // Sort by expires_at desc
+      data.sort((a: any, b: any) => new Date(b.expires_at).getTime() - new Date(a.expires_at).getTime());
+      setPromotions(data);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingPromos(false);
+    }
   };
 
   useEffect(() => {
@@ -354,26 +387,69 @@ export default function Profile() {
 
   const handleClaimReferral = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!friendCode) return;
+    if (!friendCode || !user) return;
     playClick();
     setLoadingCode(true);
     try {
-      const res = await fetch('/api/me/referral/claim', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: friendCode })
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        playSuccess();
-        showNotification.success(data.message || 'Código resgatado!');
-        await refreshUser();
-        setFriendCode('');
-      } else {
-        showNotification.error(data.error || 'Código inválido');
+      if (user.referred_by) {
+        showNotification.error('Você já utilizou um código de indicação');
+        setLoadingCode(false);
+        return;
       }
-    } catch (err) {
-      showNotification.error('Erro ao conectar.');
+
+      const createdAt = new Date(user.created_at || Date.now()).getTime();
+      const now = new Date().getTime();
+      if (now - createdAt > 24 * 60 * 60 * 1000) {
+        showNotification.error('O prazo de 24 horas para inserir um código expirou');
+        setLoadingCode(false);
+        return;
+      }
+
+      // Query to find referrer
+      const q = query(collection(db, 'users'), where('referral_code', '==', friendCode.toUpperCase()));
+      const querySnapshot = await getDocs(q);
+      
+      if (querySnapshot.empty) {
+        showNotification.error('Código de indicação inválido');
+        setLoadingCode(false);
+        return;
+      }
+
+      const referrerDoc = querySnapshot.docs[0];
+      const referrer = { id: referrerDoc.id, ...referrerDoc.data() } as any;
+
+      if (referrer.id === user.id) {
+        showNotification.error('Você não pode usar seu próprio código');
+        setLoadingCode(false);
+        return;
+      }
+
+      const planType = referrer.plan_type || 'basic';
+      let referrerBonus = 500;
+      if (planType === 'pro') referrerBonus = 800;
+      if (planType === 'premium') referrerBonus = 1200;
+      if (planType === 'ultra') referrerBonus = 2000;
+
+      // Update both
+      const userRef = doc(db, 'users', user.id);
+      const referrerRef = doc(db, 'users', referrer.id);
+
+      await updateDoc(userRef, {
+        credits: increment(1000),
+        referred_by: referrer.id
+      });
+
+      await updateDoc(referrerRef, {
+        credits: increment(referrerBonus)
+      });
+
+      playSuccess();
+      showNotification.success('Código ativado com sucesso! Você ganhou 1.000 moedas.');
+      await refreshUser();
+      setFriendCode('');
+    } catch (err: any) {
+      console.error(err);
+      showNotification.error(err.message || 'Erro ao conectar.');
     } finally {
       setLoadingCode(false);
     }
@@ -617,6 +693,8 @@ export default function Profile() {
                               isExpired={promoTab === 'expired'}
                               playClick={playClick}
                               playSuccess={playSuccess}
+                              user={user}
+                              refreshUser={refreshUser}
                            />
                         ));
                      })()}

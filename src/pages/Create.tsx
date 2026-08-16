@@ -7,6 +7,8 @@ import { Rocket, Clock, Link as LinkIcon, Info } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
 import { AnimatedIcon } from '../components/AnimatedIcon';
+import { collection, addDoc, doc, updateDoc, increment } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 
 const getInstaLinkType = (link: string) => {
   if (!link) return null;
@@ -26,28 +28,42 @@ export default function Create() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!user) return;
     if (!url.includes('instagram.com')) {
       return showNotification.error('Insira um link válido do Instagram');
     }
 
+    const cost = getCost();
+    if ((user.credits || 0) < cost) {
+      return showNotification.error('Moedas insuficientes. Adquira mais moedas na Loja.');
+    }
+
     setLoading(true);
     try {
-      const res = await fetch('/api/promotions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, durationMinutes: duration })
-      });
-      const data = await res.json();
+      const expiresAt = new Date(Date.now() + duration * 60 * 1000).toISOString();
       
-      if (res.ok) {
-        showNotification.success('Divulgação criada com sucesso!');
-        await refreshUser();
-        navigate('/');
-      } else {
-        showNotification.error(data.error || 'Erro ao criar divulgação');
-      }
-    } catch {
-      showNotification.error('Erro de conexão');
+      await addDoc(collection(db, 'promotions'), {
+        user_id: user.id,
+        username: user.username || user.email?.split('@')[0] || 'Usuário',
+        url: url.trim(),
+        expires_at: expiresAt,
+        created_at: new Date().toISOString(),
+        cost,
+        plan: user.plan_type || 'basic',
+        interactions_count: 0
+      });
+
+      const userRef = doc(db, 'users', user.id);
+      await updateDoc(userRef, {
+        credits: increment(-cost)
+      });
+
+      showNotification.success('Divulgação criada com sucesso!');
+      await refreshUser();
+      navigate('/');
+    } catch (err: any) {
+      console.error('Error creating promotion:', err);
+      showNotification.error(err.message || 'Erro ao criar divulgação');
     } finally {
       setLoading(false);
     }

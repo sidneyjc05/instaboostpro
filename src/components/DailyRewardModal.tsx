@@ -8,6 +8,7 @@ import { useAppSound } from '../context/SoundContext';
 import confetti from 'canvas-confetti';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import { AnimatedIcon } from './AnimatedIcon';
+import { fetchDailyRewards, claimDailyReward } from '../lib/dailyRewards';
 
 interface DailyRewardModalProps {
   open: boolean;
@@ -24,54 +25,42 @@ export function DailyRewardModal({ open, onClose }: DailyRewardModalProps) {
   useBodyScrollLock(open);
 
   useEffect(() => {
-    if (open) {
+    if (open && user) {
       fetchRewards();
     }
-  }, [open]);
+  }, [open, user]);
 
   const fetchRewards = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/rewards/daily');
-      if (res.ok) {
-        setData(await res.json());
+      if (user) {
+        const rewards = await fetchDailyRewards(user.id, user.plan_type);
+        setData(rewards);
       }
     } catch (e) {
-      // fail silent
+      console.error(e);
     } finally {
       setLoading(false);
     }
   };
 
   const handleClaim = async () => {
+    if (!user) return;
     setClaiming(true);
     try {
-      const deviceHash = localStorage.getItem('device_hash') || btoa(navigator.userAgent).substring(0, 32);
-      if (!localStorage.getItem('device_hash')) localStorage.setItem('device_hash', deviceHash);
-
-      const res = await fetch('/api/rewards/daily/claim', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deviceHash })
+      const resData = await claimDailyReward(user.id, user.plan_type);
+      playSuccess();
+      confetti({
+         particleCount: 100,
+         spread: 70,
+         origin: { y: 0.6 },
+         colors: ['#eab308', '#8b5cf6', '#3b82f6'] // yellow, purple, blue
       });
-      
-      const resData = await res.json();
-      if (res.ok) {
-        playSuccess();
-        confetti({
-           particleCount: 100,
-           spread: 70,
-           origin: { y: 0.6 },
-           colors: ['#eab308', '#8b5cf6', '#3b82f6'] // yellow, purple, blue
-        });
-        showNotification.success(`Prêmio Diário Resgatado! +${resData.reward.coins} moedas${resData.reward.tickets > 0 ? ` e +${resData.reward.tickets} Tickets` : ''}!`);
-        await refreshUser();
-        await fetchRewards();
-      } else {
-        showNotification.error(resData.error || "Erro ao resgatar.");
-      }
-    } catch {
-      showNotification.error("Erro de conexão.");
+      showNotification.success(`Prêmio Diário Resgatado! +${resData.reward.coins} moedas${resData.reward.tickets > 0 ? ` e +${resData.reward.tickets} Tickets` : ''}!`);
+      await refreshUser();
+      await fetchRewards();
+    } catch (err: any) {
+      showNotification.error(err.message || "Erro ao resgatar.");
     } finally {
       setClaiming(false);
     }

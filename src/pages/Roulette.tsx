@@ -6,6 +6,7 @@ import { Target, Ticket, Zap, Trophy, Coins } from 'lucide-react';
 import { motion, AnimatePresence, useMotionValue, animate } from 'motion/react';
 import { useAppSound } from '../context/SoundContext';
 import { AnimatedIcon } from '../components/AnimatedIcon';
+import { checkRouletteStatus, claimFreeTickets as claimFreeRouletteTickets, spinRoulette as spinRouletteAction } from '../lib/roulette';
 
 // Definition of the wheel sections matching the user's requirements
 const PRIZES = [
@@ -38,42 +39,31 @@ export default function Roulette() {
   const [claimingFree, setClaimingFree] = useState(false);
 
   const checkFreeStatus = async () => {
+    if (!user?.id) return;
     try {
-      const res = await fetch('/api/roulette/status');
-      if (res.ok) {
-        const data = await res.json();
-        setCanClaimFree(data.canClaim);
-        setNextFreeClaim(data.nextClaimTime);
-      }
+      const data = await checkRouletteStatus(user.id);
+      setCanClaimFree(data.canClaim);
+      setNextFreeClaim(data.nextClaimTime);
     } catch {}
   };
 
   useEffect(() => {
-    checkFreeStatus();
-  }, []);
+    if (user?.id) {
+      checkFreeStatus();
+    }
+  }, [user?.id]);
 
   const claimFreeTickets = async () => {
+    if (!user?.id) return;
     setClaimingFree(true);
     try {
-      const deviceHash = localStorage.getItem('device_hash') || btoa(navigator.userAgent).substring(0, 32);
-      if (!localStorage.getItem('device_hash')) localStorage.setItem('device_hash', deviceHash);
-
-      const res = await fetch('/api/roulette/claim', {
-         method: 'POST',
-         headers: { 'Content-Type': 'application/json' },
-         body: JSON.stringify({ deviceHash })
-      });
-      const data = await res.json();
-      if (res.ok) {
-         playSuccess();
-         showNotification.success('Você ganhou 3 Tickets Grátis!');
-         await refreshUser();
-         checkFreeStatus();
-      } else {
-         showNotification.error(data.error || 'Erro ao resgatar');
-      }
-    } catch {
-      showNotification.error('Erro de conexão ao resgatar tickets.');
+      const data = await claimFreeRouletteTickets(user.id, (user as any).plan_type || 'basic');
+      playSuccess();
+      showNotification.success(`Você ganhou ${data.tickets} Tickets Grátis!`);
+      await refreshUser();
+      checkFreeStatus();
+    } catch (err: any) {
+      showNotification.error(err.message || 'Erro ao resgatar');
     } finally {
       setClaimingFree(false);
     }
@@ -81,6 +71,7 @@ export default function Roulette() {
 
   const spinRoulette = async () => {
     if (spinning) return;
+    if (!user?.id) return;
     if (!user?.tickets || user.tickets < 1) {
        showNotification.error("Você não tem tickets suficientes. Resgate no Prêmio Diário ou compre na Loja.");
        return;
@@ -92,15 +83,8 @@ export default function Roulette() {
     lastTickAngle.current = 0;
 
     try {
-       const res = await fetch('/api/roulette/spin', { method: 'POST' });
-       const data = await res.json();
+       const data = await spinRouletteAction(user.id, (user as any).plan_type || 'basic');
        
-       if (!res.ok) {
-          showNotification.error(data.error || "Erro ao girar.");
-          setSpinning(false);
-          return;
-       }
-
        const winIndex = PRIZES.findIndex(p => p.value === data.prize);
        if (winIndex === -1) {
           setSpinning(false);
