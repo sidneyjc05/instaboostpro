@@ -33,10 +33,8 @@ export function InstaViewerModal({ open, onClose, url, type, username, onInterac
       return;
     }
     
-    if (type === 'profile' || type === 'post') {
-        setIsPlaying(true);
-        setHasInteracted(true);
-    }
+    setIsPlaying(true);
+    setHasInteracted(true);
   }, [open, type]);
 
   useEffect(() => {
@@ -190,26 +188,13 @@ export function InstaViewerModal({ open, onClose, url, type, username, onInterac
                 <div 
                    className="w-full h-[450px] relative overflow-hidden"
                 >
-                   {/* Remove hidden interceptor so iframe can be clicked for reels */}
                    <iframe 
                      src={`${embedUrl}/embed/`} 
-                     className={`w-full h-[500px] -mt-12 bg-white ${type === 'reel' ? 'pointer-events-auto' : 'pointer-events-none'}`} 
+                     className="w-full h-[500px] -mt-12 bg-white pointer-events-none" 
                      frameBorder="0" 
                      scrolling="no" 
                      allowtransparency="true"
                    ></iframe>
-
-                   {!hasInteracted && !completed && type === 'reel' && (
-                      <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center p-6 text-center pointer-events-none z-20">
-                         <Play size={48} className="text-white opacity-50 mb-4 animate-pulse" />
-                         <p className="text-white font-bold text-lg mb-2">
-                           Clique no vídeo para iniciar
-                         </p>
-                         <p className="text-white/80 text-sm tracking-wide">
-                           O tempo só conta depois de clicar no player e interagir. Não feche nem tire o foco do vídeo!
-                         </p>
-                      </div>
-                   )}
                    
                    {/* Timer Overlay */}
                    {isPlaying && !completed && (

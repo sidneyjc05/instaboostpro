@@ -68,6 +68,32 @@ const hasPaymentTickets = paymentCols.some(c => c.name === 'tickets');
 const hasPaymentItemType = paymentCols.some(c => c.name === 'item_type');
 const hasPaymentPlanId = paymentCols.some(c => c.name === 'plan_id');
 const hasPaymentMethodCol = paymentCols.some(c => c.name === 'payment_method');
+const hasPaymentCardLast4 = paymentCols.some(c => c.name === 'card_last4');
+const hasPaymentCardBrand = paymentCols.some(c => c.name === 'card_brand');
+const hasPaymentInstallments = paymentCols.some(c => c.name === 'installments');
+
+if (!hasPaymentTickets) db.exec('ALTER TABLE payments ADD COLUMN tickets INTEGER DEFAULT 0;');
+if (!hasPaymentItemType) db.exec(`ALTER TABLE payments ADD COLUMN item_type TEXT DEFAULT 'credits';`);
+if (!hasPaymentPlanId) db.exec('ALTER TABLE payments ADD COLUMN plan_id TEXT;');
+if (!hasPaymentMethodCol) db.exec(`ALTER TABLE payments ADD COLUMN payment_method TEXT DEFAULT 'pix';`);
+if (!hasPaymentCardLast4) db.exec('ALTER TABLE payments ADD COLUMN card_last4 TEXT;');
+if (!hasPaymentCardBrand) db.exec('ALTER TABLE payments ADD COLUMN card_brand TEXT;');
+if (!hasPaymentInstallments) db.exec('ALTER TABLE payments ADD COLUMN installments INTEGER DEFAULT 1;');
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS saved_cards (
+    id TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    cardholder_name TEXT NOT NULL,
+    last_four_digits TEXT NOT NULL,
+    brand TEXT NOT NULL,
+    expiration_month INTEGER NOT NULL,
+    expiration_year INTEGER NOT NULL,
+    card_token TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+`);
 
 if (!hasLastActiveAt) db.exec('ALTER TABLE users ADD COLUMN last_active_at DATETIME DEFAULT CURRENT_TIMESTAMP;');
 if (!hasEmail) db.exec('ALTER TABLE users ADD COLUMN email TEXT;');
@@ -108,11 +134,6 @@ if (!hasReferralCode) {
       }
    })();
 }
-
-if (!hasPaymentTickets) db.exec('ALTER TABLE payments ADD COLUMN tickets INTEGER DEFAULT 0;');
-if (!hasPaymentItemType) db.exec(`ALTER TABLE payments ADD COLUMN item_type TEXT DEFAULT 'credits';`);
-if (!hasPaymentPlanId) db.exec('ALTER TABLE payments ADD COLUMN plan_id TEXT;');
-if (!hasPaymentMethodCol) db.exec(`ALTER TABLE payments ADD COLUMN payment_method TEXT DEFAULT 'pix';`);
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS login_logs (
@@ -201,19 +222,6 @@ db.exec(`
     message TEXT NOT NULL,
     type TEXT,
     is_read INTEGER DEFAULT 0,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-  );
-
-  CREATE TABLE IF NOT EXISTS saved_cards (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
-    mp_card_id TEXT NOT NULL,
-    last_four TEXT NOT NULL,
-    brand TEXT,
-    expiration_month INTEGER,
-    expiration_year INTEGER,
-    is_default INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
   );

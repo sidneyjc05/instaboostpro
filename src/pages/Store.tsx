@@ -2,11 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Button } from '../components/ui/Button';
 import { showNotification } from '../context/NotificationContext';
-import { QrCode, Copy, Zap, CheckCircle, CreditCard, Gift, Coins, Diamond, Check } from 'lucide-react';
+import { QrCode, Copy, Zap, CheckCircle, CreditCard, Gift, Coins, Diamond, Check, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAppSound } from '../context/SoundContext';
 import { AnimatedIcon } from '../components/AnimatedIcon';
 import { GlobalLoader } from '../components/GlobalLoader';
+import { CheckoutModal, CheckoutItem } from '../components/CheckoutModal';
 
 const PromoBadge = ({ percent, size = 'md' }: { percent: number; size?: 'sm' | 'md' | 'lg' }) => {
   const sizes = {
@@ -43,15 +44,21 @@ const PromoBadge = ({ percent, size = 'md' }: { percent: number; size?: 'sm' | '
 export default function Store() {
   const { user, refreshUser } = useAuth();
   const { playSuccess, playClick } = useAppSound();
-  const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
-  const [paymentData, setPaymentData] = useState<{ id: string, paymentMethod: string, qrCode: string, pixCode: string, tickets: number, credits: number, exactExpiry: number, pendingPlan?: string } | null>(null);
-  const [polling, setPolling] = useState(false);
-  const [timeLeft, setTimeLeft] = useState(15 * 60);
-  const [paymentSuccess, setPaymentSuccess] = useState(false);
   const [tab, setTab] = useState<'credits' | 'tickets' | 'plans'>('plans');
   const [storeConfig, setStoreConfig] = useState<any>(null);
   const [promoTime, setPromoTime] = useState<{ d: number, h: number, m: number, s: number } | null>(null);
+
+  // Checkout modal state
+  const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
+  const [selectedCheckoutItem, setSelectedCheckoutItem] = useState<CheckoutItem | null>(null);
+  const [paymentSuccessData, setPaymentSuccessData] = useState<{
+    pendingPlan?: string;
+    tickets?: number;
+    credits?: number;
+    paymentMethod?: string;
+    approvedAt?: string;
+  } | null>(null);
 
   useEffect(() => {
     if (storeConfig?.promo?.active && storeConfig.promo.expiresAt) {
@@ -100,95 +107,26 @@ export default function Store() {
     }
   }, []);
 
-  // Use this rendered at the top of the return
-  // <GlobalLoader isLoading={initialLoading} />
-
-  // Expiration and countdown timer
-  useEffect(() => {
-    let timer: any;
-    if (paymentData && !paymentSuccess) {
-      timer = setInterval(() => {
-        const now = Date.now();
-        const diff = Math.floor((paymentData.exactExpiry - now) / 1000);
-        if (diff <= 0) {
-           clearInterval(timer);
-           setPaymentData(null);
-           setPolling(false);
-           showNotification.error('Tempo esgotado. Pagamento PIX foi cancelado.');
-        } else {
-           setTimeLeft(diff);
-        }
-      }, 1000);
-    }
-    return () => clearInterval(timer);
-  }, [paymentData, paymentSuccess]);
-
-  // Poll for payment status
-  useEffect(() => {
-    let interval: any;
-    if (polling && paymentData?.id) {
-      interval = setInterval(async () => {
-        try {
-          const res = await fetch(`/api/payments/${paymentData.id}`);
-          if (res.ok) {
-            const data = await res.json();
-            if (data.status === 'approved') {
-               playSuccess();
-               showNotification.success('Pagamento PIX Aprovado!');
-               setPolling(false);
-               setPaymentSuccess(true);
-               refreshUser();
-            } else if (data.status === 'rejected' || data.status === 'cancelled') {
-               showNotification.error('Pagamento recusado ou cancelado.');
-               setPolling(false);
-               setPaymentData(null);
-            }
-          }
-        } catch {}
-      }, 5000);
-    }
-    return () => clearInterval(interval);
-  }, [polling, paymentData]);
-
-  const handleBuy = async (credits: number | string, type: 'credits' | 'tickets' | 'plan' = 'credits', rawPrice: number) => {
-    if (type === 'plan' && user?.plan_type && user.plan_type !== 'basic') {
-      showNotification.error('Você já possui um plano ativo!');
+  const handleOpenCheckout = (item: CheckoutItem) => {
+    if (item.type === 'plan' && user?.plan_type && user.plan_type !== 'basic') {
+      showNotification.error('Você já possui um plano VIP ativo!');
       return;
     }
-    setLoading(true);
-    try {
-      const res = await fetch('/api/payments/pix', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ credits, type })
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setPaymentData({ 
-            ...data, 
-            paymentMethod: 'pix',
-            exactExpiry: Date.now() + 15 * 60 * 1000, 
-            pendingPlan: type === 'plan' ? credits.toString() : undefined,
-            tickets: type === 'tickets' ? Number(credits) : 0,
-            credits: type === 'credits' ? Number(credits) : 0
-        });
-        setTimeLeft(15 * 60);
-        setPaymentSuccess(false);
-        setPolling(true);
-      } else {
-        showNotification.error(data.error || 'Erro ao gerar PIX');
-      }
-    } catch {
-      showNotification.error('Erro de conexão');
-    } finally {
-      setLoading(false);
-    }
+    playClick();
+    setSelectedCheckoutItem(item);
+    setIsCheckoutOpen(true);
   };
 
-  const formatTime = (seconds: number) => {
-    const min = Math.floor(seconds / 60);
-    const sec = seconds % 60;
-    return `${min.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
+  const handleCheckoutSuccess = (data: any) => {
+    playSuccess();
+    setPaymentSuccessData({
+      pendingPlan: selectedCheckoutItem?.type === 'plan' ? String(selectedCheckoutItem.credits) : undefined,
+      tickets: selectedCheckoutItem?.type === 'tickets' ? Number(selectedCheckoutItem.credits) : 0,
+      credits: selectedCheckoutItem?.type === 'credits' ? Number(selectedCheckoutItem.credits) : 0,
+      paymentMethod: data?.paymentMethod || 'pix',
+      approvedAt: new Date().toLocaleTimeString('pt-BR')
+    });
+    refreshUser();
   };
 
   let packages: any[] = [
@@ -429,7 +367,7 @@ export default function Store() {
     <div className="flex flex-col gap-8 pb-20 max-w-7xl mx-auto w-full px-4 md:px-0">
       <GlobalLoader isLoading={initialLoading} />
       <AnimatePresence mode="wait">
-        {paymentSuccess ? (
+        {paymentSuccessData ? (
           <motion.div 
             key="success"
             initial={{ opacity: 0, scale: 0.9, y: 20 }} 
@@ -450,19 +388,24 @@ export default function Store() {
               <CheckCircle size={100} />
             </motion.div>
             <div className="relative z-10">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-green-500/10 text-green-400 text-xs font-bold uppercase tracking-wider mb-3 border border-green-500/20">
+                <Sparkles size={14} /> Pagamento Confirmado ({paymentSuccessData.paymentMethod === 'credit_card' ? 'Cartão de Crédito' : 'PIX Instantâneo'})
+              </div>
               <h3 className="text-4xl font-black text-foreground tracking-tight">Sucesso Total!</h3>
               <p className="text-green-400 mt-3 text-xl font-bold">
-                {paymentData?.pendingPlan ? `Seu Plano ${paymentData.pendingPlan.toUpperCase()} está ATIVADO!` : 
-                 paymentData?.tickets && paymentData.tickets > 0 ? `Adicionamos ${paymentData.tickets} tickets à sua conta!` : 
-                 `Adicionamos ${paymentData?.credits ?? 0} moedas à sua conta!`}
+                {paymentSuccessData.pendingPlan ? `Seu Plano ${paymentSuccessData.pendingPlan.toUpperCase()} está ATIVADO!` : 
+                 paymentSuccessData.tickets && paymentSuccessData.tickets > 0 ? `Adicionamos ${paymentSuccessData.tickets.toLocaleString('pt-BR')} tickets à sua conta!` : 
+                 `Adicionamos ${(paymentSuccessData.credits ?? 0).toLocaleString('pt-BR')} moedas à sua conta!`}
               </p>
-              <p className="text-muted-foreground mt-4 max-w-md mx-auto">Sua contribuição ajuda a manter o servidor rodando e você colhe os benefícios agora mesmo. Aproveite!</p>
+              <p className="text-muted-foreground mt-4 max-w-md mx-auto">
+                Verificação e aprovação registradas com segurança no Firebase e Mercado Pago. Aproveite todos os benefícios agora mesmo!
+              </p>
             </div>
-            <Button size="lg" className="mt-4 px-12 h-14 text-lg rounded-full" onClick={() => { setPaymentSuccess(false); setPaymentData(null); }}>
+            <Button size="lg" className="mt-4 px-12 h-14 text-lg rounded-full" onClick={() => setPaymentSuccessData(null)}>
               Voltar para Loja
             </Button>
           </motion.div>
-        ) : !paymentData ? (
+        ) : (
           <motion.div key="store" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col gap-10">
             <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
               <div className="flex-1">
@@ -653,8 +596,17 @@ export default function Store() {
                         className={`relative z-10 w-full h-16 lg:h-20 text-base lg:text-xl font-black uppercase tracking-widest rounded-2xl shadow-2xl transition-all duration-300 overflow-hidden group/btn ${pkg.isActive ? 'opacity-80' : 'active:scale-[0.98] hover:scale-[1.02]'}`} 
                         variant={pkg.isActive ? 'outline' : (pkg.pop ? 'primary' : 'secondary')} 
                         disabled={pkg.isActive || (user?.plan_type !== 'basic' && !pkg.isActive)}
-                        onClick={() => handleBuy(pkg.id, 'plan', pkg.rawPrice)} 
-                        isLoading={loading}
+                        onClick={() => handleOpenCheckout({
+                          credits: pkg.id,
+                          type: 'plan',
+                          rawPrice: pkg.rawPrice ?? (pkg.id === 'pro' ? 50 : pkg.id === 'premium' ? 100 : 150),
+                          title: `Plano ${pkg.name}`,
+                          subtitle: `Acesso VIP por ${pkg.period}`,
+                          priceFormatted: pkg.price,
+                          originalPrice: pkg.originalPrice,
+                          discountPercent: pkg.discountPercent,
+                          time: pkg.period
+                        })} 
                       >
                          <span className="relative z-20">
                             {pkg.isActive ? 'Plano Ativo' : (user?.plan_type && user.plan_type !== 'basic' ? 'Indisponível' : 'Ativar Agora')}
@@ -719,8 +671,17 @@ export default function Store() {
                       <Button 
                         className="w-full h-12 lg:h-14 overflow-hidden relative group/btn2 rounded-xl lg:rounded-2xl shadow-lg hover:shadow-primary/20 transition-all font-black uppercase tracking-widest" 
                         variant={pkg.pop ? 'primary' : 'secondary'} 
-                        onClick={() => handleBuy(pkg.c, 'credits', pkg.rawPrice)} 
-                        isLoading={loading}
+                        onClick={() => handleOpenCheckout({
+                          credits: pkg.c,
+                          type: 'credits',
+                          rawPrice: pkg.rawPrice ?? 5,
+                          title: `${pkg.c.toLocaleString('pt-BR')} Moedas`,
+                          subtitle: pkg.time ? `Destaque por ${pkg.time}` : 'Pacote de moedas',
+                          priceFormatted: pkg.price,
+                          originalPrice: pkg.originalPrice,
+                          discountPercent: pkg.discountPercent,
+                          time: pkg.time
+                        })} 
                         size="lg"
                       >
                         <span className="relative z-10">COMPRAR</span>
@@ -782,8 +743,16 @@ export default function Store() {
                       <Button 
                         className="w-full h-12 lg:h-14 overflow-hidden relative group/btn2 rounded-xl lg:rounded-2xl shadow-lg hover:shadow-primary/20 transition-all font-black uppercase tracking-widest" 
                         variant={pkg.pop ? 'primary' : 'secondary'} 
-                        onClick={() => handleBuy(pkg.c, 'tickets', pkg.rawPrice)} 
-                        isLoading={loading}
+                        onClick={() => handleOpenCheckout({
+                          credits: pkg.c,
+                          type: 'tickets',
+                          rawPrice: pkg.rawPrice ?? 5,
+                          title: `${pkg.c.toLocaleString('pt-BR')} Tickets da Sorte`,
+                          subtitle: 'Giros na Roleta de Prêmios',
+                          priceFormatted: pkg.price,
+                          originalPrice: pkg.originalPrice,
+                          discountPercent: pkg.discountPercent
+                        })} 
                         size="lg"
                       >
                         <span className="relative z-10">COMPRAR</span>
@@ -795,80 +764,16 @@ export default function Store() {
               )}
             </AnimatePresence>
           </motion.div>
-        ) : (
-          <motion.div 
-            key="payment"
-            initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-            className="bg-card border border-border p-6 rounded-3xl flex flex-col items-center gap-6 text-center"
-          >
-            <div className="flex w-full justify-between items-center bg-secondary/50 p-3 rounded-2xl border border-border">
-              <span className="text-sm font-semibold">Tempo restante</span>
-              <span className="text-lg font-mono font-bold text-destructive animate-pulse">{formatTime(timeLeft)}</span>
-            </div>
-
-            <div className="w-16 h-16 bg-green-500/10 text-green-500 rounded-full flex items-center justify-center">
-              <QrCode size={32} />
-            </div>
-            <div>
-              <h3 className="text-xl font-bold">Escaneie o QR Code</h3>
-              <p className="text-sm text-muted-foreground mt-1">Aprovação em segundos. Escaneie pelo app do seu banco para pagar via PIX.</p>
-              {paymentData.pendingPlan ? (
-                 <p className="font-bold text-yellow-500 mt-2 bg-yellow-500/10 px-3 py-1 rounded-full border border-yellow-500/30 w-fit mx-auto">
-                    Plano {paymentData.pendingPlan.toUpperCase()} (30 dias)
-                 </p>
-              ) : paymentData.tickets > 0 ? (
-                 <p className="font-bold text-blue-500 mt-2 bg-blue-500/10 px-3 py-1 rounded-full border border-blue-500/30 w-fit mx-auto">
-                    {paymentData.tickets?.toLocaleString('pt-BR') || paymentData.tickets} Tickets <AnimatedIcon type="ticket" className="ml-1" size={16} />
-                 </p>
-              ) : (
-                 <p className="font-bold text-green-500 mt-2 bg-green-500/10 px-3 py-1 rounded-full border border-green-500/30 w-fit mx-auto">
-                    {paymentData.credits?.toLocaleString('pt-BR') || paymentData.credits} Moedas <AnimatedIcon type="coin" className="ml-1" size={16} />
-                 </p>
-              )}
-            </div>
-            
-                {paymentData.qrCode ? (
-                  <div className="p-2 bg-white rounded-xl">
-                    <img src={paymentData.qrCode} alt="PIX QR Code" className="w-48 h-48" />
-                  </div>
-                ) : (
-                  <div className="p-2 bg-white rounded-xl w-48 h-48 flex items-center justify-center text-xs text-black/50 text-center font-medium">
-                    QR Code apenas via app MercadoPago
-                  </div>
-                )}
-    
-                <div className="w-full flex gap-2">
-                  <div className="flex-1 bg-secondary rounded-xl px-3 py-2 text-xs truncate border border-border flex items-center text-left">
-                    {paymentData.pixCode?.substring(0, 30)}...
-                  </div>
-                  <Button 
-                     variant="outline"
-                     onClick={() => {
-                       navigator.clipboard.writeText(paymentData.pixCode);
-                       showNotification.success('Código PIX copiado!');
-                     }}
-                  >
-                    <Copy size={16} /> Copiar
-                  </Button>
-                </div>
-    
-                <div className="flex items-center gap-2 text-sm text-primary animate-pulse">
-                  <Loader2 className="animate-spin" size={16} /> Aguardando pagamento do PIX...
-                </div>
-            
-            <Button variant="secondary" className="mt-4" onClick={() => setPaymentData(null)}>
-              Cancelar Operação
-            </Button>
-          </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Smart Checkout Modal */}
+      <CheckoutModal 
+        isOpen={isCheckoutOpen}
+        onClose={() => setIsCheckoutOpen(false)}
+        item={selectedCheckoutItem}
+        onSuccess={handleCheckoutSuccess}
+      />
     </div>
   );
 }
-
-// Temporary for loader
-const Loader2 = ({ size, className }: any) => (
-  <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-  </svg>
-)

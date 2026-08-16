@@ -1,0 +1,87 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+    
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['username']) &&
+             data.username is string && data.username.size() > 0 && data.username.size() <= 50;
+    }
+
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(userId) && request.auth.uid == userId && isValidUser(incoming());
+      allow update: if isSignedIn() && request.auth.uid == userId && isValidUser(incoming());
+    }
+
+    match /promotions/{promotionId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && isValidId(promotionId) && incoming().userId == request.auth.uid;
+    }
+    
+    match /interactions/{interactionId} {
+      allow read, create: if isSignedIn() && isValidId(interactionId);
+    }
+    
+    match /payments/{paymentId} {
+      allow read: if isSignedIn() && existing().userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(paymentId) && incoming().userId == request.auth.uid;
+    }
+
+    match /login_logs/{loginLogId} {
+      allow read, create: if isSignedIn() && isValidId(loginLogId);
+    }
+
+    match /commissions/{commissionId} {
+      allow read, create: if isSignedIn() && isValidId(commissionId);
+    }
+
+    match /trusted_devices/{trustedDeviceId} {
+      allow read, create: if isSignedIn() && isValidId(trustedDeviceId);
+    }
+
+    match /verification_codes/{verificationCodeId} {
+      allow read, create: if isSignedIn() && isValidId(verificationCodeId);
+    }
+
+    match /free_tickets_claims/{freeTicketsClaimId} {
+      allow read, create: if isSignedIn() && isValidId(freeTicketsClaimId);
+    }
+
+    match /audit_logs/{auditLogId} {
+      allow read, create: if isSignedIn() && isValidId(auditLogId);
+    }
+
+    match /settings/{settingId} {
+      allow read: if isSignedIn();
+    }
+
+    match /support_requests/{supportRequestId} {
+      allow read, create: if isSignedIn() && isValidId(supportRequestId);
+      match /messages/{messageId} {
+        allow read, create: if isSignedIn() && isValidId(messageId);
+      }
+    }
+
+    match /notifications/{notificationId} {
+      allow read, create: if isSignedIn() && isValidId(notificationId);
+    }
+
+    match /saved_cards/{savedCardId} {
+      allow read, create: if isSignedIn() && isValidId(savedCardId);
+    }
+  }
+}

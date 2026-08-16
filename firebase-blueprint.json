@@ -1,0 +1,273 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "A user of the application",
+      "type": "object",
+      "properties": {
+        "username": { "type": "string" },
+        "email": { "type": "string" },
+        "credits": { "type": "number" },
+        "role": { "type": "string" },
+        "is_verified": { "type": "boolean" },
+        "is_blocked": { "type": "boolean" },
+        "is_banned": { "type": "boolean" },
+        "suspension_end": { "type": "string" },
+        "tickets": { "type": "number" },
+        "session_version": { "type": "number" },
+        "device_change_count": { "type": "number" },
+        "active_device_hash": { "type": "string" },
+        "referral_code": { "type": "string" },
+        "referred_by": { "type": "string" },
+        "last_roulette_prize": { "type": "number" },
+        "plan_type": { "type": "string" },
+        "plan_expires_at": { "type": "string" },
+        "mp_customer_id": { "type": "string" },
+        "automatic_payment": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "last_active_at": { "type": "string" }
+      },
+      "required": ["username"]
+    },
+    "Promotion": {
+      "title": "Promotion",
+      "description": "A promotion created by a user",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "url": { "type": "string" },
+        "cost": { "type": "number" },
+        "expiresAt": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["userId", "url", "cost", "expiresAt"]
+    },
+    "Interaction": {
+      "title": "Interaction",
+      "description": "An interaction with a promotion",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "promotionId": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["userId", "promotionId"]
+    },
+    "Payment": {
+      "title": "Payment",
+      "description": "A payment made by a user",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "amount": { "type": "number" },
+        "credits": { "type": "number" },
+        "status": { "type": "string" },
+        "tickets": { "type": "number" },
+        "item_type": { "type": "string" },
+        "plan_id": { "type": "string" },
+        "payment_method": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["userId", "amount", "credits"]
+    },
+    "LoginLog": {
+      "title": "Login Log",
+      "description": "A log of user logins",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "ip": { "type": "string" },
+        "device": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["userId"]
+    },
+    "Commission": {
+      "title": "Commission",
+      "description": "A commission earned by a user",
+      "type": "object",
+      "properties": {
+        "referrerId": { "type": "string" },
+        "referredId": { "type": "string" },
+        "amount": { "type": "number" },
+        "actionType": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["referrerId", "referredId", "amount", "actionType"]
+    },
+    "TrustedDevice": {
+      "title": "Trusted Device",
+      "description": "A trusted device for a user",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "deviceHash": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["userId", "deviceHash"]
+    },
+    "VerificationCode": {
+      "title": "Verification Code",
+      "description": "A verification code for a user",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "code": { "type": "string" },
+        "expiresAt": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["userId", "code", "expiresAt"]
+    },
+    "FreeTicketsClaim": {
+      "title": "Free Tickets Claim",
+      "description": "A claim for free tickets",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "deviceHash": { "type": "string" },
+        "claimedAt": { "type": "string" }
+      },
+      "required": ["userId", "deviceHash"]
+    },
+    "AuditLog": {
+      "title": "Audit Log",
+      "description": "An audit log entry",
+      "type": "object",
+      "properties": {
+        "adminId": { "type": "string" },
+        "targetUserId": { "type": "string" },
+        "action": { "type": "string" },
+        "details": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["action"]
+    },
+    "Setting": {
+      "title": "Setting",
+      "description": "A system setting",
+      "type": "object",
+      "properties": {
+        "value": { "type": "string" }
+      },
+      "required": ["value"]
+    },
+    "SupportRequest": {
+      "title": "Support Request",
+      "description": "A support request",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "description": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["userId"]
+    },
+    "SupportMessage": {
+      "title": "Support Message",
+      "description": "A message in a support request",
+      "type": "object",
+      "properties": {
+        "requestId": { "type": "string" },
+        "senderId": { "type": "string" },
+        "message": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "readAt": { "type": "string" }
+      },
+      "required": ["requestId", "senderId"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "A notification for a user",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "type": { "type": "string" },
+        "isRead": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["userId", "title", "message"]
+    },
+    "SavedCard": {
+      "title": "Saved Card",
+      "description": "A saved credit card",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "mpCardId": { "type": "string" },
+        "lastFour": { "type": "string" },
+        "brand": { "type": "string" },
+        "expirationMonth": { "type": "number" },
+        "expirationYear": { "type": "number" },
+        "isDefault": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["userId", "mpCardId", "lastFour"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "User profiles"
+    },
+    "promotions/{promotionId}": {
+      "schema": { "$ref": "#/entities/Promotion" },
+      "description": "Promotions"
+    },
+    "interactions/{interactionId}": {
+      "schema": { "$ref": "#/entities/Interaction" },
+      "description": "Interactions"
+    },
+    "payments/{paymentId}": {
+      "schema": { "$ref": "#/entities/Payment" },
+      "description": "Payments"
+    },
+    "login_logs/{loginLogId}": {
+      "schema": { "$ref": "#/entities/LoginLog" },
+      "description": "Login logs"
+    },
+    "commissions/{commissionId}": {
+      "schema": { "$ref": "#/entities/Commission" },
+      "description": "Commissions"
+    },
+    "trusted_devices/{trustedDeviceId}": {
+      "schema": { "$ref": "#/entities/TrustedDevice" },
+      "description": "Trusted devices"
+    },
+    "verification_codes/{verificationCodeId}": {
+      "schema": { "$ref": "#/entities/VerificationCode" },
+      "description": "Verification codes"
+    },
+    "free_tickets_claims/{freeTicketsClaimId}": {
+      "schema": { "$ref": "#/entities/FreeTicketsClaim" },
+      "description": "Free tickets claims"
+    },
+    "audit_logs/{auditLogId}": {
+      "schema": { "$ref": "#/entities/AuditLog" },
+      "description": "Audit logs"
+    },
+    "settings/{settingId}": {
+      "schema": { "$ref": "#/entities/Setting" },
+      "description": "Settings"
+    },
+    "support_requests/{supportRequestId}": {
+      "schema": { "$ref": "#/entities/SupportRequest" },
+      "description": "Support requests"
+    },
+    "support_requests/{supportRequestId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/SupportMessage" },
+      "description": "Support messages"
+    },
+    "notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/Notification" },
+      "description": "Notifications"
+    },
+    "saved_cards/{savedCardId}": {
+      "schema": { "$ref": "#/entities/SavedCard" },
+      "description": "Saved cards"
+    }
+  }
+}

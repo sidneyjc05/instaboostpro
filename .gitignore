@@ -4,5 +4,11 @@ dist/
 coverage/
 .DS_Store
 *.log
+*.sqlite
+*.db
+*.db-journal
+*.db.bak
+sqlite.db*
+test-firestore.ts
 .env*
 !.env.example

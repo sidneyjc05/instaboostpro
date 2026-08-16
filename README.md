@@ -1,20 +1,18 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# InstaBoost Pro / SecureGate
 
-# Run and deploy your AI Studio app
+Plataforma de engajamento social e proteção de links com validação de segurança e integração com Adsterra & Mercado Pago.
 
-This contains everything you need to run your app locally.
+## 🚀 Como hospedar no Netlify
 
-View your app in AI Studio: https://ai.studio/apps/3865dd3c-f509-4380-ba3b-5c4b07dc2ffc
+1. Faça o commit e push do repositório para o seu GitHub.
+2. Conecte o repositório no [Netlify](https://app.netlify.com/).
+3. O arquivo `netlify.toml` e `public/_redirects` já estão pré-configurados:
+   - **Build Command**: `npm run build`
+   - **Publish Directory**: `dist`
+4. Configure as variáveis de ambiente necessárias nas configurações do site no Netlify (Environment Variables), se aplicável.
 
-## Run Locally
-
-**Prerequisites:**  Node.js
-
-
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## 🛠️ Tecnologias
+- **React 19 + Vite**
+- **Tailwind CSS v4**
+- **Lucide Icons & Motion**
+- **Express + SQLite / Firebase Firestore**
