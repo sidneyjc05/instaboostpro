@@ -4,8 +4,8 @@ import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { useAuth } from '../context/AuthContext';
 import { User as UserIcon, Mail, LogOut, Loader2, Diamond, Users, Copy, CheckCircle, Share2, AlertTriangle, ShieldCheck, History, PlusSquare, X, Check, Clock, Zap, Gift, Coins, PlaySquare, Heart } from 'lucide-react';
-import { collection, query, where, getDocs, doc, updateDoc, increment } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { collection, query, where, getDocs, doc, updateDoc, increment, onSnapshot, addDoc } from 'firebase/firestore';
+import { db, auth } from '../lib/firebase';
 
 // Componente do Cronômetro do Plano
 function PlanCountdown({ expiresAt }: { expiresAt: string }) {
@@ -80,7 +80,7 @@ import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import { GlobalLoader } from '../components/GlobalLoader';
 
 // Componente Item de Divulgação com Countdown
-function PromotionItem({ promo, onRefresh, isExpired, playClick, playSuccess, user, refreshUser }: any) {
+function PromotionItem({ promo, isExpired, playClick, playSuccess, user, refreshUser }: any) {
   const [timeLeft, setTimeLeft] = useState<{ m: number; s: number; totalSec: number } | null>(null);
   const [deleteIn, setDeleteIn] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
@@ -100,7 +100,6 @@ function PromotionItem({ promo, onRefresh, isExpired, playClick, playSuccess, us
            setDeleteIn(Math.floor(deleteDiff / 1000));
         } else {
            setDeleteIn(0);
-           onRefresh(); // Trigger refresh to remove from list
         }
         return;
       }
@@ -113,7 +112,7 @@ function PromotionItem({ promo, onRefresh, isExpired, playClick, playSuccess, us
     calculate();
     const timer = setInterval(calculate, 1000);
     return () => clearInterval(timer);
-  }, [promo.expires_at, onRefresh]);
+  }, [promo.expires_at]);
 
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60);
@@ -156,8 +155,6 @@ function PromotionItem({ promo, onRefresh, isExpired, playClick, playSuccess, us
 
       playSuccess();
       showNotification.success('Divulgação renovada!');
-      refreshUser();
-      onRefresh();
     } catch (err: any) {
       console.error(err);
       showNotification.error(err.message || 'Erro ao renovar');
@@ -270,6 +267,10 @@ export default function Profile() {
   const [friendCode, setFriendCode] = useState('');
   const [copied, setCopied] = useState(false);
 
+  const [commissions, setCommissions] = useState<any[]>([]);
+  const [loadingCommissions, setLoadingCommissions] = useState(false);
+  const [referralSubTab, setReferralSubTab] = useState<'invite' | 'history'>('invite');
+
   const [promotions, setPromotions] = useState<any[]>([]);
   const [loadingPromos, setLoadingPromos] = useState(true);
   const [promoTab, setPromoTab] = useState<'active' | 'expired'>('active');
@@ -335,26 +336,41 @@ export default function Profile() {
     ]
   };
 
-  const fetchPromos = async () => {
+  useEffect(() => {
+    if (!user || !user.id || !auth.currentUser) return;
     setLoadingPromos(true);
-    try {
-      if (!user) return;
-      const q = query(collection(db, 'promotions'), where('user_id', '==', user.id));
-      const querySnapshot = await getDocs(q);
+    
+    const q = query(collection(db, 'promotions'), where('user_id', '==', user.id));
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
       const data = querySnapshot.docs.map(d => ({ id: d.id, ...d.data() }));
       // Sort by expires_at desc
       data.sort((a: any, b: any) => new Date(b.expires_at).getTime() - new Date(a.expires_at).getTime());
       setPromotions(data);
-    } catch (e) {
-      console.error(e);
-    } finally {
       setLoadingPromos(false);
-    }
-  };
+    }, (error) => {
+      console.error("Error listening to promotions:", error);
+      setLoadingPromos(false);
+    });
+
+    return () => unsubscribe();
+  }, [user?.id, auth.currentUser?.uid]);
 
   useEffect(() => {
-    fetchPromos();
-  }, []);
+    if (!user || !user.id || !auth.currentUser) return;
+    setLoadingCommissions(true);
+    const q = query(collection(db, 'commissions'), where('referrer_id', '==', user.id));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      docs.sort((a: any, b: any) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+      setCommissions(docs);
+      setLoadingCommissions(false);
+    }, (err) => {
+      console.error("Error listening to commissions:", err);
+      setLoadingCommissions(false);
+    });
+
+    return () => unsubscribe();
+  }, [user?.id, auth.currentUser?.uid]);
 
   const handleCopyCode = () => {
     if (!user?.referral_code) return;
@@ -443,6 +459,16 @@ export default function Profile() {
         credits: increment(referrerBonus)
       });
 
+      // Save commission record to Firestore
+      await addDoc(collection(db, 'commissions'), {
+        referrer_id: referrer.id,
+        referred_id: user.id,
+        referred_username: user.username || user.email?.split('@')[0] || 'Usuário',
+        amount: referrerBonus,
+        action_type: 'signup_bonus',
+        created_at: new Date().toISOString()
+      });
+
       playSuccess();
       showNotification.success('Código ativado com sucesso! Você ganhou 1.000 moedas.');
       await refreshUser();
@@ -457,8 +483,18 @@ export default function Profile() {
 
   const sendVerifyEmail = async () => {
     playClick();
-    showNotification.info('Enviando código de verificação...');
-    // Real implementation would call /api/me/email/verify/send
+    if (auth.currentUser) {
+      try {
+        const { sendEmailVerification } = await import('firebase/auth');
+        await sendEmailVerification(auth.currentUser);
+        showNotification.success('Código de verificação enviado para o seu e-mail!');
+      } catch (err: any) {
+        console.error(err);
+        showNotification.error(err.message || 'Erro ao enviar e-mail de verificação');
+      }
+    } else {
+      showNotification.error('Usuário não autenticado');
+    }
   };
 
   const plans = [
@@ -556,52 +592,198 @@ export default function Profile() {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, delay: 0.1 }}
-        className="bg-gradient-to-b from-[#6322FA] to-[#4B11E0] rounded-[2.5rem] p-8 lg:p-12 text-white relative overflow-hidden shadow-2xl flex flex-col items-center mx-auto w-full"
+        className="bg-gradient-to-b from-[#6322FA] to-[#4B11E0] rounded-[2.5rem] p-6 sm:p-10 lg:p-12 text-white relative overflow-hidden shadow-2xl flex flex-col items-center mx-auto w-full"
       >
         <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10 mix-blend-overlay"></div>
         <div className="relative z-10 flex flex-col items-center text-center w-full">
-          <div className="w-16 h-16 bg-white/10 rounded-2xl flex items-center justify-center mb-6 backdrop-blur-sm border border-white/10">
+          <div className="w-16 h-16 bg-white/10 rounded-2xl flex items-center justify-center mb-5 backdrop-blur-sm border border-white/10">
             <Users size={32} />
           </div>
-          <h2 className="text-3xl font-black mb-4 tracking-tight">Indique e Ganhe!</h2>
-          <p className="text-white/80 w-full max-w-sm mb-8 leading-relaxed">
+          <h2 className="text-3xl font-black mb-3 tracking-tight">Indique e Ganhe!</h2>
+          <p className="text-white/80 w-full max-w-md mb-6 leading-relaxed text-sm sm:text-base">
             Convide seus amigos para o InstaBoost PRO e ganhe <strong className="text-yellow-400">
             {user?.plan_type === 'ultra' ? '2.000' : user?.plan_type === 'premium' ? '1.200' : user?.plan_type === 'pro' ? '800' : '500'} moedas
             </strong> quando eles entrarem, e <strong className="text-yellow-400">+
             {user?.plan_type === 'ultra' ? '50' : user?.plan_type === 'premium' ? '30' : user?.plan_type === 'pro' ? '20' : '10'}%
-            </strong> de todas as moedas que eles ganharem!
+            </strong> de todas as moedas que eles ganharem interagindo!
           </p>
 
-          <div className="w-full max-w-md space-y-4">
-            <div className="bg-white/10 backdrop-blur-md rounded-2xl p-4 flex items-center justify-between border border-white/20">
-              <div className="flex flex-col items-start px-2">
-                <span className="text-[10px] uppercase font-bold text-white/50 mb-1">Seu Código</span>
-                <span className="text-2xl font-mono font-bold tracking-widest leading-none select-all">{user?.referral_code || '---'}</span>
-              </div>
-              <button onClick={handleCopyCode} className="p-3 bg-white/10 hover:bg-white/20 rounded-xl transition-colors active:scale-95">
-                {copied ? <CheckCircle size={20} className="text-green-400" /> : <Copy size={20} />}
-              </button>
-            </div>
-            
-            <Button className="w-full h-14 rounded-2xl bg-white/10 hover:bg-white/20 text-white border border-white/20 font-bold text-lg" onClick={handleShareLink}>
-              <Share2 className="mr-2" /> Link
-            </Button>
+          {/* Sub Navigation Tabs */}
+          <div className="flex bg-black/20 backdrop-blur-md p-1.5 rounded-2xl border border-white/15 mb-8 w-full max-w-md">
+            <button
+              onClick={() => { playClick(); setReferralSubTab('invite'); }}
+              className={`flex-1 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${
+                referralSubTab === 'invite' 
+                  ? 'bg-white text-[#5415EF] shadow-lg shadow-black/20' 
+                  : 'text-white/70 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <Share2 size={16} /> Convide & Ganhe
+            </button>
+            <button
+              onClick={() => { playClick(); setReferralSubTab('history'); }}
+              className={`flex-1 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${
+                referralSubTab === 'history' 
+                  ? 'bg-white text-[#5415EF] shadow-lg shadow-black/20' 
+                  : 'text-white/70 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <History size={16} /> Histórico {commissions.length > 0 && `(${commissions.length})`}
+            </button>
           </div>
 
-          <div className="w-full max-w-md mt-10 space-y-4 pt-10 border-t border-white/10">
-             <p className="text-sm font-bold text-white/50 uppercase tracking-widest">Foi convidado por alguém?</p>
-             <form onSubmit={handleClaimReferral} className="flex flex-col sm:flex-row gap-2">
-                <Input 
-                  value={friendCode}
-                  onChange={(e) => setFriendCode(e.target.value.toUpperCase())}
-                  placeholder="CÓDIGO DO AMIGO" 
-                  className="bg-white/10 border-white/20 text-white placeholder:text-white/30 h-14 font-mono font-bold tracking-widest rounded-2xl flex-1 text-center"
-                />
-                <Button type="submit" className="h-14 bg-white hover:bg-gray-100 text-[#5415EF] font-black rounded-2xl px-6 w-full sm:w-auto" isLoading={loadingCode}>
-                   Resgatar
-                </Button>
-             </form>
-          </div>
+          <AnimatePresence mode="wait">
+            {referralSubTab === 'invite' ? (
+              <motion.div
+                key="invite-tab"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="w-full max-w-md space-y-6"
+              >
+                {/* Code & Share */}
+                <div className="space-y-4">
+                  <div className="bg-white/10 backdrop-blur-md rounded-2xl p-4 flex items-center justify-between border border-white/20">
+                    <div className="flex flex-col items-start px-2">
+                      <span className="text-[10px] uppercase font-bold text-white/50 mb-1">Seu Código Exclusivo</span>
+                      <span className="text-2xl font-mono font-bold tracking-widest leading-none select-all">{user?.referral_code || 'GERANDO...'}</span>
+                    </div>
+                    <button 
+                      onClick={handleCopyCode} 
+                      className="p-3 bg-white/10 hover:bg-white/20 rounded-xl transition-colors active:scale-95 text-white"
+                      title="Copiar Código"
+                    >
+                      {copied ? <CheckCircle size={20} className="text-green-400" /> : <Copy size={20} />}
+                    </button>
+                  </div>
+                  
+                  <Button className="w-full h-14 rounded-2xl bg-white/10 hover:bg-white/20 text-white border border-white/20 font-bold text-lg" onClick={handleShareLink}>
+                    <Share2 className="mr-2" /> Compartilhar Link de Indicação
+                  </Button>
+                </div>
+
+                {/* Quick Info Grid */}
+                <div className="grid grid-cols-2 gap-3 text-left">
+                  <div className="bg-white/5 border border-white/10 rounded-2xl p-3.5 flex flex-col">
+                    <span className="text-[10px] uppercase font-bold text-white/50">Comissão Recorrente</span>
+                    <span className="text-lg font-black text-yellow-300 mt-1">
+                      {user?.plan_type === 'ultra' ? '50%' : user?.plan_type === 'premium' ? '30%' : user?.plan_type === 'pro' ? '20%' : '10%'}
+                    </span>
+                    <span className="text-[10px] text-white/60">de cada interação dos indicados</span>
+                  </div>
+                  <div className="bg-white/5 border border-white/10 rounded-2xl p-3.5 flex flex-col">
+                    <span className="text-[10px] uppercase font-bold text-white/50">Bônus de Cadastro</span>
+                    <span className="text-lg font-black text-yellow-300 mt-1">
+                      +{user?.plan_type === 'ultra' ? '2.000' : user?.plan_type === 'premium' ? '1.200' : user?.plan_type === 'pro' ? '800' : '500'}
+                    </span>
+                    <span className="text-[10px] text-white/60">moedas por amigo cadastrado</span>
+                  </div>
+                </div>
+
+                {/* Redeem friend code */}
+                <div className="w-full mt-6 space-y-3 pt-6 border-t border-white/10">
+                   <p className="text-xs font-bold text-white/60 uppercase tracking-widest">Foi convidado por alguém?</p>
+                   {user?.referred_by ? (
+                     <div className="bg-green-500/20 border border-green-400/30 rounded-2xl p-3 text-xs font-bold text-green-200 flex items-center justify-center gap-2">
+                       <CheckCircle size={16} className="text-green-400" /> Você já ativou um código de indicação!
+                     </div>
+                   ) : (
+                     <form onSubmit={handleClaimReferral} className="flex flex-col sm:flex-row gap-2">
+                        <Input 
+                          value={friendCode}
+                          onChange={(e) => setFriendCode(e.target.value.toUpperCase())}
+                          placeholder="CÓDIGO DO AMIGO" 
+                          className="bg-white/10 border-white/20 text-white placeholder:text-white/30 h-14 font-mono font-bold tracking-widest rounded-2xl flex-1 text-center"
+                        />
+                        <Button type="submit" className="h-14 bg-white hover:bg-gray-100 text-[#5415EF] font-black rounded-2xl px-6 w-full sm:w-auto" isLoading={loadingCode}>
+                           Resgatar
+                        </Button>
+                     </form>
+                   )}
+                </div>
+              </motion.div>
+            ) : (
+              <motion.div
+                key="history-tab"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="w-full max-w-lg space-y-4"
+              >
+                {/* Stats Summary */}
+                <div className="grid grid-cols-2 gap-3 text-left">
+                  <div className="bg-white/10 border border-white/20 rounded-2xl p-4 flex flex-col">
+                    <span className="text-[10px] uppercase font-bold text-white/60">Total em Comissões</span>
+                    <span className="text-xl font-black text-yellow-300 flex items-center gap-1 mt-1">
+                      +{commissions.reduce((acc, c) => acc + (Number(c.amount) || 0), 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      <AnimatedIcon type="coin" size={18} />
+                    </span>
+                  </div>
+                  <div className="bg-white/10 border border-white/20 rounded-2xl p-4 flex flex-col">
+                    <span className="text-[10px] uppercase font-bold text-white/60">Amigos Indicados</span>
+                    <span className="text-xl font-black text-white mt-1">
+                      {Array.from(new Set(commissions.map(c => c.referred_id))).length} {Array.from(new Set(commissions.map(c => c.referred_id))).length === 1 ? 'amigo' : 'amigos'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Commissions List */}
+                <div className="bg-black/20 backdrop-blur-md rounded-2xl border border-white/15 p-4 max-h-[380px] overflow-y-auto space-y-2.5 text-left">
+                  {loadingCommissions ? (
+                    <div className="py-12 flex flex-col items-center justify-center gap-2 text-white/60">
+                      <Loader2 className="animate-spin text-white" size={24} />
+                      <span className="text-xs font-bold">Carregando histórico do Firebase...</span>
+                    </div>
+                  ) : commissions.length === 0 ? (
+                    <div className="py-12 flex flex-col items-center justify-center text-center px-4">
+                      <div className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center mb-3">
+                        <Coins size={24} className="text-yellow-300" />
+                      </div>
+                      <p className="font-bold text-sm text-white">Nenhuma comissão registrada ainda</p>
+                      <p className="text-xs text-white/60 mt-1 max-w-xs">
+                        Compartilhe seu código com amigos! Quando eles se cadastrarem e interagirem no aplicativo, suas comissões aparecerão aqui em tempo real.
+                      </p>
+                    </div>
+                  ) : (
+                    commissions.map((comm) => (
+                      <div 
+                        key={comm.id} 
+                        className="bg-white/5 hover:bg-white/10 transition-colors border border-white/10 rounded-xl p-3 flex items-center justify-between gap-3"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-9 h-9 rounded-xl bg-white/10 border border-white/10 flex items-center justify-center shrink-0 font-black text-xs text-yellow-300">
+                            {comm.action_type === 'signup_bonus' ? <Gift size={16} /> : <Zap size={16} />}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-xs font-bold truncate text-white">
+                                @{comm.referred_username || 'Amigo Indicado'}
+                              </span>
+                              <span className={`text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded-full ${
+                                comm.action_type === 'signup_bonus' 
+                                  ? 'bg-green-500/30 text-green-300 border border-green-400/30' 
+                                  : 'bg-yellow-500/30 text-yellow-300 border border-yellow-400/30'
+                              }`}>
+                                {comm.action_type === 'signup_bonus' ? 'Novo Cadastro' : 'Interação'}
+                              </span>
+                            </div>
+                            <span className="text-[10px] text-white/50 block mt-0.5">
+                              {comm.created_at ? new Date(comm.created_at).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'Recentemente'}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1 font-black text-sm text-yellow-300 shrink-0">
+                          +{Number(comm.amount || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          <AnimatedIcon type="coin" size={14} />
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </motion.div>
 
@@ -689,7 +871,6 @@ export default function Profile() {
                            <PromotionItem 
                               key={p.id} 
                               promo={p} 
-                              onRefresh={fetchPromos} 
                               isExpired={promoTab === 'expired'}
                               playClick={playClick}
                               playSuccess={playSuccess}
@@ -726,12 +907,20 @@ export default function Profile() {
            <div>
              <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1 block">E-mail Cadastrado</span>
              <span className="text-lg font-bold text-foreground block mb-2">{user?.email || 'Nenhum e-mail'}</span>
-             <span className="text-xs font-bold text-orange-500/90 block">E-mail pendente de verificação</span>
+             {auth.currentUser?.emailVerified ? (
+               <span className="text-xs font-bold text-green-500 block flex items-center gap-1">
+                 <CheckCircle size={14} /> E-mail verificado
+               </span>
+             ) : (
+               <span className="text-xs font-bold text-orange-500/90 block">E-mail pendente de verificação</span>
+             )}
            </div>
            
-           <Button variant="secondary" onClick={sendVerifyEmail} className="w-full rounded-xl mt-4 font-bold bg-white/5 border border-white/5 hover:bg-white/10">
-              Enviar Código de Verificação
-           </Button>
+           {!auth.currentUser?.emailVerified && (
+             <Button variant="secondary" onClick={sendVerifyEmail} className="w-full rounded-xl mt-4 font-bold bg-white/5 border border-white/5 hover:bg-white/10">
+                Enviar E-mail de Verificação
+             </Button>
+           )}
         </div>
       </motion.div>
 

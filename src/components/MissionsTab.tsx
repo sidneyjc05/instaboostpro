@@ -1,12 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { Heart, PlaySquare, UserPlus, Clock, Play } from 'lucide-react';
+import { motion } from 'motion/react';
+import { Heart, PlaySquare, UserPlus, Clock, Play, ShieldAlert, Zap } from 'lucide-react';
 import { Button } from './ui/Button';
 import { showNotification } from '../context/NotificationContext';
 import { useAuth } from '../context/AuthContext';
 import { AnimatedIcon } from './AnimatedIcon';
-import { doc, getDoc, updateDoc, increment } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { doc, getDoc, updateDoc, increment, onSnapshot } from 'firebase/firestore';
+import { db, auth } from '../lib/firebase';
 
 const MISSION_CONFIG = {
   likes: {
@@ -96,109 +96,33 @@ const getDynamicMissionConfig = (type: string, level: number) => {
 export function MissionsTab({ onGoToFeed }: { onGoToFeed: () => void }) {
     const [state, setState] = useState<any>(null);
     const [loading, setLoading] = useState(true);
-    const [timeSeconds, setTimeSeconds] = useState(0);
     const { user, refreshUser } = useAuth();
     
-    const loadMissions = async () => {
-        if (!user) return;
-        try {
-            const userDoc = await getDoc(doc(db, 'users', user.id));
-            const userData = userDoc.data();
-            const missionsProgress = userData?.missions_progress || {};
-            
-            const newState: Record<string, any> = {};
-            const now = new Date();
-            let hasChanges = false;
-            
-            for (const key of Object.keys(MISSION_CONFIG)) {
-                let mState = missionsProgress[key] || { level: 1, progress: 0, updated_at: null };
-                
-                // 10 minutes timeout reset
-                if (mState.updated_at) {
-                    const lastUpdate = new Date(mState.updated_at);
-                    if (now.getTime() - lastUpdate.getTime() > 10 * 60 * 1000) {
-                        mState.progress = 0;
-                        hasChanges = true;
-                    }
-                }
-                
-                newState[key] = mState;
-            }
-
-            if (hasChanges) {
-                await updateDoc(doc(db, 'users', user.id), {
-                    missions_progress: newState
-                });
-            }
-
-            setState(newState);
-        } catch {
-            showNotification.error('Erro ao carregar missões');
-        } finally {
-            setLoading(false);
-        }
-    };
-
     useEffect(() => {
-        if (user) loadMissions();
+        if (!user?.id || !auth.currentUser) return;
         
-        // Local sub-minute progress for time mission
-        const smoothInterval = setInterval(() => {
-            if (!document.hidden) {
-                setTimeSeconds(prev => {
-                    if (prev >= 59) return 0;
-                    return prev + 1;
-                });
+        const userRef = doc(db, 'users', user.id);
+        const unsubscribe = onSnapshot(userRef, (userDoc) => {
+            if (userDoc.exists()) {
+                const userData = userDoc.data();
+                const missionsProgress = userData?.missions_progress || {};
+                
+                const newState: Record<string, any> = {};
+                for (const key of Object.keys(MISSION_CONFIG)) {
+                    newState[key] = missionsProgress[key] || { level: 1, progress: 0, progress_seconds: 0, updated_at: null };
+                }
+                setState(newState);
             }
-        }, 1000);
-
-        // Refresh mission data every 30s to sync with global progress
-        const interval = setInterval(() => {
-            if (user) loadMissions();
-        }, 30000);
+            setLoading(false);
+        }, (error) => {
+            console.error('Error loading missions:', error);
+            setLoading(false);
+        });
 
         return () => {
-            clearInterval(interval);
-            clearInterval(smoothInterval);
+            unsubscribe();
         };
-    }, [user]);
-
-    // Handle Time Mission Auto-Progress
-    useEffect(() => {
-        if (!user || !state || !state['time']) return;
-        
-        // Automatically progress the time mission every minute
-        const timeInterval = setInterval(async () => {
-             try {
-                const userRef = doc(db, 'users', user.id);
-                const userDoc = await getDoc(userRef);
-                const userData = userDoc.data();
-                const mProg = userData?.missions_progress || {};
-                const timeProg = mProg['time'] || { level: 1, progress: 0 };
-                
-                // Also reset timeout logic for time
-                const now = new Date();
-                if (timeProg.updated_at) {
-                    const lastUpdate = new Date(timeProg.updated_at);
-                    if (now.getTime() - lastUpdate.getTime() > 10 * 60 * 1000) {
-                        timeProg.progress = 0;
-                    }
-                }
-                
-                timeProg.progress += 1;
-                timeProg.updated_at = now.toISOString();
-
-                await updateDoc(userRef, {
-                    [`missions_progress.time`]: timeProg
-                });
-                
-                loadMissions();
-             } catch {}
-        }, 60000);
-
-        return () => clearInterval(timeInterval);
-    }, [user, state?.time?.level]);
-
+    }, [user?.id, auth.currentUser?.uid]);
 
     if (loading || !state) {
         return (
@@ -212,11 +136,15 @@ export function MissionsTab({ onGoToFeed }: { onGoToFeed: () => void }) {
 
     return (
         <div className="flex flex-col gap-5">
-            <div className="bg-primary/10 border border-primary/20 rounded-2xl p-4 flex items-start gap-3">
-               <Clock className="text-primary mt-1 shrink-0" />
-               <p className="text-sm text-foreground/90">
-                  Após 10 minutos de inatividade, o progresso da sua missão é zerado (exceto recompensas resgatadas). Foco total!
-               </p>
+            {/* Smart Inactivity Notice Card */}
+            <div className="bg-gradient-to-r from-purple-500/10 via-primary/10 to-indigo-500/10 border border-primary/20 rounded-2xl p-4 sm:p-5 flex flex-col gap-2">
+                <div className="flex items-center gap-2 text-primary font-bold text-sm sm:text-base">
+                   <Zap size={18} className="animate-pulse" />
+                   <span>Sistema Inteligente de Missões e Inatividade</span>
+                </div>
+                <p className="text-xs sm:text-sm text-foreground/80 leading-relaxed">
+                   O tempo e as ações das missões são contabilizados continuamente em segundo plano e salvos no Firebase. Se você ficar mais de <strong>15 minutos inativo</strong>, o progresso do nível atual é reiniciado para incentivar o engajamento diário. Seus níveis conquistados e moedas resgatadas estão 100% seguros!
+                </p>
             </div>
 
             {Object.entries(MISSION_CONFIG).map(([key, config]) => (
@@ -225,8 +153,6 @@ export function MissionsTab({ onGoToFeed }: { onGoToFeed: () => void }) {
                  missionKey={key} 
                  config={config} 
                  state={state[key]} 
-                 timeSeconds={key === 'time' ? timeSeconds : 0}
-                 onUpdate={loadMissions}
                  refreshUser={refreshUser}
                  onOpenViewer={() => {
                      if (key !== 'time') onGoToFeed();
@@ -237,7 +163,7 @@ export function MissionsTab({ onGoToFeed }: { onGoToFeed: () => void }) {
     );
 }
 
-function MissionCard({ missionKey, config, state, onUpdate, refreshUser, onOpenViewer, timeSeconds }: any) {
+function MissionCard({ missionKey, config, state, refreshUser, onOpenViewer }: any) {
     const [submitting, setSubmitting] = useState(false);
     const { user } = useAuth();
 
@@ -256,13 +182,27 @@ function MissionCard({ missionKey, config, state, onUpdate, refreshUser, onOpenV
 
     reward = parseFloat(reward.toFixed(1));
 
-    // Smooth progress for time mission
-    const displayProgress = missionKey === 'time' && state.progress < goal 
-        ? state.progress + (timeSeconds / 60)
-        : state.progress;
+    // For time mission: calculate exact seconds
+    const currentSeconds = missionKey === 'time'
+        ? (state.progress_seconds !== undefined ? state.progress_seconds : Math.floor((state.progress || 0) * 60))
+        : 0;
 
-    const isCompleted = state.progress >= goal;
-    const progressPercent = Math.min((displayProgress / goal) * 100, 100);
+    const goalSeconds = goal * 60;
+
+    const isCompleted = missionKey === 'time'
+        ? currentSeconds >= goalSeconds
+        : (state.progress || 0) >= goal;
+
+    const progressPercent = missionKey === 'time'
+        ? Math.min((currentSeconds / goalSeconds) * 100, 100)
+        : Math.min(((state.progress || 0) / goal) * 100, 100);
+
+    // Format display for time
+    const timeMins = Math.floor(currentSeconds / 60);
+    const timeSecs = currentSeconds % 60;
+    const displayTimeText = timeMins > 0 
+        ? `${timeMins}m ${timeSecs.toString().padStart(2, '0')}s`
+        : `${timeSecs}s`;
 
     const handleClaim = async (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -273,13 +213,20 @@ function MissionCard({ missionKey, config, state, onUpdate, refreshUser, onOpenV
             const userDoc = await getDoc(userRef);
             const userData = userDoc.data();
             const missionsProgress = userData?.missions_progress || {};
-            const mState = missionsProgress[missionKey] || { level: 1, progress: 0 };
+            const mState = missionsProgress[missionKey] || { level: 1, progress: 0, progress_seconds: 0 };
 
             const dynConfig = getDynamicMissionConfig(missionKey, mState.level);
-            if (!dynConfig) throw new Error('Config not found');
+            if (!dynConfig) throw new Error('Configuração não encontrada');
             
-            if (mState.progress < dynConfig.goal) {
-                throw new Error('Missão não completada');
+            if (missionKey === 'time') {
+                const sSecs = mState.progress_seconds !== undefined ? mState.progress_seconds : Math.floor((mState.progress || 0) * 60);
+                if (sSecs < dynConfig.goal * 60) {
+                    throw new Error('Missão de tempo ainda não concluída!');
+                }
+            } else {
+                if ((mState.progress || 0) < dynConfig.goal) {
+                    throw new Error('Missão ainda não concluída!');
+                }
             }
 
             // Calculate actual reward
@@ -297,12 +244,12 @@ function MissionCard({ missionKey, config, state, onUpdate, refreshUser, onOpenV
                 [`missions_progress.${missionKey}`]: {
                     level: newLevel,
                     progress: 0,
+                    progress_seconds: 0,
                     updated_at: new Date().toISOString()
                 }
             });
 
             showNotification.success(`Nível ${mState.level} completo! Você ganhou ${actualReward} moedas.`);
-            onUpdate();
             refreshUser();
         } catch (err: any) {
             showNotification.error(err.message || 'Erro ao resgatar missão');
@@ -314,7 +261,7 @@ function MissionCard({ missionKey, config, state, onUpdate, refreshUser, onOpenV
     return (
         <motion.div 
             layout
-            className="bg-card border border-border rounded-3xl shadow-sm overflow-hidden flex flex-col"
+            className="bg-card border border-border rounded-3xl shadow-sm overflow-hidden flex flex-col transition-all duration-300 hover:border-primary/40"
         >
             <div className="p-4 sm:p-5 relative overflow-hidden flex flex-col gap-4">
                 <div className={`absolute inset-0 bg-gradient-to-r ${bgGradient} opacity-5`}></div>
@@ -345,20 +292,21 @@ function MissionCard({ missionKey, config, state, onUpdate, refreshUser, onOpenV
                     </div>
                 </div>
 
-                <div className="w-full h-2 bg-secondary rounded-full overflow-hidden relative z-10 mt-1">
-                    <motion.div 
-                        initial={{ width: 0 }}
-                        animate={{ width: `${progressPercent}%` }}
-                        className={`h-full bg-gradient-to-r ${bgGradient}`}
+                <div className="w-full h-2.5 bg-secondary rounded-full overflow-hidden relative z-10 mt-1">
+                    <div 
+                        style={{ width: `${progressPercent}%` }}
+                        className={`h-full bg-gradient-to-r ${bgGradient} transition-all duration-500 ease-out rounded-full`}
                     />
                 </div>
 
                 <div className="flex items-center justify-between mt-1 gap-2">
                     <div className="text-left font-mono">
                        <span className="font-bold text-xl sm:text-2xl text-foreground">
-                          {missionKey === 'time' ? displayProgress.toFixed(1) : state.progress}
+                          {missionKey === 'time' ? displayTimeText : (state.progress || 0)}
                        </span>
-                       <span className="text-muted-foreground text-[10px] sm:text-sm font-medium"> / {goal} {missionKey === 'time' ? 'min' : ''}</span>
+                       <span className="text-muted-foreground text-[10px] sm:text-sm font-medium">
+                          {' '}/ {goal} {missionKey === 'time' ? 'min' : ''}
+                       </span>
                     </div>
                     
                     {isCompleted ? (
@@ -380,7 +328,9 @@ function MissionCard({ missionKey, config, state, onUpdate, refreshUser, onOpenV
                             Ir para Missão <Play size={14} className="ml-1 sm:ml-2 group-hover:scale-110 transition-transform text-primary" />
                         </Button>
                     ) : (
-                        <span className="text-[10px] font-bold text-muted-foreground uppercase opacity-70 tracking-widest px-2 py-1 bg-secondary rounded-md">Automático</span>
+                        <span className="text-[10px] font-bold text-primary uppercase tracking-wider px-2.5 py-1 bg-primary/10 border border-primary/20 rounded-md animate-pulse">
+                           Gravando em segundo plano
+                        </span>
                     )}
                 </div>
             </div>

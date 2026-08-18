@@ -25,11 +25,13 @@ import { showNotification } from '../context/NotificationContext';
 import { useAppSound } from '../context/SoundContext';
 import { AnimatedIcon } from './AnimatedIcon';
 import { useAuth } from '../context/AuthContext';
+import { auth } from '../lib/firebase';
 import {
   getUserSavedCards,
   deleteUserSavedCard,
   createPixPayment,
   processCardPayment,
+  deliverPurchase,
   SavedCard
 } from '../lib/store';
 
@@ -133,6 +135,7 @@ export function CheckoutModal({ isOpen, onClose, item, onSuccess }: CheckoutModa
   const [expiry, setExpiry] = useState('');
   const [cvv, setCvv] = useState('');
   const [cpf, setCpf] = useState('');
+  const [birthDate, setBirthDate] = useState('');
   const [installments, setInstallments] = useState('1');
   const [saveCard, setSaveCard] = useState(true);
 
@@ -167,28 +170,79 @@ export function CheckoutModal({ isOpen, onClose, item, onSuccess }: CheckoutModa
       setExpiry('');
       setCvv('');
       setCpf('');
+      setBirthDate('');
       setInstallments('1');
       setSavedCardCvv('');
     }
   }, [isOpen, user?.id]);
 
-  // Handle PIX Countdown
+  // Handle PIX Countdown & Polling
   useEffect(() => {
     let timer: any;
+    let pollInterval: any;
+    
     if (pixData) {
+      // Countdown
       timer = setInterval(() => {
         const now = Date.now();
         const diff = Math.floor((pixData.exactExpiry - now) / 1000);
         if (diff <= 0) {
           clearInterval(timer);
+          clearInterval(pollInterval);
           setPixData(null);
           showNotification.error('Tempo do QR Code PIX expirou.');
         } else {
           setPixTimeLeft(diff);
         }
       }, 1000);
+
+      // Polling backend for status
+      pollInterval = setInterval(async () => {
+        try {
+          const token = await auth.currentUser?.getIdToken();
+          const res = await fetch(`/api/payments/${pixData.id}`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          if (res.ok) {
+            const result = await res.json();
+            if (result.status === 'approved') {
+              clearInterval(timer);
+              clearInterval(pollInterval);
+              setPixData(null);
+              playSuccess();
+              showNotification.success('Pagamento PIX Aprovado com sucesso!');
+              try {
+                await deliverPurchase(String(user.id), item.type, item.credits);
+              } catch (e) {
+                console.warn('Local Firestore delivery sync:', e);
+              }
+              await refreshUser();
+              onSuccess({
+                id: result.id,
+                paymentMethod: 'pix',
+                pendingPlan: item?.type === 'plan' ? String(item?.credits) : undefined,
+                tickets: item?.type === 'tickets' ? Number(item?.credits) : 0,
+                credits: item?.type === 'credits' ? Number(item?.credits) : 0,
+                amount: result.amount
+              });
+              onClose();
+            } else if (result.status === 'rejected' || result.status === 'cancelled') {
+              clearInterval(timer);
+              clearInterval(pollInterval);
+              setPixData(null);
+              showNotification.error('Pagamento recusado ou cancelado.');
+            }
+          }
+        } catch (e) {
+          // Ignore polling errors
+        }
+      }, 5000);
     }
-    return () => clearInterval(timer);
+    
+    return () => {
+      clearInterval(timer);
+      clearInterval(pollInterval);
+    };
   }, [pixData]);
 
   if (!isOpen || !item) return null;
@@ -218,6 +272,13 @@ export function CheckoutModal({ isOpen, onClose, item, onSuccess }: CheckoutModa
     setCpf(v);
   };
 
+  const handleBirthDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let v = e.target.value.replace(/\D/g, '').slice(0, 8);
+    if (v.length > 4) v = v.replace(/(\d{2})(\d{2})(\d{1,4})/, '$1/$2/$3');
+    else if (v.length > 2) v = v.replace(/(\d{2})(\d{1,2})/, '$1/$2');
+    setBirthDate(v);
+  };
+
   // Delete a saved card
   const handleDeleteCard = async (cardId: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -239,27 +300,38 @@ export function CheckoutModal({ isOpen, onClose, item, onSuccess }: CheckoutModa
   // Generate PIX
   const handleGeneratePix = async () => {
     if (!user?.id) return;
+    
+    if (cpf.replace(/\D/g, '').length !== 11) {
+      showNotification.error('Digite um CPF válido com 11 dígitos.');
+      return;
+    }
+    if (birthDate.replace(/\D/g, '').length !== 8) {
+      showNotification.error('Digite a data de nascimento corretamente (DD/MM/AAAA).');
+      return;
+    }
+
     playClick();
     setLoading(true);
     try {
       const data = await createPixPayment(String(user.id), {
         credits: item.credits,
-        type: item.type
+        type: item.type,
+        cpf: cpf,
+        birthDate: birthDate,
+        username: user?.username || 'usuario',
+        email: user?.email || auth.currentUser?.email || undefined
       });
 
       playSuccess();
-      showNotification.success('Pagamento PIX Aprovado com sucesso!');
-      await refreshUser();
-      onSuccess({
-        ...data,
-        paymentMethod: 'pix',
-        pendingPlan: item?.type === 'plan' ? String(item.credits) : undefined,
-        tickets: item?.type === 'tickets' ? Number(item.credits) : 0,
-        credits: item?.type === 'credits' ? Number(item.credits) : 0
+      setPixData({
+        id: data.id,
+        qrCode: data.qrCode,
+        pixCode: data.pixCode,
+        exactExpiry: Date.now() + (15 * 60 * 1000)
       });
-      onClose();
-    } catch {
-      showNotification.error('Erro ao processar PIX');
+      setPixTimeLeft(15 * 60);
+    } catch (err: any) {
+      showNotification.error(err.message || 'Erro ao gerar PIX');
     } finally {
       setLoading(false);
     }
@@ -268,6 +340,16 @@ export function CheckoutModal({ isOpen, onClose, item, onSuccess }: CheckoutModa
   // Process Credit Card Payment with Intelligent Step Animation
   const handlePayWithCard = async () => {
     if (!user?.id) return;
+    
+    if (cpf.replace(/\D/g, '').length !== 11) {
+      showNotification.error('Digite um CPF válido com 11 dígitos.');
+      return;
+    }
+    if (birthDate.replace(/\D/g, '').length !== 8) {
+      showNotification.error('Digite a data de nascimento corretamente (DD/MM/AAAA).');
+      return;
+    }
+
     playClick();
 
     if (selectedCardId === 'new') {
@@ -303,6 +385,10 @@ export function CheckoutModal({ isOpen, onClose, item, onSuccess }: CheckoutModa
         credits: item.credits,
         type: item.type,
         installments: Number(installments) || 1,
+        docNumber: cpf.replace(/\D/g, ''),
+        docType: 'CPF',
+        username: user?.username || 'usuario',
+        email: user?.email || auth.currentUser?.email || undefined
       };
 
       if (selectedCardId === 'new') {
@@ -329,6 +415,14 @@ export function CheckoutModal({ isOpen, onClose, item, onSuccess }: CheckoutModa
       setCheckingStep('Aprovando transação no banco de dados...');
 
       const data = await processCardPayment(String(user.id), payload);
+
+      if (data.status === 'approved') {
+        try {
+          await deliverPurchase(String(user.id), item.type, item.credits);
+        } catch (e) {
+          console.warn('Local Firestore delivery sync:', e);
+        }
+      }
 
       playSuccess();
       showNotification.success('Pagamento no cartão APROVADO com sucesso!');
@@ -428,6 +522,32 @@ export function CheckoutModal({ isOpen, onClose, item, onSuccess }: CheckoutModa
                 </span>
               )}
             </div>
+          </div>
+        </div>
+
+        {/* Global Payment Verification Fields */}
+        <div className="grid grid-cols-2 gap-3 mb-6">
+          <div>
+            <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">
+              CPF do Titular
+            </label>
+            <Input
+              placeholder="000.000.000-00"
+              value={cpf}
+              onChange={handleCpfChange}
+              className="font-mono font-bold tracking-wider h-11 rounded-xl"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">
+              Data Nasc.
+            </label>
+            <Input
+              placeholder="DD/MM/AAAA"
+              value={birthDate}
+              onChange={handleBirthDateChange}
+              className="font-mono font-bold tracking-wider h-11 rounded-xl"
+            />
           </div>
         </div>
 
@@ -717,7 +837,7 @@ export function CheckoutModal({ isOpen, onClose, item, onSuccess }: CheckoutModa
                     />
                   </div>
 
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">
                         Validade
@@ -740,17 +860,6 @@ export function CheckoutModal({ isOpen, onClose, item, onSuccess }: CheckoutModa
                         value={cvv}
                         onChange={(e) => setCvv(e.target.value.replace(/\D/g, ''))}
                         className="font-mono font-bold text-center h-11 rounded-xl"
-                      />
-                    </div>
-                    <div className="col-span-2 sm:col-span-1">
-                      <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">
-                        CPF do Titular
-                      </label>
-                      <Input
-                        placeholder="000.000.000-00"
-                        value={cpf}
-                        onChange={handleCpfChange}
-                        className="font-mono font-bold h-11 rounded-xl"
                       />
                     </div>
                   </div>

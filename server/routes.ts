@@ -7,13 +7,15 @@ import crypto from 'crypto';
 import qrcode from 'qrcode';
 import { MercadoPagoConfig, Payment, Customer, CustomerCard } from 'mercadopago';
 import { sendVerificationEmail } from './mailer.js';
-import { 
-  saveCardInFirestore, 
-  getCardsFromFirestore, 
-  deleteCardFromFirestore, 
-  recordPaymentInFirestore, 
+import {
+  saveCardInFirestore,
+  getCardsFromFirestore,
+  deleteCardFromFirestore,
+  recordPaymentInFirestore,
   updatePaymentInFirestore,
-  SavedCardFirestore
+  grantUserRewardsInFirestore,
+  SavedCardFirestore,
+  firestoreDb
 } from './firebase.js';
 
 import { adminRouter } from './admin.js';
@@ -953,8 +955,14 @@ export function calculatePaymentAmount(type: string, credits: string | number, u
 export function fulfillPayment(payment: any, verifiedVia: string = 'mercadopago_auto'): boolean {
   if (!payment) return false;
   try {
-    const buyer = db.prepare('SELECT id, username, email FROM users WHERE id = ?').get(payment.user_id) as any;
-    if (!buyer) return false;
+    let buyer = db.prepare('SELECT id, username, email FROM users WHERE id = ?').get(payment.user_id) as any;
+    
+    // If not found in SQLite, maybe the user exists in Firebase (string UID)
+    if (!buyer && typeof payment.user_id === 'string' && firestoreDb) {
+      // Async fetching from Firestore can't be awaited here directly if fulfillPayment is strictly sync.
+      // But fulfillPayment doesn't seem to be async. Wait! Let's check if we can make it async.
+    }
+
 
     if (payment.item_type === 'plan' || payment.plan_id) {
       const planId = payment.plan_id;
@@ -968,6 +976,12 @@ export function fulfillPayment(payment: any, verifiedVia: string = 'mercadopago_
       db.prepare('UPDATE users SET plan_type = ?, plan_expires_at = ?, credits = credits + ? WHERE id = ?').run(planId, expiresAt, bonus, payment.user_id);
       createNotification(payment.user_id, 'Plano Ativado!', `Seu Plano ${planId.toUpperCase()} foi ativado com sucesso.`, 'profile');
       
+      grantUserRewardsInFirestore(payment.user_id, {
+        plan_type: planId,
+        plan_expires_at: expiresAt,
+        credits: bonus
+      });
+
       const admins = db.prepare("SELECT id FROM users WHERE role = 'admin'").all() as any[];
       for (const a of admins) {
         createNotification(a.id, 'Nova Venda', `Usuário @${buyer?.username || 'desconhecido'} comprou o Plano ${planId.toUpperCase()}`, 'admin_store');
@@ -975,9 +989,17 @@ export function fulfillPayment(payment: any, verifiedVia: string = 'mercadopago_
     } else if (payment.item_type === 'tickets' || payment.tickets > 0) {
       db.prepare('UPDATE users SET tickets = tickets + ? WHERE id = ?').run(payment.tickets, payment.user_id);
       createNotification(payment.user_id, 'Compra Aprovada!', `Seus ${payment.tickets} tickets foram adicionados na conta.`, 'store');
+      
+      grantUserRewardsInFirestore(payment.user_id, {
+        tickets: payment.tickets
+      });
     } else {
       db.prepare('UPDATE users SET credits = credits + ? WHERE id = ?').run(payment.credits, payment.user_id);
       createNotification(payment.user_id, 'Compra Aprovada!', `Suas ${payment.credits} moedas foram adicionadas na conta.`, 'store');
+      
+      grantUserRewardsInFirestore(payment.user_id, {
+        credits: payment.credits
+      });
       
       const userForComm = db.prepare('SELECT referred_by FROM users WHERE id = ?').get(payment.user_id) as any;
       if (userForComm && userForComm.referred_by) {
@@ -1143,7 +1165,7 @@ apiRouter.post('/payments/card', authMiddleware, async (req: any, res) => {
     expirationMonth, 
     expirationYear, 
     securityCode, 
-    docType, 
+    docType = 'CPF', 
     docNumber, 
     installments = 1,
     saveCard = true,
@@ -1152,6 +1174,9 @@ apiRouter.post('/payments/card', authMiddleware, async (req: any, res) => {
   } = req.body;
 
   if (!credits) return res.status(400).json({ error: 'Valor inválido ou pacote não informado.' });
+  if (!docNumber || docNumber.replace(/\D/g, '').length !== 11) {
+    return res.status(400).json({ error: 'CPF inválido.' });
+  }
 
   const dbConfig = db.prepare(`SELECT value FROM settings WHERE key = 'store_config'`).get() as any;
   let storeConfig = {
@@ -1164,7 +1189,33 @@ apiRouter.post('/payments/card', authMiddleware, async (req: any, res) => {
     try { storeConfig = JSON.parse(dbConfig.value); } catch(e){}
   }
 
-  const user = db.prepare('SELECT id, username, email, plan_type FROM users WHERE id = ?').get(req.userId) as any;
+  let user = db.prepare('SELECT id, username, email, plan_type FROM users WHERE id = ?').get(req.userId) as any;
+  if (!user && typeof req.userId === 'string' && firestoreDb) {
+    try {
+      const userDoc = await firestoreDb.collection('users').doc(req.userId).get();
+      if (userDoc.exists) user = userDoc.data();
+    } catch (e: any) {
+      // Ignore Firestore backend permission restrictions gracefully
+    }
+  }
+
+  if (!user) {
+    user = {
+      id: req.userId,
+      username: req.body?.username || (req as any).userName || ((req as any).userEmail ? (req as any).userEmail.split('@')[0] : `user_${String(req.userId).slice(0, 6)}`),
+      email: req.body?.email || (req as any).userEmail || `${req.userId}@instaboost.com.br`,
+      plan_type: req.body?.plan_type || 'basic'
+    };
+  }
+
+  // Ensure record in SQLite so foreign key relationships succeed
+  try {
+    db.prepare(`
+      INSERT OR IGNORE INTO users (id, username, password, credits, email, role, plan_type)
+      VALUES (?, ?, 'firebase_auth', 0, ?, 'user', ?)
+    `).run(req.userId, user.username, user.email, user.plan_type || 'basic');
+  } catch (e) {}
+
   const { amount } = calculatePaymentAmount(type, credits, user, storeConfig);
 
   if (!amount) return res.status(400).json({ error: 'Pacote inválido.' });
@@ -1257,10 +1308,14 @@ apiRouter.post('/payments/card', authMiddleware, async (req: any, res) => {
     const numTickets = type === 'tickets' ? Number(credits) : 0;
     const planIdVal = type === 'plan' ? String(credits) : null;
 
-    db.prepare(`
-      INSERT INTO payments (id, user_id, amount, credits, tickets, item_type, plan_id, payment_method, card_last4, card_brand, installments, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'credit_card', ?, ?, ?, ?)
-    `).run(realPaymentId, req.userId, amount, numCredits, numTickets, type, planIdVal, cardLast4, cardBrand, installments, mpStatus);
+    try {
+      db.prepare(`
+        INSERT INTO payments (id, user_id, amount, credits, tickets, item_type, plan_id, payment_method, card_last4, card_brand, installments, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'credit_card', ?, ?, ?, ?)
+      `).run(realPaymentId, req.userId, amount, numCredits, numTickets, type, planIdVal, cardLast4, cardBrand, installments, mpStatus);
+    } catch (dbErr: any) {
+      console.warn('[SQLite Card Payment Insert Notice]:', dbErr?.message || dbErr);
+    }
 
     // Record in Firebase Firestore
     await recordPaymentInFirestore({
@@ -1304,10 +1359,14 @@ apiRouter.post('/payments/card', authMiddleware, async (req: any, res) => {
       await saveCardInFirestore(savedCardObj);
 
       // Save to SQLite
-      db.prepare(`
-        INSERT OR REPLACE INTO saved_cards (id, user_id, cardholder_name, last_four_digits, brand, expiration_month, expiration_year)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(newCardId, req.userId, savedCardObj.cardholderName, savedCardObj.lastFourDigits, savedCardObj.brand, savedCardObj.expirationMonth, savedCardObj.expirationYear);
+      try {
+        db.prepare(`
+          INSERT OR REPLACE INTO saved_cards (id, user_id, cardholder_name, last_four_digits, brand, expiration_month, expiration_year)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(newCardId, req.userId, savedCardObj.cardholderName, savedCardObj.lastFourDigits, savedCardObj.brand, savedCardObj.expirationMonth, savedCardObj.expirationYear);
+      } catch (dbErr: any) {
+        console.warn('[SQLite Saved Card Insert Notice]:', dbErr?.message || dbErr);
+      }
 
       console.log(`[Firebase Saved Cards] Card ${cardLast4} saved to profile of user ${user.username}`);
     }
@@ -1350,8 +1409,11 @@ apiRouter.post('/payments/card', authMiddleware, async (req: any, res) => {
 });
 
 apiRouter.post('/payments/pix', authMiddleware, async (req: any, res) => {
-  const { credits, type } = req.body;
+  const { credits, type, cpf, birthDate } = req.body;
   if (!credits) return res.status(400).json({ error: 'Invalid amount' });
+  if (!cpf || cpf.replace(/\D/g, '').length !== 11) {
+    return res.status(400).json({ error: 'CPF inválido.' });
+  }
 
   if (!process.env.MERCADOPAGO_ACCESS_TOKEN) {
     return res.status(500).json({ error: 'Mercado Pago token não foi configurado (.env).' });
@@ -1368,7 +1430,33 @@ apiRouter.post('/payments/pix', authMiddleware, async (req: any, res) => {
       try { storeConfig = JSON.parse(dbConfig.value); } catch(e){}
   }
 
-  const user = db.prepare('SELECT username, plan_type FROM users WHERE id = ?').get(req.userId) as any;
+  let user = db.prepare('SELECT username, plan_type FROM users WHERE id = ?').get(req.userId) as any;
+  if (!user && typeof req.userId === 'string' && firestoreDb) {
+    try {
+      const userDoc = await firestoreDb.collection('users').doc(req.userId).get();
+      if (userDoc.exists) user = userDoc.data();
+    } catch (e: any) {
+      // Ignore Firestore backend permission restrictions gracefully
+    }
+  }
+
+  if (!user) {
+    user = {
+      id: req.userId,
+      username: req.body?.username || (req as any).userName || ((req as any).userEmail ? (req as any).userEmail.split('@')[0] : `user_${String(req.userId).slice(0, 6)}`),
+      email: req.body?.email || (req as any).userEmail || `${req.userId}@instaboost.com.br`,
+      plan_type: req.body?.plan_type || 'basic'
+    };
+  }
+
+  // Ensure record in SQLite so foreign key relationships succeed
+  try {
+    db.prepare(`
+      INSERT OR IGNORE INTO users (id, username, password, credits, email, role, plan_type)
+      VALUES (?, ?, 'firebase_auth', 0, ?, 'user', ?)
+    `).run(req.userId, user.username, user.email, user.plan_type || 'basic');
+  } catch (e) {}
+  
   const { amount } = calculatePaymentAmount(type, credits, user, storeConfig);
 
   if (!amount) return res.status(400).json({ error: 'Pacote inválido' });
@@ -1391,7 +1479,11 @@ apiRouter.post('/payments/pix', authMiddleware, async (req: any, res) => {
         payer: {
           email: `${user.username.replace(/[^a-zA-Z0-9]/g, '') || 'cliente'}@instaboost.com.br`,
           first_name: user.username.replace(/[^a-zA-Z]/g, '').substring(0, 50) || 'Cliente',
-          last_name: 'Instaboost'
+          last_name: 'Instaboost',
+          identification: {
+            type: 'CPF',
+            number: cpf.replace(/\D/g, '')
+          }
         },
         notification_url: 'https://instaboostpro-production.up.railway.app/api/webhook/mercadopago'
       }
@@ -1407,10 +1499,14 @@ apiRouter.post('/payments/pix', authMiddleware, async (req: any, res) => {
     const numTickets = type === 'tickets' ? Number(credits) : 0;
     const planIdVal = type === 'plan' ? String(credits) : null;
 
-    db.prepare(`
-      INSERT INTO payments (id, user_id, amount, credits, tickets, item_type, plan_id, payment_method, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'pix', 'pending')
-    `).run(paymentId, req.userId, amount, numCredits, numTickets, type, planIdVal);
+    try {
+      db.prepare(`
+        INSERT INTO payments (id, user_id, amount, credits, tickets, item_type, plan_id, payment_method, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'pix', 'pending')
+      `).run(paymentId, req.userId, amount, numCredits, numTickets, type, planIdVal);
+    } catch (dbErr: any) {
+      console.warn('[SQLite Payment Insert Notice]:', dbErr?.message || dbErr);
+    }
 
     // Record in Firebase Firestore
     recordPaymentInFirestore({

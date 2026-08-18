@@ -11,7 +11,7 @@ import {
   query,
   orderBy
 } from 'firebase/firestore';
-import { db } from './firebase';
+import { db, auth } from './firebase';
 import { sendNotification } from './notifications';
 
 export interface StoreConfig {
@@ -161,35 +161,26 @@ export const calculateItemPrice = (
 
 export const createPixPayment = async (
   userId: string,
-  item: { credits: string | number; type: string }
+  item: { credits: string | number; type: string; cpf?: string; birthDate?: string; username?: string; email?: string; plan_type?: string }
 ) => {
-  const config = await getStoreConfig();
-  const { amount } = calculateItemPrice(item.type, item.credits, config);
-
-  const fakePixCode = `00020126580014br.gov.bcb.pix0136${Math.random().toString(36).substring(2, 15)}520400005303986540${amount.toFixed(2)}5802BR5925FIRECROWD PROMOTIONS6009SAO PAULO62070503***6304`;
-  const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(fakePixCode)}`;
-
-  const paymentDoc = await addDoc(collection(db, 'payments'), {
-    user_id: userId,
-    type: item.type,
-    credits: item.credits,
-    amount,
-    method: 'pix',
-    status: 'approved', // Instant simulated approval for seamless testing / real Firestore sync
-    pix_code: fakePixCode,
-    qr_code: qrCodeUrl,
-    created_at: new Date().toISOString()
+  const token = await auth.currentUser?.getIdToken();
+  const res = await fetch('/api/payments/pix', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(item)
   });
+  
+  if (!res.ok) {
+    const data = await res.json();
+    throw new Error(data.error || 'Erro ao gerar PIX');
+  }
 
-  // Apply delivery immediately
-  await deliverPurchase(userId, item.type, item.credits);
-
+  const data = await res.json();
   return {
-    id: paymentDoc.id,
-    qrCode: qrCodeUrl,
-    pixCode: fakePixCode,
-    status: 'approved',
-    amount
+    id: data.id,
+    qrCode: data.qrCode,
+    pixCode: data.pixCode,
+    status: 'pending'
   };
 };
 
@@ -206,62 +197,27 @@ export const processCardPayment = async (
     savedCardId?: string;
     saveCard?: boolean;
     installments?: number;
+    docNumber?: string;
+    docType?: string;
+    username?: string;
+    email?: string;
+    plan_type?: string;
   }
 ) => {
-  const config = await getStoreConfig();
-  const { amount } = calculateItemPrice(payload.type, payload.credits, config);
-
-  let lastFour = '4242';
-  let brand = 'visa';
-
-  if (payload.savedCardId && payload.savedCardId !== 'new') {
-    const cardDoc = await getDoc(doc(db, 'users', userId, 'saved_cards', payload.savedCardId));
-    if (cardDoc.exists()) {
-      const cdata = cardDoc.data();
-      lastFour = cdata.last_four || '4242';
-      brand = cdata.brand || 'visa';
-    }
-  } else if (payload.cardNumber) {
-    lastFour = payload.cardNumber.slice(-4);
-    if (payload.cardNumber.startsWith('5')) brand = 'mastercard';
-    else if (payload.cardNumber.startsWith('4')) brand = 'visa';
-    else if (payload.cardNumber.startsWith('3')) brand = 'amex';
-    else if (payload.cardNumber.startsWith('6')) brand = 'elo';
-
-    if (payload.saveCard) {
-      await saveUserCard(userId, {
-        last_four: lastFour,
-        brand,
-        cardholder_name: payload.cardholderName || 'TITULAR',
-        exp_month: payload.expirationMonth || 12,
-        exp_year: payload.expirationYear || 2028
-      });
-    }
-  }
-
-  // Record payment in Firestore
-  const paymentDoc = await addDoc(collection(db, 'payments'), {
-    user_id: userId,
-    type: payload.type,
-    credits: payload.credits,
-    amount,
-    method: 'credit_card',
-    installments: payload.installments || 1,
-    status: 'approved',
-    card_last_four: lastFour,
-    card_brand: brand,
-    created_at: new Date().toISOString()
+  const token = await auth.currentUser?.getIdToken();
+  const res = await fetch('/api/payments/card', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
   });
 
-  // Apply delivery
-  await deliverPurchase(userId, payload.type, payload.credits);
+  if (!res.ok) {
+    const data = await res.json();
+    throw new Error(data.error || 'Erro ao processar cartão');
+  }
 
-  return {
-    id: paymentDoc.id,
-    status: 'approved',
-    amount,
-    paymentMethod: 'credit_card'
-  };
+  const data = await res.json();
+  return { id: data.id, status: data.status };
 };
 
 export const deliverPurchase = async (

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { collection, getDocs, doc, getDoc, updateDoc, increment, arrayUnion } from 'firebase/firestore';
+import { collection, getDocs, doc, getDoc, updateDoc, increment, arrayUnion, addDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { showNotification } from '../context/NotificationContext';
@@ -129,16 +129,13 @@ export default function Home() {
       const missionsProgress = userData?.missions_progress || {};
       const missionData = missionsProgress[missionType] || { level: 1, progress: 0 };
       
-      // Reset progress if it hasn't been updated in 10 minutes
       const now = new Date();
-      if (missionData.updated_at) {
-        const lastUpdate = new Date(missionData.updated_at);
-        if (now.getTime() - lastUpdate.getTime() > 10 * 60 * 1000) {
-          missionData.progress = 0;
-        }
+      const lastUpdatedMs = missionData.updated_at ? new Date(missionData.updated_at).getTime() : 0;
+      if (lastUpdatedMs > 0 && now.getTime() - lastUpdatedMs > 15 * 60 * 1000) {
+        missionData.progress = 1;
+      } else {
+        missionData.progress = (missionData.progress || 0) + 1;
       }
-      
-      missionData.progress += 1;
       missionData.updated_at = now.toISOString();
 
       await updateDoc(userRef, {
@@ -146,6 +143,40 @@ export default function Home() {
         interacted_promos: arrayUnion(activePromo.id),
         [`missions_progress.${missionType}`]: missionData
       });
+
+      // Award referral commission if user was invited by someone
+      if (userData?.referred_by) {
+        try {
+          const referrerRef = doc(db, 'users', userData.referred_by);
+          const referrerDoc = await getDoc(referrerRef);
+          if (referrerDoc.exists()) {
+            const referrerData = referrerDoc.data();
+            const plan = referrerData.plan_type || 'basic';
+            let rate = 0.10;
+            if (plan === 'pro') rate = 0.20;
+            else if (plan === 'premium') rate = 0.30;
+            else if (plan === 'ultra') rate = 0.50;
+
+            const commissionAmount = Number((0.2 * rate).toFixed(4));
+            if (commissionAmount > 0) {
+              await updateDoc(referrerRef, {
+                credits: increment(commissionAmount)
+              });
+
+              await addDoc(collection(db, 'commissions'), {
+                referrer_id: userData.referred_by,
+                referred_id: user.id,
+                referred_username: user.username || user.email?.split('@')[0] || 'Usuário',
+                amount: commissionAmount,
+                action_type: 'interaction',
+                created_at: new Date().toISOString()
+              });
+            }
+          }
+        } catch (comErr) {
+          console.error("Error giving referral commission:", comErr);
+        }
+      }
 
       // Increment the interaction count for the promotion
       const promoRef = doc(db, 'promotions', activePromo.id);

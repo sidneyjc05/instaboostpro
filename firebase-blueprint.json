@@ -87,13 +87,14 @@
       "description": "A commission earned by a user",
       "type": "object",
       "properties": {
-        "referrerId": { "type": "string" },
-        "referredId": { "type": "string" },
+        "referrer_id": { "type": "string" },
+        "referred_id": { "type": "string" },
+        "referred_username": { "type": "string" },
         "amount": { "type": "number" },
-        "actionType": { "type": "string" },
-        "createdAt": { "type": "string" }
+        "action_type": { "type": "string" },
+        "created_at": { "type": "string" }
       },
-      "required": ["referrerId", "referredId", "amount", "actionType"]
+      "required": ["referrer_id", "referred_id", "amount", "action_type"]
     },
     "TrustedDevice": {
       "title": "Trusted Device",
@@ -213,6 +214,14 @@
       "schema": { "$ref": "#/entities/User" },
       "description": "User profiles"
     },
+    "users/{userId}/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/Notification" },
+      "description": "User notifications"
+    },
+    "users/{userId}/saved_cards/{savedCardId}": {
+      "schema": { "$ref": "#/entities/SavedCard" },
+      "description": "Saved cards"
+    },
     "promotions/{promotionId}": {
       "schema": { "$ref": "#/entities/Promotion" },
       "description": "Promotions"
@@ -260,14 +269,6 @@
     "support_requests/{supportRequestId}/messages/{messageId}": {
       "schema": { "$ref": "#/entities/SupportMessage" },
       "description": "Support messages"
-    },
-    "notifications/{notificationId}": {
-      "schema": { "$ref": "#/entities/Notification" },
-      "description": "Notifications"
-    },
-    "saved_cards/{savedCardId}": {
-      "schema": { "$ref": "#/entities/SavedCard" },
-      "description": "Saved cards"
     }
   }
 }

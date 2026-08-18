@@ -1,10 +1,27 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { db } from './db.js';
+import { getAuth } from 'firebase-admin/auth';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecret';
 
-export const authMiddleware = (req: Request, res: Response, next: NextFunction) => {
+export const authMiddleware = async (req: Request, res: Response, next: NextFunction) => {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    try {
+      const token = authHeader.split(' ')[1];
+      const decodedToken = await getAuth().verifyIdToken(token);
+      (req as any).userId = decodedToken.uid;
+      (req as any).userEmail = decodedToken.email || '';
+      (req as any).userName = decodedToken.name || (decodedToken.email ? decodedToken.email.split('@')[0] : 'usuario');
+      (req as any).userRole = 'user'; // Assume standard user for Firebase right now
+      return next();
+    } catch (e) {
+      console.warn("Firebase token verification failed:", e);
+      return res.status(401).json({ error: 'Unauthorized, invalid Firebase token' });
+    }
+  }
+
   const token = req.cookies?.token;
 
   if (!token) {

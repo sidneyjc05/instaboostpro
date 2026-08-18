@@ -8,8 +8,10 @@ import { UserSupportModal } from './UserSupportModal';
 import { NotificationsDropdown } from './NotificationsDropdown';
 import { AnimatedBackground } from './AnimatedBackground';
 import { motion } from 'motion/react';
+import { useGlobalTimeTracker } from '../hooks/useGlobalTimeTracker';
 
 export function Layout() {
+  useGlobalTimeTracker();
   const { theme, toggleTheme } = useTheme();
   const { soundEnabled, toggleSound } = useAppSound();
   const { user } = useAuth();

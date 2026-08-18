@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router';
-import { useAuth } from '../context/AuthContext';
+import { useAuth, generateReferralCode } from '../context/AuthContext';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { showNotification } from '../context/NotificationContext';
 import { Instagram, Eye, EyeOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
-import { doc, setDoc, getDoc } from 'firebase/firestore';
+import { doc, setDoc, getDoc, collection, query, where, getDocs, updateDoc, increment, addDoc } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
 
 export default function Login() {
@@ -65,6 +65,48 @@ export default function Login() {
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         const user = userCredential.user;
         
+        // Generate a referral code
+        const refCode = generateReferralCode(username || email.split('@')[0]);
+        const urlRef = searchParams.get('ref');
+        let referredBy: string | null = null;
+        let startingCredits = 0;
+
+        if (urlRef) {
+          try {
+            const q = query(collection(db, 'users'), where('referral_code', '==', urlRef.toUpperCase()));
+            const snap = await getDocs(q);
+            if (!snap.empty) {
+              const refDoc = snap.docs[0];
+              referredBy = refDoc.id;
+              startingCredits = 1000; // Bonus for joining through referral
+              
+              const referrerData = refDoc.data();
+              const plan = referrerData.plan_type || 'basic';
+              let bonus = 500;
+              if (plan === 'pro') bonus = 800;
+              if (plan === 'premium') bonus = 1200;
+              if (plan === 'ultra') bonus = 2000;
+
+              // Reward the referrer
+              await updateDoc(doc(db, 'users', refDoc.id), {
+                credits: increment(bonus)
+              });
+
+              // Log commission in Firestore
+              await addDoc(collection(db, 'commissions'), {
+                referrer_id: refDoc.id,
+                referred_id: user.uid,
+                referred_username: username || email.split('@')[0] || 'Usuário',
+                amount: bonus,
+                action_type: 'signup_bonus',
+                created_at: new Date().toISOString()
+              });
+            }
+          } catch (refErr) {
+            console.error("Error processing referral signup:", refErr);
+          }
+        }
+
         // Criar perfil no Firestore
         await setDoc(doc(db, "users", user.uid), {
            username,
@@ -72,17 +114,30 @@ export default function Login() {
            role: 'user',
            is_verified: false,
            is_blocked: false,
-           credits: 0,
+           credits: startingCredits,
            tickets: 0,
+           plan_type: 'basic',
+           referral_code: refCode,
+           referred_by: referredBy,
            created_at: new Date().toISOString()
         });
 
         await refreshUser();
-        showNotification.success('Conta criada com sucesso!');
+        showNotification.success(startingCredits > 0 ? 'Conta criada! Você ganhou 1.000 moedas de boas-vindas!' : 'Conta criada com sucesso!');
       }
     } catch (err: any) {
       console.error("Login Error:", err);
-      showNotification.error(err.message || 'Erro na autenticação. Verifique os dados.');
+      if (err?.code === 'auth/operation-not-allowed') {
+        showNotification.error('O login/cadastro por E-mail e Senha está desativado no console do Firebase. Ative "E-mail/Senha" no Firebase Console > Authentication > Sign-in method.');
+      } else if (err?.code === 'auth/email-already-in-use') {
+        showNotification.error('Este e-mail já está cadastrado.');
+      } else if (err?.code === 'auth/weak-password') {
+        showNotification.error('A senha deve ter pelo menos 6 caracteres.');
+      } else if (err?.code === 'auth/invalid-credential' || err?.code === 'auth/user-not-found' || err?.code === 'auth/wrong-password') {
+        showNotification.error('E-mail ou senha incorretos.');
+      } else {
+        showNotification.error(err.message || 'Erro na autenticação. Verifique os dados.');
+      }
     } finally {
       setLoading(false);
     }

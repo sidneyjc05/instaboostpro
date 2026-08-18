@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useAuth } from './AuthContext';
+import { auth } from '../lib/firebase';
 import {
   subscribeToNotifications,
   markAsRead as firestoreMarkAsRead,
@@ -32,7 +33,7 @@ export const GlobalNotificationProvider = ({ children }: { children: React.React
   }, []);
 
   useEffect(() => {
-    if (!user?.id) {
+    if (!user?.id || !auth.currentUser) {
       setNotifications([]);
       return;
     }
@@ -55,7 +56,7 @@ export const GlobalNotificationProvider = ({ children }: { children: React.React
     });
 
     return () => unsubscribe();
-  }, [user?.id, pushPermission]);
+  }, [user?.id, auth.currentUser?.uid, pushPermission]);
 
   const getUnreadCountByModule = (module: string) => {
     return notifications.filter((n) => !n.is_read && n.type === module).length;

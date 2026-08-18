@@ -168,18 +168,40 @@ export async function updatePaymentInFirestore(
   }
 }
 
-export async function syncUserInFirestore(userId: number, userData: any): Promise<void> {
+export async function grantUserRewardsInFirestore(
+  userId: string | number,
+  updates: { credits?: number; tickets?: number; plan_type?: string; plan_expires_at?: string }
+): Promise<void> {
   if (!firestoreDb) return;
   try {
     const userRef = firestoreDb.collection('users').doc(userId.toString());
-    await userRef.set({
-      id: userId,
-      ...userData,
-      syncedAt: new Date().toISOString(),
-    }, { merge: true });
+    const doc = await userRef.get();
+    
+    if (doc.exists) {
+      const current = doc.data();
+      const newCredits = (current?.credits || 0) + (updates.credits || 0);
+      const newTickets = (current?.tickets || 0) + (updates.tickets || 0);
+      
+      const toUpdate: any = {
+        credits: newCredits,
+        tickets: newTickets
+      };
+      if (updates.plan_type) {
+        toUpdate.plan_type = updates.plan_type;
+        toUpdate.plan_expires_at = updates.plan_expires_at;
+      }
+      
+      await userRef.update(toUpdate);
+      console.log(`[Firebase] User ${userId} rewards updated in Firestore.`);
+    } else {
+      // User doc not found yet in Firestore
+    }
   } catch (e: any) {
     if (!hasLoggedPermissionWarning && (e?.message?.includes('PERMISSION_DENIED') || e?.code === 7)) {
       hasLoggedPermissionWarning = true;
+      console.info('[Firebase] Firestore client-side delivery active.');
+    } else if (!e?.message?.includes('PERMISSION_DENIED') && e?.code !== 7) {
+      console.warn('[Firebase] Notice updating user rewards in Firestore:', e?.message || e);
     }
   }
 }

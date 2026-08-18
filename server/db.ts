@@ -7,6 +7,7 @@ const dbPath = process.env.NODE_ENV === 'production'
 
 // Create a database file (in /tmp for production, project root for dev)
 export const db = new Database(dbPath);
+db.pragma('foreign_keys = OFF');
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (

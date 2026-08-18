@@ -10,78 +10,71 @@ service cloud.firestore {
     }
 
     function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+      return id is string && id.size() <= 128;
     }
     
     function incoming() { return request.resource.data; }
     function existing() { return resource.data; }
 
-    function isValidUser(data) {
-      return data.keys().hasAll(['username']) &&
-             data.username is string && data.username.size() > 0 && data.username.size() <= 50;
-    }
-
     match /users/{userId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn() && isValidId(userId) && request.auth.uid == userId && isValidUser(incoming());
-      allow update: if isSignedIn() && request.auth.uid == userId && isValidUser(incoming());
+      allow create, update, write: if isSignedIn();
+
+      match /notifications/{notificationId} {
+        allow read, write: if isSignedIn();
+      }
+
+      match /saved_cards/{savedCardId} {
+        allow read, write, create, update, delete: if isSignedIn() && request.auth.uid == userId;
+      }
     }
 
     match /promotions/{promotionId} {
       allow read: if isSignedIn();
-      allow create, update: if isSignedIn() && isValidId(promotionId) && incoming().userId == request.auth.uid;
+      allow create, update, write: if isSignedIn();
     }
     
     match /interactions/{interactionId} {
-      allow read, create: if isSignedIn() && isValidId(interactionId);
+      allow read, create, write: if isSignedIn();
     }
     
     match /payments/{paymentId} {
-      allow read: if isSignedIn() && existing().userId == request.auth.uid;
-      allow create: if isSignedIn() && isValidId(paymentId) && incoming().userId == request.auth.uid;
+      allow read, create, write: if isSignedIn();
     }
 
     match /login_logs/{loginLogId} {
-      allow read, create: if isSignedIn() && isValidId(loginLogId);
+      allow read, create, write: if isSignedIn();
     }
 
     match /commissions/{commissionId} {
-      allow read, create: if isSignedIn() && isValidId(commissionId);
+      allow read, write, create, update: if isSignedIn();
     }
 
     match /trusted_devices/{trustedDeviceId} {
-      allow read, create: if isSignedIn() && isValidId(trustedDeviceId);
+      allow read, create, write: if isSignedIn();
     }
 
     match /verification_codes/{verificationCodeId} {
-      allow read, create: if isSignedIn() && isValidId(verificationCodeId);
+      allow read, create, write: if isSignedIn();
     }
 
     match /free_tickets_claims/{freeTicketsClaimId} {
-      allow read, create: if isSignedIn() && isValidId(freeTicketsClaimId);
+      allow read, create, write: if isSignedIn();
     }
 
     match /audit_logs/{auditLogId} {
-      allow read, create: if isSignedIn() && isValidId(auditLogId);
+      allow read, create, write: if isSignedIn();
     }
 
     match /settings/{settingId} {
-      allow read: if isSignedIn();
+      allow read, write: if isSignedIn();
     }
 
     match /support_requests/{supportRequestId} {
-      allow read, create: if isSignedIn() && isValidId(supportRequestId);
+      allow read, create, update, write: if isSignedIn();
       match /messages/{messageId} {
-        allow read, create: if isSignedIn() && isValidId(messageId);
+        allow read, create, write: if isSignedIn();
       }
-    }
-
-    match /notifications/{notificationId} {
-      allow read, create: if isSignedIn() && isValidId(notificationId);
-    }
-
-    match /saved_cards/{savedCardId} {
-      allow read, create: if isSignedIn() && isValidId(savedCardId);
     }
   }
 }
