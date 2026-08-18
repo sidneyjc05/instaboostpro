@@ -30,5 +30,5 @@ export const showNotification = {
   success: (msg: string) => toast.success(msg),
   error: (msg: string) => toast.error(msg),
   loading: (msg: string) => toast.loading(msg),
-  info: (msg: string) => toast(msg),
+  info: (msg: string, opts?: any) => toast(msg, { duration: 4000, ...opts }),
 };

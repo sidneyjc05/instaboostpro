@@ -59,7 +59,7 @@ export function useGlobalTimeTracker() {
 
         if (shouldReset) {
           await updateDoc(userRef, { missions_progress: updatedMissions });
-          showNotification.info('Progresso do nível reiniciado por inatividade (15 min). Seus níveis e recompensas resgatadas continuam seguros!');
+          showNotification.success('Progresso reiniciado por inatividade (15 min).');
         }
       } catch (err) {
         console.error('Error checking initial inactivity:', err);
@@ -107,7 +107,7 @@ export function useGlobalTimeTracker() {
 
               if (hasChanges) {
                 await updateDoc(userRef, { missions_progress: resetMissions });
-                showNotification.info('Missões reiniciadas após 15 minutos de inatividade. Foco total!');
+                showNotification.success('Missões reiniciadas após inatividade.');
               }
             }
           } catch (e) {
