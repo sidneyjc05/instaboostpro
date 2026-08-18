@@ -20,6 +20,7 @@ import Profile from './pages/Profile';
 import Admin from './pages/Admin';
 import Roulette from './pages/Roulette';
 import Indicar from './pages/Indicar';
+import { usePaymentDeliveryQueue } from './hooks/usePaymentDeliveryQueue';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -56,6 +57,9 @@ function AppContent() {
   const { user, logout } = useAuth();
   const [maintenance, setMaintenance] = useState<any>(null);
   const location = useLocation();
+
+  // Background queue listener to guarantee payment delivery across all environments
+  usePaymentDeliveryQueue();
 
   const isAdmin = user?.role === 'admin';
 

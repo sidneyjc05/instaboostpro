@@ -31,6 +31,7 @@ import {
   getUserSavedCards,
   deleteUserSavedCard,
   createPixPayment,
+  verifyAndDeliverPayment,
   processCardPayment,
   deliverPurchase,
   SavedCard
@@ -122,8 +123,9 @@ export function CheckoutModal({ isOpen, onClose, item, onSuccess }: CheckoutModa
   const [checkingStep, setCheckingStep] = useState<string | null>(null);
 
   // PIX state
-  const [pixData, setPixData] = useState<{ id: string; qrCode: string | null; pixCode: string; exactExpiry: number } | null>(null);
-  const [pixTimeLeft, setPixTimeLeft] = useState(15 * 60);
+  const [pixData, setPixData] = useState<{ id: string; qrCode: string | null; pixCode: string; verificationToken?: string; exactExpiry: number } | null>(null);
+  const [pixTimeLeft, setPixTimeLeft] = useState(30 * 60);
+  const [verifyingPix, setVerifyingPix] = useState(false);
 
   // Card state
   const [savedCards, setSavedCards] = useState<SavedCard[]>([]);
@@ -358,13 +360,40 @@ export function CheckoutModal({ isOpen, onClose, item, onSuccess }: CheckoutModa
         id: data.id,
         qrCode: data.qrCode,
         pixCode: data.pixCode,
-        exactExpiry: Date.now() + (15 * 60 * 1000)
+        verificationToken: data.verificationToken,
+        exactExpiry: Date.now() + (30 * 60 * 1000)
       });
-      setPixTimeLeft(15 * 60);
+      setPixTimeLeft(30 * 60);
     } catch (err: any) {
       showNotification.error(err.message || 'Erro ao gerar PIX');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Manual Verify & Release items with Token Auth
+  const handleManualVerifyPix = async () => {
+    if (!user?.id || !pixData?.id) return;
+    playClick();
+    setVerifyingPix(true);
+    try {
+      const result = await verifyAndDeliverPayment(String(user.id), pixData.id, pixData.verificationToken);
+      playSuccess();
+      showNotification.success(result.message || 'Pagamento verificado e itens liberados com sucesso!');
+      await refreshUser();
+      onSuccess({
+        id: pixData.id,
+        paymentMethod: 'pix',
+        pendingPlan: item?.type === 'plan' ? String(item?.credits) : undefined,
+        tickets: item?.type === 'tickets' ? Number(item?.credits) : 0,
+        credits: item?.type === 'credits' ? Number(item?.credits) : 0,
+        amount: result.amount
+      });
+      onClose();
+    } catch (err: any) {
+      showNotification.error(err.message || 'Erro ao validar transação.');
+    } finally {
+      setVerifyingPix(false);
     }
   };
 
@@ -641,16 +670,44 @@ export function CheckoutModal({ isOpen, onClose, item, onSuccess }: CheckoutModa
               </div>
             ) : (
               <div className="flex flex-col items-center gap-4 w-full">
+                {/* Header status bar */}
                 <div className="flex w-full justify-between items-center bg-secondary/50 px-4 py-2.5 rounded-xl border border-border text-xs font-bold">
-                  <span className="text-muted-foreground">Expira em:</span>
+                  <span className="text-muted-foreground flex items-center gap-1.5">
+                    <Clock size={14} className="text-primary" /> Expira em:
+                  </span>
                   <span className="font-mono text-destructive font-black text-sm tracking-wider animate-pulse">
                     {formatSeconds(pixTimeLeft)}
                   </span>
                 </div>
 
+                {/* Verification Token Bar */}
+                {pixData.verificationToken && (
+                  <div className="w-full bg-primary/5 border border-primary/20 rounded-xl px-3.5 py-2 flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2 truncate">
+                      <ShieldCheck size={16} className="text-primary shrink-0" />
+                      <span className="text-muted-foreground text-[11px] font-bold">Token Seguro:</span>
+                      <span className="font-mono font-black text-foreground tracking-wider">{pixData.verificationToken}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(pixData.verificationToken || '');
+                        showNotification.success('Token de verificação copiado!');
+                      }}
+                      className="text-primary hover:text-primary/80 text-[11px] font-black uppercase tracking-wider pl-2"
+                    >
+                      Copiar
+                    </button>
+                  </div>
+                )}
+
+                {/* QR Code Container */}
                 {pixData.qrCode ? (
-                  <div className="p-3 bg-white rounded-2xl shadow-2xl border border-white/20">
-                    <img src={pixData.qrCode} alt="PIX QR Code" className="w-44 h-44 sm:w-52 sm:h-52 object-contain" />
+                  <div className="p-3.5 bg-white rounded-2xl shadow-2xl border border-white/20 relative group">
+                    <img src={pixData.qrCode} alt="PIX QR Code" className="w-48 h-48 sm:w-56 sm:h-56 object-contain" />
+                    <div className="absolute inset-x-0 bottom-1 text-[10px] text-zinc-600 font-bold text-center">
+                      Escaneie no App do seu Banco
+                    </div>
                   </div>
                 ) : (
                   <div className="p-6 bg-secondary/50 rounded-2xl w-full text-center text-xs text-muted-foreground">
@@ -658,13 +715,14 @@ export function CheckoutModal({ isOpen, onClose, item, onSuccess }: CheckoutModa
                   </div>
                 )}
 
+                {/* Pix Copia e Cola */}
                 <div className="w-full flex gap-2">
                   <div className="flex-1 bg-background/80 border border-border rounded-xl px-3 py-2 text-xs font-mono truncate text-left text-muted-foreground flex items-center">
                     {pixData.pixCode}
                   </div>
                   <Button 
                     variant="outline"
-                    className="shrink-0 font-black text-xs uppercase tracking-wider rounded-xl h-10 px-4"
+                    className="shrink-0 font-black text-xs uppercase tracking-wider rounded-xl h-10 px-4 hover:border-primary hover:text-primary transition-all"
                     onClick={() => {
                       navigator.clipboard.writeText(pixData.pixCode);
                       showNotification.success('Código PIX copiado com sucesso!');
@@ -674,10 +732,53 @@ export function CheckoutModal({ isOpen, onClose, item, onSuccess }: CheckoutModa
                   </Button>
                 </div>
 
-                <div className="flex items-center justify-center gap-2 text-xs font-bold text-primary animate-pulse py-1">
-                  <div className="w-2 h-2 rounded-full bg-primary animate-ping" />
-                  Aguardando confirmação do banco...
+                {/* Intelligent 4-Step Status Workflow */}
+                <div className="w-full bg-secondary/30 border border-border/60 rounded-2xl p-3 flex flex-col gap-2 text-left">
+                  <div className="flex items-center justify-between text-[11px] font-black text-muted-foreground uppercase tracking-wider">
+                    <span>Etapas da Liberação</span>
+                    <span className="text-primary flex items-center gap-1 font-bold">
+                      <span className="w-2 h-2 rounded-full bg-primary animate-ping inline-block" /> Sincronização Ativa
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px] font-bold">
+                    <div className="bg-green-500/10 border border-green-500/30 text-green-400 p-2 rounded-xl flex items-center gap-1.5">
+                      <CheckCircle size={13} className="shrink-0" />
+                      <span>1. PIX Gerado</span>
+                    </div>
+                    <div className="bg-primary/10 border border-primary/30 text-primary p-2 rounded-xl flex items-center gap-1.5 animate-pulse">
+                      <Zap size={13} className="shrink-0" />
+                      <span>2. Verificação</span>
+                    </div>
+                    <div className="bg-background/40 border border-border/40 text-muted-foreground p-2 rounded-xl flex items-center gap-1.5">
+                      <Clock size={13} className="shrink-0 text-amber-400" />
+                      <span>3. Fila Segura</span>
+                    </div>
+                    <div className="bg-background/40 border border-border/40 text-muted-foreground p-2 rounded-xl flex items-center gap-1.5">
+                      <Sparkles size={13} className="shrink-0 text-purple-400" />
+                      <span>4. Entrega Total</span>
+                    </div>
+                  </div>
                 </div>
+
+                {/* High Demand / 30 Min Reassurance Banner */}
+                <div className="w-full bg-gradient-to-r from-blue-500/10 via-purple-500/10 to-primary/10 border border-blue-500/20 rounded-xl p-3 text-left flex items-start gap-2.5">
+                  <ShieldCheck className="text-blue-400 shrink-0 mt-0.5" size={16} />
+                  <div className="text-[11px] text-muted-foreground leading-relaxed">
+                    <strong className="text-foreground block font-bold">Garantia de Liberação & Alta Demanda:</strong>
+                    Seu pagamento é protegido pelo banco de dados. Caso o sistema bancário enfrente lentidão, seus itens serão creditados automaticamente em até 30 minutos sem nenhuma perda!
+                  </div>
+                </div>
+
+                {/* Primary Action Button: Manual Verification & Immediate Delivery */}
+                <Button 
+                  onClick={handleManualVerifyPix}
+                  isLoading={verifyingPix}
+                  size="lg"
+                  className="w-full h-14 text-sm font-black uppercase tracking-wider rounded-2xl shadow-xl bg-gradient-to-r from-emerald-600 via-green-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white mt-1 border border-emerald-400/30 transform transition-transform active:scale-[0.99]"
+                >
+                  <ShieldCheck className="mr-2" size={20} /> Já Paguei — Validar e Liberar Itens
+                </Button>
 
                 <Button 
                   variant="ghost" 

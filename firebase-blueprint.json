@@ -66,6 +66,10 @@
         "item_type": { "type": "string" },
         "plan_id": { "type": "string" },
         "payment_method": { "type": "string" },
+        "verificationToken": { "type": "string" },
+        "delivered": { "type": "boolean" },
+        "deliveredAt": { "type": "string" },
+        "verifiedVia": { "type": "string" },
         "createdAt": { "type": "string" }
       },
       "required": ["userId", "amount", "credits"]

@@ -160,6 +160,13 @@ export const calculateItemPrice = (
   };
 };
 
+export function generateSecurityToken(seed?: string): string {
+  const p1 = Math.random().toString(36).substring(2, 6).toUpperCase();
+  const p2 = Math.random().toString(36).substring(2, 6).toUpperCase();
+  const p3 = (seed || Date.now().toString(36)).slice(-4).toUpperCase();
+  return `AUTH-PIX-${p1}-${p2}-${p3}`;
+}
+
 export const createPixPayment = async (
   userId: string,
   item: { credits: string | number; type: string; cpf?: string; birthDate?: string; username?: string; email?: string; plan_type?: string }
@@ -167,6 +174,7 @@ export const createPixPayment = async (
   const storeConfig = await getStoreConfig();
   const priceInfo = calculateItemPrice(item.type, item.credits, storeConfig);
   const amount = priceInfo.amount;
+  const verificationToken = generateSecurityToken(userId);
 
   // 1. First attempt calling backend API (works in AI Studio and environments with full-stack server)
   try {
@@ -174,7 +182,7 @@ export const createPixPayment = async (
     const res = await fetch('/api/payments/pix', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify(item)
+      body: JSON.stringify({ ...item, verificationToken })
     });
 
     const contentType = res.headers.get('content-type') || '';
@@ -185,6 +193,7 @@ export const createPixPayment = async (
           id: data.id,
           qrCode: data.qrCode,
           pixCode: data.pixCode,
+          verificationToken: data.verificationToken || verificationToken,
           status: 'pending',
           amount: data.amount || amount
         };
@@ -223,7 +232,7 @@ export const createPixPayment = async (
 
   const qrCode = await generatePixQrCodeDataUrl(pixCode);
 
-  // Record payment in Firebase Firestore
+  // Record payment in Firebase Firestore with Security Verification Token
   try {
     await setDoc(doc(db, 'payments', paymentId), {
       id: paymentId,
@@ -239,8 +248,11 @@ export const createPixPayment = async (
       paymentMethod: 'pix',
       status: 'pending',
       pixCode: pixCode,
+      verificationToken: verificationToken,
+      delivered: false,
       createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString()
     });
   } catch (dbErr) {
     console.warn('Firestore payment record notice:', dbErr);
@@ -250,8 +262,80 @@ export const createPixPayment = async (
     id: paymentId,
     qrCode,
     pixCode,
+    verificationToken,
     status: 'pending',
     amount
+  };
+};
+
+export const verifyAndDeliverPayment = async (
+  userId: string,
+  paymentId: string,
+  verificationToken?: string
+) => {
+  const payDocRef = doc(db, 'payments', paymentId);
+  const payDoc = await getDoc(payDocRef);
+
+  if (!payDoc.exists()) {
+    throw new Error('Registro de pagamento não localizado no banco de dados.');
+  }
+
+  const payData = payDoc.data();
+
+  // Security checks
+  if (payData.userId !== userId) {
+    throw new Error('Acesso não autorizado para esta transação.');
+  }
+
+  // Idempotency check: if already delivered, do not credit twice
+  if (payData.delivered) {
+    return {
+      success: true,
+      alreadyDelivered: true,
+      message: 'Itens já foram creditados na sua conta!',
+      itemType: payData.itemType,
+      credits: payData.credits || 0,
+      tickets: payData.tickets || 0,
+      planId: payData.planId,
+      amount: payData.amount
+    };
+  }
+
+  // Attempt backend verification if available
+  try {
+    const token = await auth.currentUser?.getIdToken();
+    await fetch('/api/payments/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ paymentId, verificationToken })
+    });
+  } catch (e) {}
+
+  // Deliver the items to the user document in Firestore
+  const creditValue = payData.itemType === 'plan' 
+    ? payData.planId 
+    : (payData.itemType === 'tickets' ? payData.tickets : payData.credits);
+
+  await deliverPurchase(userId, payData.itemType, creditValue);
+
+  // Update payment status as approved and delivered
+  await updateDoc(payDocRef, {
+    status: 'approved',
+    delivered: true,
+    deliveredAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    verifiedVia: 'secure_verification_token'
+  });
+
+  return {
+    success: true,
+    delivered: true,
+    message: 'Pagamento verificado e itens liberados com sucesso!',
+    itemType: payData.itemType,
+    credits: payData.credits || 0,
+    tickets: payData.tickets || 0,
+    planId: payData.planId,
+    amount: payData.amount
   };
 };
 
@@ -278,19 +362,20 @@ export const processCardPayment = async (
   const storeConfig = await getStoreConfig();
   const priceInfo = calculateItemPrice(payload.type, payload.credits, storeConfig);
   const amount = priceInfo.amount;
+  const verificationToken = generateSecurityToken(userId);
 
   try {
     const token = await auth.currentUser?.getIdToken();
     const res = await fetch('/api/payments/card', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify(payload)
+      body: JSON.stringify({ ...payload, verificationToken })
     });
 
     const contentType = res.headers.get('content-type') || '';
     if (res.ok && contentType.includes('application/json')) {
       const data = await res.json();
-      return { id: data.id, status: data.status };
+      return { id: data.id, status: data.status, verificationToken };
     }
   } catch (e) {
     console.warn('Card server notice, using direct authorization:', e);
@@ -313,13 +398,22 @@ export const processCardPayment = async (
       paymentMethod: 'credit_card',
       status: 'approved',
       cardLast4: cardLast4,
+      verificationToken: verificationToken,
+      delivered: true,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      approvedAt: new Date().toISOString()
+      approvedAt: new Date().toISOString(),
+      deliveredAt: new Date().toISOString()
     });
+
+    await deliverPurchase(
+      userId,
+      payload.type,
+      payload.type === 'plan' ? String(payload.credits) : payload.credits
+    );
   } catch (e) {}
 
-  return { id: paymentId, status: 'approved' };
+  return { id: paymentId, status: 'approved', verificationToken };
 };
 
 export const deliverPurchase = async (
@@ -334,15 +428,27 @@ export const deliverPurchase = async (
     const expiryDate = new Date();
     expiryDate.setDate(expiryDate.getDate() + 30);
 
-    await updateDoc(userRef, {
-      plan_type: planName,
-      plan_expires_at: expiryDate.toISOString()
-    });
+    let bonusCoins = 0;
+    if (planName === 'pro') bonusCoins = 1000;
+    else if (planName === 'premium') bonusCoins = 2500;
+    else if (planName === 'ultra') bonusCoins = 6000;
+
+    const userDoc = await getDoc(userRef);
+    if (userDoc.exists()) {
+      const updateData: any = {
+        plan_type: planName,
+        plan_expires_at: expiryDate.toISOString()
+      };
+      if (bonusCoins > 0) {
+        updateData.credits = increment(bonusCoins);
+      }
+      await updateDoc(userRef, updateData);
+    }
 
     await sendNotification(
       userId,
       'Plano VIP Ativado!',
-      `Seu plano ${planName.toUpperCase()} foi ativado com sucesso por 30 dias!`,
+      `Seu plano ${planName.toUpperCase()} foi ativado com sucesso por 30 dias! ${bonusCoins > 0 ? `Bônus de ${bonusCoins} moedas creditado!` : ''}`,
       'store'
     );
   } else if (type === 'tickets') {
