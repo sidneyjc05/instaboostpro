@@ -1281,7 +1281,7 @@ apiRouter.post('/payments/card', authMiddleware, async (req: any, res) => {
                 number: (docNumber || '11144477735').replace(/\D/g, '')
               }
             },
-            notification_url: 'https://instaboostpro-production.up.railway.app/api/webhook/mercadopago'
+            notification_url: 'https://ais-pre-tconxsfpyuznwzskpbmftf-186769099699.us-west2.run.app/api/webhook/mercadopago'
           }
         });
         if (mpResponse.id) {
@@ -1485,7 +1485,7 @@ apiRouter.post('/payments/pix', authMiddleware, async (req: any, res) => {
             number: cpf.replace(/\D/g, '')
           }
         },
-        notification_url: 'https://instaboostpro-production.up.railway.app/api/webhook/mercadopago'
+        notification_url: 'https://ais-pre-tconxsfpyuznwzskpbmftf-186769099699.us-west2.run.app/api/webhook/mercadopago'
       }
     });
 
