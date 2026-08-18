@@ -3,9 +3,10 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { useAuth } from '../context/AuthContext';
-import { User as UserIcon, Mail, LogOut, Loader2, Diamond, Users, Copy, CheckCircle, Share2, AlertTriangle, ShieldCheck, History, PlusSquare, X, Check, Clock, Zap, Gift, Coins, PlaySquare, Heart } from 'lucide-react';
+import { User as UserIcon, Mail, LogOut, Loader2, Diamond, Users, Copy, CheckCircle, Share2, AlertTriangle, ShieldCheck, History, PlusSquare, X, Check, Clock, Zap, Gift, Coins, PlaySquare, Heart, Crown, Shield } from 'lucide-react';
 import { collection, query, where, getDocs, doc, updateDoc, increment, onSnapshot, addDoc } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
+import { UserPaymentsSection } from '../components/UserPaymentsSection';
 
 // Componente do Cronômetro do Plano
 function PlanCountdown({ expiresAt }: { expiresAt: string }) {
@@ -530,15 +531,47 @@ export default function Profile() {
             PLANO {userPlan.toUpperCase()}
           </div>
         </div>
-        <div>
-          <h1 className="text-3xl font-black mt-2">@{user?.username}</h1>
-          <div className="inline-flex items-center justify-center gap-2 mt-3 px-5 py-2 rounded-full bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 font-bold mx-auto">
-            <AnimatedIcon type="coin" size={18} />
-            {typeof user?.credits === 'number' ? user.credits.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0,00'} Moedas
+        <div className="flex flex-col items-center">
+          <div className="flex items-center gap-2 justify-center flex-wrap">
+            <h1 className="text-3xl font-black mt-2">@{user?.username}</h1>
+            {user?.role === 'owner' && (
+              <span className="mt-2 px-3 py-1 rounded-full bg-gradient-to-r from-amber-500/20 to-yellow-400/20 text-amber-300 border border-amber-400/40 text-xs font-black uppercase flex items-center gap-1 shadow-md shadow-amber-500/10">
+                <Crown size={14} className="text-amber-400" /> Dono do Sistema
+              </span>
+            )}
+            {user?.role === 'admin' && user?.role !== 'owner' && (
+              <span className="mt-2 px-3 py-1 rounded-full bg-red-500/20 text-red-400 border border-red-400/30 text-xs font-black uppercase flex items-center gap-1 shadow-md shadow-red-500/10">
+                <Shield size={14} className="text-red-400" /> Administrador
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 mt-3 flex-wrap justify-center">
+            <div className="inline-flex items-center justify-center gap-2 px-5 py-2 rounded-full bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 font-bold">
+              <AnimatedIcon type="coin" size={18} />
+              {typeof user?.credits === 'number' ? user.credits.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0,00'} Moedas
+            </div>
+
+            <div className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-full bg-primary/10 border border-primary/20 text-primary font-bold">
+              <AnimatedIcon type="ticket" size={18} />
+              {user?.tickets || 0} Tickets
+            </div>
           </div>
 
           {user?.plan_expires_at && user.plan_type !== 'basic' && (
             <PlanCountdown expiresAt={user.plan_expires_at} />
+          )}
+
+          {(user?.role === 'owner' || user?.role === 'admin') && (
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => navigate('/admin')} 
+              className="mt-4 rounded-2xl border-amber-500/30 text-amber-400 hover:bg-amber-500/10 font-black text-xs"
+            >
+              {user?.role === 'owner' ? <Crown size={14} className="mr-1.5" /> : <Shield size={14} className="mr-1.5" />}
+              Acessar Painel de Controle ({user?.role === 'owner' ? 'Dono' : 'Admin'}) →
+            </Button>
           )}
         </div>
       </motion.div>
@@ -786,6 +819,9 @@ export default function Profile() {
           </AnimatePresence>
         </div>
       </motion.div>
+
+      {/* Meus Pagamentos & Fila de Alta Demanda */}
+      <UserPaymentsSection />
 
       {/* Minhas Divulgações */}
       <motion.div

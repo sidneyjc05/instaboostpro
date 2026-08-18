@@ -61,7 +61,7 @@ function AppContent() {
   // Background queue listener to guarantee payment delivery across all environments
   usePaymentDeliveryQueue();
 
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = user?.role === 'admin' || user?.role === 'owner';
 
   useEffect(() => {
      let interval: NodeJS.Timeout;

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router';
-import { Home, PlusSquare, Store, User, Sun, Moon, Volume2, VolumeX, ShieldAlert, Target, LifeBuoy, AlertTriangle, Bell, CheckCircle2 } from 'lucide-react';
+import { Home, PlusSquare, Store, User, Sun, Moon, Volume2, VolumeX, ShieldAlert, Target, LifeBuoy, AlertTriangle, Bell, CheckCircle2, Crown } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { useAppSound } from '../context/SoundContext';
 import { useAuth } from '../context/AuthContext';
@@ -18,7 +18,8 @@ export function Layout() {
   const [supportOpen, setSupportOpen] = useState(false);
   const navigate = useNavigate();
 
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = user?.role === 'admin' || user?.role === 'owner';
+  const isOwner = user?.role === 'owner';
 
   const handleToggleSound = () => toggleSound();
   const handleToggleTheme = () => toggleTheme();
@@ -58,7 +59,13 @@ export function Layout() {
             <NavItem to="/roulette" icon={<Target />} label="Roleta" />
             <NavItem to="/store" icon={<Store />} label="Loja" />
             <NavItem to="/profile" icon={<User />} label="Perfil" />
-            {isAdmin && <NavItem to="/admin" icon={<ShieldAlert />} label="Admin" />}
+            {isAdmin && (
+              <NavItem 
+                to="/admin" 
+                icon={isOwner ? <Crown className="text-amber-400" /> : <ShieldAlert className="text-red-400" />} 
+                label={isOwner ? "Dono" : "Admin"} 
+              />
+            )}
           </nav>
         </div>
         <div className="flex flex-col gap-6 items-center">
@@ -87,7 +94,13 @@ export function Layout() {
         <NavItem to="/roulette" icon={<Target />} label="Roleta" />
         <NavItem to="/store" icon={<Store />} label="Loja" />
         <NavItem to="/profile" icon={<User />} label="Perfil" />
-        {isAdmin && <NavItem to="/admin" icon={<ShieldAlert />} label="Admin" />}
+        {isAdmin && (
+          <NavItem 
+            to="/admin" 
+            icon={isOwner ? <Crown className="text-amber-400" /> : <ShieldAlert className="text-red-400" />} 
+            label={isOwner ? "Dono" : "Admin"} 
+          />
+        )}
       </nav>
 
       <UserSupportModal open={supportOpen} onClose={() => setSupportOpen(false)} />

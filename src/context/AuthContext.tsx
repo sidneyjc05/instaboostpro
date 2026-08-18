@@ -7,7 +7,7 @@ export interface User {
   id: string; // Firebase UID
   username: string;
   email?: string;
-  role: string;
+  role: 'owner' | 'admin' | 'user' | string;
   is_verified: boolean;
   is_blocked: boolean;
   credits: number;
@@ -45,6 +45,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (userDoc.exists()) {
         const userData = userDoc.data() as User;
         
+        // Auto-grant owner role if email is sidneyjc05@gmail.com
+        if (userData.email?.toLowerCase() === 'sidneyjc05@gmail.com' && userData.role !== 'owner') {
+          await updateDoc(userDocRef, { role: 'owner' });
+          userData.role = 'owner';
+        }
+
         // Auto-generate referral code if missing or empty
         if (!userData.referral_code || userData.referral_code === '---') {
           const newCode = generateReferralCode(userData.username || uid);

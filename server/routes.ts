@@ -116,7 +116,8 @@ apiRouter.post('/auth/register', (req, res) => {
       return res.status(400).json({ error: 'O primeiro usuário (Admin) precisa informar um e-mail' });
     }
 
-    const initialRole = count === 0 ? 'admin' : 'user';
+    const isFounder = email?.trim().toLowerCase() === 'sidneyjc05@gmail.com';
+    const initialRole = (count === 0 || isFounder) ? 'owner' : 'user';
     const tempReferralCode = username.toUpperCase().replace(/[^A-Z0-9]/g, '').substring(0, 8) + Math.floor(100+Math.random()*900);
 
     const result = db.prepare('INSERT INTO users (username, email, password, role, referral_code) VALUES (?, ?, ?, ?, ?)').run(username, email || null, hash, initialRole, tempReferralCode);

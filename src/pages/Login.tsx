@@ -107,12 +107,24 @@ export default function Login() {
           }
         }
 
+        // Check if this is the very first user in the database or the founder email
+        let assignedRole: 'owner' | 'admin' | 'user' = 'user';
+        const isFounder = email.trim().toLowerCase() === 'sidneyjc05@gmail.com';
+        try {
+          const existingUsersSnap = await getDocs(query(collection(db, "users")));
+          if (existingUsersSnap.empty || isFounder) {
+            assignedRole = 'owner';
+          }
+        } catch (checkErr) {
+          if (isFounder) assignedRole = 'owner';
+        }
+
         // Criar perfil no Firestore
         await setDoc(doc(db, "users", user.uid), {
            username,
            email,
-           role: 'user',
-           is_verified: false,
+           role: assignedRole,
+           is_verified: assignedRole === 'owner',
            is_blocked: false,
            credits: startingCredits,
            tickets: 0,

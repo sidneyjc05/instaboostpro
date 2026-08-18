@@ -78,6 +78,11 @@ adminRouter.post('/users/:id/update', (req: any, res) => {
     } else if (action === 'change_email') {
         db.prepare('UPDATE users SET email = ?, is_verified = 1 WHERE id = ?').run(value, userId);
         logAction(req.userId, userId, 'change_email', `Novo email: ${value}`);
+    } else if (action === 'set_role') {
+        const allowedRoles = ['owner', 'admin', 'user'];
+        const role = allowedRoles.includes(value) ? value : 'user';
+        db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, userId);
+        logAction(req.userId, userId, 'set_role', `Cargo alterado para: ${role.toUpperCase()}`);
     } else if (action === 'change_id') {
         // Changing user ID is fundamentally complex if there are strong FKs. Since we use ON DELETE CASCADE, changing an ID requires ON UPDATE CASCADE in SQLite.
         // We might need to manually update FKs.
@@ -85,6 +90,67 @@ adminRouter.post('/users/:id/update', (req: any, res) => {
     }
     
     res.json({ success: true });
+});
+
+// Payments & High Demand Queue Management
+adminRouter.get('/payments/all', (req: any, res) => {
+    try {
+        const payments = db.prepare(`
+            SELECT p.*, u.username, u.email as user_email, u.credits as current_credits, u.tickets as current_tickets, u.plan_type as current_plan
+            FROM payments p
+            LEFT JOIN users u ON p.user_id = u.id
+            ORDER BY p.created_at DESC
+        `).all() as any[];
+
+        // Calculate queue position for pending payments
+        const pending = payments.filter(p => p.status === 'pending' || p.status === 'in_queue');
+        const enriched = payments.map(p => {
+            const queueIndex = pending.findIndex(pend => pend.id === p.id);
+            return {
+                ...p,
+                queue_position: queueIndex >= 0 ? queueIndex + 1 : null,
+                total_in_queue: pending.length
+            };
+        });
+
+        res.json({ payments: enriched, totalPending: pending.length });
+    } catch (e: any) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+adminRouter.post('/payments/:id/approve', (req: any, res) => {
+    try {
+        const paymentId = req.params.id;
+        const payment = db.prepare('SELECT * FROM payments WHERE id = ?').get(paymentId) as any;
+        if (!payment) return res.status(404).json({ error: 'Pagamento não encontrado' });
+
+        if (payment.status === 'approved' || payment.status === 'delivered') {
+            return res.status(400).json({ error: 'Pagamento já foi aprovado e entregue' });
+        }
+
+        // Deliver items to the user
+        const targetUserId = payment.user_id;
+        const itemType = payment.item_type || 'coins';
+
+        if (itemType === 'coins' && payment.amount) {
+            db.prepare('UPDATE users SET credits = credits + ? WHERE id = ?').run(Number(payment.amount), targetUserId);
+        } else if (itemType === 'tickets' && payment.amount) {
+            db.prepare('UPDATE users SET tickets = tickets + ? WHERE id = ?').run(Number(payment.amount), targetUserId);
+        } else if (itemType === 'plan' && payment.plan_id) {
+            const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+            db.prepare('UPDATE users SET plan_type = ?, plan_expires_at = ? WHERE id = ?').run(payment.plan_id, expiresAt, targetUserId);
+        }
+
+        // Update payment status
+        db.prepare(`UPDATE payments SET status = 'delivered', delivered = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(paymentId);
+        
+        logAction(req.userId, targetUserId, 'approve_payment', `Pagamento #${paymentId} aprovado e entregue manualmente pelo Administrador`);
+
+        res.json({ success: true, message: 'Pagamento aprovado e itens entregues com sucesso!' });
+    } catch (e: any) {
+        res.status(500).json({ error: e.message });
+    }
 });
 
 adminRouter.post('/users/:id/block', (req: any, res) => {

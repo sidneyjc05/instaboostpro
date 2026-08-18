@@ -41,7 +41,7 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
        return res.status(400).json({ error: 'Outra pessoa acessou sua conta (Sessão expirada)' });
     }
 
-    if (payload.role !== 'admin') {
+    if (payload.role !== 'admin' && payload.role !== 'owner') {
        const allowedPaths = ['/api/me', '/api/notifications'];
        if (!allowedPaths.includes(req.originalUrl)) {
            const maintenanceMode = db.prepare('SELECT value FROM settings WHERE key = ?').get('maintenance_mode') as any;
@@ -60,8 +60,9 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
 };
 
 export const adminMiddleware = (req: Request, res: Response, next: NextFunction) => {
-  if ((req as any).userRole !== 'admin') {
-     return res.status(400).json({ error: 'Forbidden, admins only' });
+  const role = (req as any).userRole;
+  if (role !== 'admin' && role !== 'owner') {
+     return res.status(403).json({ error: 'Forbidden, admins and owners only' });
   }
   next();
 };

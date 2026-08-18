@@ -81,7 +81,7 @@ export function DailyRewardModal({ open, onClose }: DailyRewardModalProps) {
             initial={{ opacity: 0 }} 
             animate={{ opacity: 1 }} 
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm"
+            className="fixed inset-0 bg-black/80 backdrop-blur-md"
             onClick={onClose}
           />
           <motion.div 
@@ -89,13 +89,13 @@ export function DailyRewardModal({ open, onClose }: DailyRewardModalProps) {
             animate={{ y: 0, opacity: 1 }} 
             exit={{ y: '100%', opacity: 0 }}
             transition={{ type: "spring", damping: 25, stiffness: 300 }}
-            className="relative bg-card w-full max-w-lg md:rounded-3xl rounded-t-3xl shadow-2xl flex flex-col max-h-[95vh] md:max-h-[90vh] my-auto"
+            className="relative bg-[#0c0d14] border border-white/10 w-full max-w-lg md:rounded-3xl rounded-t-3xl shadow-2xl flex flex-col max-h-[95vh] md:max-h-[90vh] my-auto overflow-hidden"
             onClick={e => e.stopPropagation()}
           >
           {/* Header */}
-          <div className="relative p-4 md:p-6 border-b border-border text-center overflow-hidden rounded-t-3xl shrink-0">
-             <div className="absolute inset-0 bg-gradient-to-br from-primary/20 via-purple-500/10 to-transparent"></div>
-             <button onClick={onClose} className="absolute z-20 right-4 top-4 p-2 bg-background/50 backdrop-blur-md rounded-full text-muted-foreground hover:text-foreground">
+          <div className="relative p-4 md:p-6 border-b border-white/10 bg-[#0f101a] text-center overflow-hidden rounded-t-3xl shrink-0">
+             <div className="absolute inset-0 bg-gradient-to-br from-primary/25 via-purple-500/10 to-transparent"></div>
+             <button onClick={onClose} className="absolute z-20 right-4 top-4 p-2 bg-white/10 hover:bg-white/20 backdrop-blur-md rounded-full text-muted-foreground hover:text-foreground transition-colors">
                 <X size={18} />
              </button>
              
@@ -109,7 +109,7 @@ export function DailyRewardModal({ open, onClose }: DailyRewardModalProps) {
           </div>
 
           {/* Content */}
-          <div className="p-4 md:p-6 overflow-y-auto flex-1 custom-scrollbar min-h-0">
+          <div className="p-4 md:p-6 overflow-y-auto flex-1 custom-scrollbar min-h-0 bg-[#0c0d14]">
             {loading || !data ? (
               <div className="flex justify-center p-8">
                  <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
@@ -117,8 +117,8 @@ export function DailyRewardModal({ open, onClose }: DailyRewardModalProps) {
             ) : (
               <div className="flex flex-col gap-3 md:gap-4">
                 
-                <div className="bg-secondary/50 p-2 md:p-4 rounded-xl text-center border border-primary/20 bg-gradient-to-r from-primary/5 via-transparent to-primary/5">
-                   <p className="text-[10px] md:text-xs font-semibold text-primary tracking-wider uppercase">Reset Semanal toda Segunda-feira</p>
+                <div className="bg-[#141522] p-2 md:p-4 rounded-xl text-center border border-primary/30 bg-gradient-to-r from-primary/10 via-[#141522] to-primary/10">
+                   <p className="text-[10px] md:text-xs font-bold text-primary tracking-wider uppercase">Reset Semanal toda Segunda-feira</p>
                 </div>
 
                 <div className="grid grid-cols-4 gap-2">
@@ -138,7 +138,7 @@ export function DailyRewardModal({ open, onClose }: DailyRewardModalProps) {
 
           {/* Footer Action */}
           {!loading && data && (
-             <div className="p-4 md:p-6 border-t border-border bg-secondary/20 rounded-b-3xl shrink-0">
+             <div className="p-4 md:p-6 border-t border-white/10 bg-[#0f101a] rounded-b-3xl shrink-0">
                 {availableDay ? (
                    <Button 
                       size="lg" 
@@ -150,7 +150,7 @@ export function DailyRewardModal({ open, onClose }: DailyRewardModalProps) {
                       RESGATAR PRÊMIO DE HOJE
                    </Button>
                 ) : (
-                   <div className="w-full text-center py-3 bg-secondary rounded-xl text-muted-foreground font-medium border border-border text-sm">
+                   <div className="w-full text-center py-3 bg-[#141522] rounded-xl text-muted-foreground font-medium border border-white/10 text-sm">
                       {data.plan.every((p:any) => p.state === 'claimed' || p.state === 'missed') && data.plan[6].state !== 'locked' 
                          ? 'Nenhum prêmio restante esta semana.' 
                          : 'Volte amanhã para mais prêmios!'
@@ -181,20 +181,20 @@ function RewardDayCard({ day, getDayName }: RewardDayCardProps) {
    // Special styling for Sunday (day 7)
    const isSunday = day.dayIndex === 7;
 
-   let bgClass = "bg-card border-border shadow-sm";
+   let bgClass = "bg-[#151624] border-white/10 shadow-sm";
    let opacityClass = "";
 
-   if (isClaimed) bgClass = "bg-green-500/10 border-green-500/30 ring-1 ring-green-500/20";
+   if (isClaimed) bgClass = "bg-[#0c2317] border-emerald-500/40 ring-1 ring-emerald-500/30 text-emerald-300";
    else if (isMissed) {
-      bgClass = "bg-secondary/50 border-transparent grayscale brightness-90";
+      bgClass = "bg-[#11121c] border-white/5 grayscale brightness-75";
       opacityClass = "opacity-60";
    }
    else if (isAvailable) {
-      bgClass = isSunday ? "bg-gradient-to-b from-yellow-500/20 to-primary/20 border-yellow-500/50 ring-2 ring-yellow-500/50 shadow-md shadow-yellow-500/10" 
-                         : "bg-primary/10 border-primary/40 ring-2 ring-primary/40 shadow-md shadow-primary/10";
+      bgClass = isSunday ? "bg-gradient-to-b from-amber-500/30 via-[#231d10] to-[#171424] border-amber-400 ring-2 ring-amber-400/50 shadow-lg shadow-amber-500/20" 
+                         : "bg-gradient-to-b from-primary/30 via-[#1f1530] to-[#151624] border-primary ring-2 ring-primary/50 shadow-lg shadow-primary/20";
    }
    else if (isSunday) {
-      bgClass = "bg-gradient-to-b from-yellow-500/5 to-transparent border-yellow-500/20";
+      bgClass = "bg-[#1b1726] border-yellow-500/30";
    }
 
    return (
