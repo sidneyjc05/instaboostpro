@@ -25,7 +25,8 @@ import { showNotification } from '../context/NotificationContext';
 import { useAppSound } from '../context/SoundContext';
 import { AnimatedIcon } from './AnimatedIcon';
 import { useAuth } from '../context/AuthContext';
-import { auth } from '../lib/firebase';
+import { auth, db } from '../lib/firebase';
+import { doc, onSnapshot } from 'firebase/firestore';
 import {
   getUserSavedCards,
   deleteUserSavedCard,
@@ -180,6 +181,7 @@ export function CheckoutModal({ isOpen, onClose, item, onSuccess }: CheckoutModa
   useEffect(() => {
     let timer: any;
     let pollInterval: any;
+    let unsubFirestore: (() => void) | null = null;
     
     if (pixData) {
       // Countdown
@@ -189,6 +191,7 @@ export function CheckoutModal({ isOpen, onClose, item, onSuccess }: CheckoutModa
         if (diff <= 0) {
           clearInterval(timer);
           clearInterval(pollInterval);
+          if (unsubFirestore) unsubFirestore();
           setPixData(null);
           showNotification.error('Tempo do QR Code PIX expirou.');
         } else {
@@ -196,39 +199,66 @@ export function CheckoutModal({ isOpen, onClose, item, onSuccess }: CheckoutModa
         }
       }, 1000);
 
-      // Polling backend for status
+      const handleApproved = async (approvedAmount?: number) => {
+        clearInterval(timer);
+        clearInterval(pollInterval);
+        if (unsubFirestore) unsubFirestore();
+        setPixData(null);
+        playSuccess();
+        showNotification.success('Pagamento PIX Aprovado com sucesso!');
+        try {
+          await deliverPurchase(String(user.id), item.type, item.credits);
+        } catch (e) {
+          console.warn('Local Firestore delivery sync:', e);
+        }
+        await refreshUser();
+        onSuccess({
+          id: pixData.id,
+          paymentMethod: 'pix',
+          pendingPlan: item?.type === 'plan' ? String(item?.credits) : undefined,
+          tickets: item?.type === 'tickets' ? Number(item?.credits) : 0,
+          credits: item?.type === 'credits' ? Number(item?.credits) : 0,
+          amount: approvedAmount || 0
+        });
+        onClose();
+      };
+
+      // 1. Listen to real-time Firestore payments collection
+      try {
+        unsubFirestore = onSnapshot(doc(db, 'payments', pixData.id), (docSnap) => {
+          if (docSnap.exists()) {
+            const data = docSnap.data();
+            if (data.status === 'approved') {
+              handleApproved(data.amount);
+            } else if (data.status === 'rejected' || data.status === 'cancelled') {
+              clearInterval(timer);
+              clearInterval(pollInterval);
+              if (unsubFirestore) unsubFirestore();
+              setPixData(null);
+              showNotification.error('Pagamento recusado ou cancelado.');
+            }
+          }
+        });
+      } catch (e) {
+        console.warn('Firestore onSnapshot notice:', e);
+      }
+
+      // 2. Polling backend for status (if fullstack server is present)
       pollInterval = setInterval(async () => {
         try {
           const token = await auth.currentUser?.getIdToken();
           const res = await fetch(`/api/payments/${pixData.id}`, {
             headers: { Authorization: `Bearer ${token}` }
           });
-          if (res.ok) {
+          const contentType = res.headers.get('content-type') || '';
+          if (res.ok && contentType.includes('application/json')) {
             const result = await res.json();
             if (result.status === 'approved') {
-              clearInterval(timer);
-              clearInterval(pollInterval);
-              setPixData(null);
-              playSuccess();
-              showNotification.success('Pagamento PIX Aprovado com sucesso!');
-              try {
-                await deliverPurchase(String(user.id), item.type, item.credits);
-              } catch (e) {
-                console.warn('Local Firestore delivery sync:', e);
-              }
-              await refreshUser();
-              onSuccess({
-                id: result.id,
-                paymentMethod: 'pix',
-                pendingPlan: item?.type === 'plan' ? String(item?.credits) : undefined,
-                tickets: item?.type === 'tickets' ? Number(item?.credits) : 0,
-                credits: item?.type === 'credits' ? Number(item?.credits) : 0,
-                amount: result.amount
-              });
-              onClose();
+              handleApproved(result.amount);
             } else if (result.status === 'rejected' || result.status === 'cancelled') {
               clearInterval(timer);
               clearInterval(pollInterval);
+              if (unsubFirestore) unsubFirestore();
               setPixData(null);
               showNotification.error('Pagamento recusado ou cancelado.');
             }
@@ -242,6 +272,7 @@ export function CheckoutModal({ isOpen, onClose, item, onSuccess }: CheckoutModa
     return () => {
       clearInterval(timer);
       clearInterval(pollInterval);
+      if (unsubFirestore) unsubFirestore();
     };
   }, [pixData]);
 
