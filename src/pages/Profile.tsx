@@ -5,6 +5,7 @@ import { Input } from '../components/ui/Input';
 import { useAuth } from '../context/AuthContext';
 import { User as UserIcon, Mail, LogOut, Loader2, Diamond, Users, Copy, CheckCircle, Share2, AlertTriangle, ShieldCheck, History, PlusSquare, X, Check, Clock, Zap, Gift, Coins, PlaySquare, Heart, Crown, Shield } from 'lucide-react';
 import { collection, query, where, getDocs, doc, updateDoc, increment, onSnapshot, addDoc } from 'firebase/firestore';
+import { sendEmailVerification } from 'firebase/auth';
 import { db, auth } from '../lib/firebase';
 import { UserPaymentsSection } from '../components/UserPaymentsSection';
 
@@ -486,7 +487,6 @@ export default function Profile() {
     playClick();
     if (auth.currentUser) {
       try {
-        const { sendEmailVerification } = await import('firebase/auth');
         await sendEmailVerification(auth.currentUser);
         showNotification.success('Código de verificação enviado para o seu e-mail!');
       } catch (err: any) {
