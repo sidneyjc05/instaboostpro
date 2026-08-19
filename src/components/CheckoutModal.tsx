@@ -128,6 +128,7 @@ export function CheckoutModal({ isOpen, onClose, item, onSuccess }: CheckoutModa
   const [pixData, setPixData] = useState<{ id: string; qrCode: string | null; pixCode: string; verificationToken?: string; exactExpiry: number } | null>(null);
   const [pixTimeLeft, setPixTimeLeft] = useState(30 * 60);
   const [verifyingPix, setVerifyingPix] = useState(false);
+  const [isQueued, setIsQueued] = useState(false);
 
   // Card state
   const [savedCards, setSavedCards] = useState<SavedCard[]>([]);
@@ -171,6 +172,7 @@ export function CheckoutModal({ isOpen, onClose, item, onSuccess }: CheckoutModa
       fetchSavedCards();
       setPixData(null);
       setCheckingStep(null);
+      setIsQueued(false);
       setCardNumber('');
       setExpiry('');
       setCvv('');
@@ -408,6 +410,7 @@ export function CheckoutModal({ isOpen, onClose, item, onSuccess }: CheckoutModa
     if (!user?.id || !pixData?.id) return;
     playClick();
     setVerifyingPix(true);
+    setIsQueued(false);
     try {
       const result = await verifyAndDeliverPayment(String(user.id), pixData.id, pixData.verificationToken);
       playSuccess();
@@ -423,7 +426,11 @@ export function CheckoutModal({ isOpen, onClose, item, onSuccess }: CheckoutModa
       });
       onClose();
     } catch (err: any) {
-      showNotification.error(err.message || 'Erro ao validar transação.');
+      if (err.message && err.message.includes('fila de verificação')) {
+        setIsQueued(true);
+      } else {
+        showNotification.error(err.message || 'Erro ao validar transação.');
+      }
     } finally {
       setVerifyingPix(false);
     }
@@ -803,14 +810,22 @@ export function CheckoutModal({ isOpen, onClose, item, onSuccess }: CheckoutModa
                 </div>
 
                 {/* Primary Action Button: Manual Verification & Immediate Delivery */}
-                <Button 
-                  onClick={handleManualVerifyPix}
-                  isLoading={verifyingPix}
-                  size="lg"
-                  className="w-full h-14 text-sm font-black uppercase tracking-wider rounded-2xl shadow-xl bg-gradient-to-r from-emerald-600 via-green-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white mt-1 border border-emerald-400/30 transform transition-transform active:scale-[0.99]"
-                >
-                  <ShieldCheck className="mr-2" size={20} /> Já Paguei — Validar e Liberar Itens
-                </Button>
+                {isQueued ? (
+                  <div className="w-full bg-warning/10 border border-warning/30 rounded-2xl p-4 flex flex-col items-center justify-center text-center mt-2 animate-pulse">
+                    <Clock size={28} className="text-warning mb-2" />
+                    <h5 className="font-bold text-warning text-sm">Na fila de verificação</h5>
+                    <p className="text-xs text-muted-foreground mt-1">O Mercado Pago ainda não confirmou o pagamento. O sistema continuará checando automaticamente.</p>
+                  </div>
+                ) : (
+                  <Button 
+                    onClick={handleManualVerifyPix}
+                    isLoading={verifyingPix}
+                    size="lg"
+                    className="w-full h-14 text-sm font-black uppercase tracking-wider rounded-2xl shadow-xl bg-gradient-to-r from-emerald-600 via-green-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white mt-1 border border-emerald-400/30 transform transition-transform active:scale-[0.99]"
+                  >
+                    <ShieldCheck className="mr-2" size={20} /> Já Paguei — Validar e Liberar Itens
+                  </Button>
+                )}
 
                 <Button 
                   variant="ghost" 

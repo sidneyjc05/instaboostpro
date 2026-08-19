@@ -1415,6 +1415,52 @@ apiRouter.get('/payments/pending-check', authMiddleware, async (req: any, res) =
   const numTickets = type === 'tickets' ? Number(credits) : 0;
   const planIdVal = type === 'plan' ? String(credits) : null;
 
+  try {
+    const payment = db.prepare(`
+      SELECT * FROM payments 
+      WHERE user_id = ? 
+      AND status = 'pending' 
+      AND item_type = ? 
+      AND credits = ? 
+      AND tickets = ? 
+      AND (plan_id = ? OR plan_id IS NULL)
+      ORDER BY created_at DESC LIMIT 1
+    `).get(req.userId, type, numCredits, numTickets, planIdVal) as any;
+
+    if (payment && payment.status === 'pending') {
+      const now = Date.now();
+      const createdAt = new Date(payment.created_at).getTime();
+      
+      if (now - createdAt < 15 * 60 * 1000) { 
+        const expiresInSecs = (15 * 60) - Math.floor((now - createdAt) / 1000);
+        
+        let qrCode = payment.qrCode;
+        let pixCode = payment.pixCode;
+        
+        if (!qrCode || !pixCode) {
+           try {
+             const mpPayInfo = await mpPayment.get({ id: Number(payment.id) });
+             const rawBase64 = mpPayInfo.point_of_interaction?.transaction_data?.qr_code_base64;
+             qrCode = rawBase64 ? `data:image/png;base64,${rawBase64}` : null;
+             pixCode = mpPayInfo.point_of_interaction?.transaction_data?.qr_code;
+           } catch(e) {}
+        }
+
+        return res.json({
+          id: payment.id,
+          qrCode: qrCode,
+          pixCode: pixCode,
+          verificationToken: payment.verification_token,
+          isExisting: true,
+          expiresIn: expiresInSecs
+        });
+      }
+    }
+  } catch (err) {
+    console.error('Pending check sqlite error:', err);
+  }
+
+  // Fallback to Firestore just in case
   if (firestoreDb) {
     try {
       const querySnapshot = await firestoreDb.collection('payments')
@@ -1453,8 +1499,10 @@ apiRouter.get('/payments/pending-check', authMiddleware, async (req: any, res) =
            });
         }
       }
-    } catch (e) {
-      console.warn('[Pending check error]', e);
+    } catch (e: any) {
+      if (!e?.message?.includes('PERMISSION_DENIED') && e?.code !== 7) {
+        console.warn('[Pending check error]', e);
+      }
     }
   }
   return res.json({ isExisting: false });
@@ -1517,7 +1565,52 @@ apiRouter.post('/payments/pix', authMiddleware, async (req: any, res) => {
   const numTickets = type === 'tickets' ? Number(credits) : 0;
   const planIdVal = type === 'plan' ? String(credits) : null;
 
-  // Check for existing pending PIX payment
+  try {
+    const payment = db.prepare(`
+      SELECT * FROM payments 
+      WHERE user_id = ? 
+      AND status = 'pending' 
+      AND item_type = ? 
+      AND credits = ? 
+      AND tickets = ? 
+      AND (plan_id = ? OR plan_id IS NULL)
+      ORDER BY created_at DESC LIMIT 1
+    `).get(req.userId, type, numCredits, numTickets, planIdVal) as any;
+
+    if (payment && payment.status === 'pending') {
+      const now = Date.now();
+      const createdAt = new Date(payment.created_at).getTime();
+      
+      if (now - createdAt < 14 * 60 * 1000) { // Valid if less than 14 minutes old
+        const expiresInSecs = (15 * 60) - Math.floor((now - createdAt) / 1000);
+
+        let qrCode = payment.qrCode;
+        let pixCode = payment.pixCode;
+        
+        if (!qrCode || !pixCode) {
+           try {
+             const mpPayInfo = await mpPayment.get({ id: Number(payment.id) });
+             const rawBase64 = mpPayInfo.point_of_interaction?.transaction_data?.qr_code_base64;
+             qrCode = rawBase64 ? `data:image/png;base64,${rawBase64}` : null;
+             pixCode = mpPayInfo.point_of_interaction?.transaction_data?.qr_code;
+           } catch(e) {}
+        }
+
+        return res.json({
+          id: payment.id,
+          qrCode: qrCode,
+          pixCode: pixCode,
+          verificationToken: payment.verification_token,
+          isExisting: true,
+          expiresIn: expiresInSecs
+        });
+      }
+    }
+  } catch (err) {
+    console.error('Pending check sqlite error in post:', err);
+  }
+
+  // Check for existing pending PIX payment in firestore
   if (firestoreDb) {
     try {
       const querySnapshot = await firestoreDb.collection('payments')
@@ -1556,8 +1649,10 @@ apiRouter.post('/payments/pix', authMiddleware, async (req: any, res) => {
            });
         }
       }
-    } catch (e) {
-      console.warn('[Pending check error]', e);
+    } catch (e: any) {
+      if (!e?.message?.includes('PERMISSION_DENIED') && e?.code !== 7) {
+        console.warn('[Pending check error]', e);
+      }
     }
   }
 
@@ -1683,23 +1778,43 @@ apiRouter.post('/payments/verify', authMiddleware, async (req: any, res) => {
         return res.status(403).json({ error: 'Acesso não autorizado para esta transação.' });
       }
 
-      if (payment.status === 'pending') {
-        const tx = db.transaction(() => {
-          db.prepare("UPDATE payments SET status = 'approved' WHERE id = ?").run(paymentId.toString());
-          fulfillPayment(payment, 'token_verification');
-        });
-        tx();
+      let isMpPayment = !paymentId.toString().startsWith('pix_');
+      let mpStatus = payment.status;
+
+      if (isMpPayment && payment.status === 'pending') {
+        try {
+          const mpPayInfo = await mpPayment.get({ id: Number(paymentId) });
+          mpStatus = mpPayInfo.status;
+        } catch (e) {
+          console.error('Failed to get status from MP in verify', e);
+        }
       }
 
-      return res.json({
-        success: true,
-        delivered: true,
-        status: 'approved',
-        item_type: payment.item_type,
-        credits: payment.credits,
-        tickets: payment.tickets,
-        plan_id: payment.plan_id
-      });
+      if (mpStatus === 'approved') {
+        if (payment.status === 'pending') {
+          const tx = db.transaction(() => {
+            db.prepare("UPDATE payments SET status = 'approved' WHERE id = ?").run(paymentId.toString());
+            fulfillPayment(payment, 'token_verification');
+          });
+          tx();
+        }
+
+        return res.json({
+          success: true,
+          delivered: true,
+          status: 'approved',
+          item_type: payment.item_type,
+          credits: payment.credits,
+          tickets: payment.tickets,
+          plan_id: payment.plan_id
+        });
+      } else {
+        return res.status(400).json({ 
+          error: 'O pagamento ainda não foi confirmado pelo banco. Você está na fila de verificação segura. Aguarde alguns instantes.',
+          queue: true,
+          status: mpStatus
+        });
+      }
     }
 
     // Update in Firestore and deliver if not found in SQLite (e.g. from Netlify or direct Firestore client)
@@ -1736,8 +1851,10 @@ apiRouter.post('/payments/verify', authMiddleware, async (req: any, res) => {
             });
           }
         }
-      } catch (e) {
-        console.warn('[Firestore fallback verification notice]', e);
+      } catch (e: any) {
+        if (!e?.message?.includes('PERMISSION_DENIED') && e?.code !== 7) {
+          console.warn('[Firestore fallback verification notice]', e);
+        }
       }
     }
 
@@ -1781,22 +1898,26 @@ apiRouter.post('/payments/:id/refund', authMiddleware, async (req: any, res) => 
         }
 
         const user = db.prepare('SELECT credits, tickets FROM users WHERE id = ?').get(req.userId) as any;
-        const amount = Number(payment.amount) || 0;
+        const creditsBought = Number(payment.credits) || 0;
+        const ticketsBought = Number(payment.tickets) || 0;
         const itemType = payment.item_type || 'coins';
 
-        if (itemType === 'coins' && user.credits < amount) {
+        if (itemType === 'coins' && user.credits < creditsBought) {
              return res.status(400).json({ error: 'Você já utilizou as moedas deste pedido. Reembolso bloqueado.' });
         }
-        if (itemType === 'tickets' && user.tickets < amount) {
+        if (itemType === 'tickets' && user.tickets < ticketsBought) {
              return res.status(400).json({ error: 'Você já utilizou os tickets deste pedido. Reembolso bloqueado.' });
         }
 
-        // Add columns if they don't exist yet, we will just store them in a new table or json column if needed
-        // For simplicity, we can update the payments table status to 'refund_requested' 
-        // We will store the pix key in a new table or in firestore. Let's just create a refund_requests table or add to firestore.
-        
-        // Ensure refund details column exists in payments if not using firestore. We will use firestore.
-        db.prepare("UPDATE payments SET status = 'refund_requested' WHERE id = ?").run(paymentId.toString());
+        // Deduct items from user to prevent spending them while refund is pending
+        db.transaction(() => {
+             if (itemType === 'coins') {
+                 db.prepare('UPDATE users SET credits = credits - ? WHERE id = ?').run(creditsBought, req.userId);
+             } else if (itemType === 'tickets') {
+                 db.prepare('UPDATE users SET tickets = tickets - ? WHERE id = ?').run(ticketsBought, req.userId);
+             }
+             db.prepare("UPDATE payments SET status = 'refund_requested' WHERE id = ?").run(paymentId.toString());
+        })();
 
         if (firestoreDb) {
              try {
@@ -1806,7 +1927,20 @@ apiRouter.post('/payments/:id/refund', authMiddleware, async (req: any, res) => 
                       refund_pix_key: pixKey,
                       refund_requested_at: new Date().toISOString()
                   });
-             } catch(e) {}
+                  // Also sync the deducted balance to Firestore
+                  const userDoc = firestoreDb.collection('users').doc(req.userId.toString());
+                  if (itemType === 'coins') {
+                      await userDoc.update({
+                          credits: (user.credits - creditsBought)
+                      });
+                  } else if (itemType === 'tickets') {
+                      await userDoc.update({
+                          tickets: (user.tickets - ticketsBought)
+                      });
+                  }
+             } catch(e) {
+                 console.warn('Failed to update firestore for refund:', e);
+             }
         }
 
         res.json({ success: true });
@@ -2228,7 +2362,9 @@ setInterval(async () => {
         console.log(`[Cleanup] Deleted ${deletedCount} old payments from Firestore.`);
       }
     }
-  } catch (err) {
-    console.error('[Cleanup Error]', err);
+  } catch (err: any) {
+    if (!err?.message?.includes('PERMISSION_DENIED') && err?.code !== 7) {
+      console.error('[Cleanup Error]', err);
+    }
   }
 }, 60 * 60 * 1000); // Run every 1 hour

@@ -416,9 +416,13 @@ export const verifyAndDeliverPayment = async (
           planId: data.plan_id
         };
       }
+    } else if (!res.ok && contentType.includes('application/json')) {
+       const errData = await res.json();
+       throw new Error(errData.error || 'Erro na verificação.');
     }
-  } catch (apiErr) {
+  } catch (apiErr: any) {
     console.warn('[Backend verification notice]', apiErr);
+    throw apiErr;
   }
 
   throw new Error('Não foi possível localizar este pedido para validação. Aguarde a confirmação bancária.');

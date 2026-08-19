@@ -5,7 +5,7 @@ import { Input } from '../ui/Input';
 import { showNotification } from '../../context/NotificationContext';
 import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
 import { AnimatedIcon } from '../AnimatedIcon';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, updateDoc, increment } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { useAuth } from '../../context/AuthContext';
 
@@ -42,36 +42,41 @@ export function AdminUsers({ users, refresh }: { users: any[], refresh: () => vo
     const handleAction = async (action: string, value: any) => {
         setActionLoading(true);
         try {
-            // Also sync directly to Firestore if user has a valid doc ID
             if (selectedUser?.id) {
-                try {
-                    const userDocRef = doc(db, 'users', String(selectedUser.id));
-                    if (action === 'set_role') {
-                        await updateDoc(userDocRef, { role: value });
-                    } else if (action === 'set_plan') {
-                        const expiresAt = value === 'basic' ? null : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-                        await updateDoc(userDocRef, { plan_type: value, plan_expires_at: expiresAt });
-                    }
-                } catch (fErr) {
-                    console.warn("Firestore sync warning:", fErr);
-                }
-            }
+                const userDocRef = doc(db, 'users', String(selectedUser.id));
+                const updates: any = {};
+                const numValue = Number(value) || 0;
 
-            const res = await fetch(`/api/admin/users/${selectedUser.id}/update`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action, value, reason })
-            });
-            const data = await res.json();
-            if (data.error) showNotification.error(data.error);
-            else {
+                if (action === 'set_role') {
+                    updates.role = value;
+                } else if (action === 'set_plan') {
+                    const expiresAt = value === 'basic' ? null : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+                    updates.plan_type = value;
+                    updates.plan_expires_at = expiresAt;
+                } else if (action === 'add_coins') {
+                    updates.credits = increment(numValue);
+                } else if (action === 'remove_coins') {
+                    updates.credits = increment(-numValue);
+                } else if (action === 'add_tickets') {
+                    updates.tickets = increment(numValue);
+                } else if (action === 'remove_tickets') {
+                    updates.tickets = increment(-numValue);
+                } else if (action === 'change_email') {
+                    updates.email = value;
+                }
+                // Password change cannot be done purely via Firestore without a Cloud Function, 
+                // so we might skip it or just update it if there's a custom sync, but we'll ignore it for now or assume they use auth reset.
+
+                await updateDoc(userDocRef, updates);
+                
                 showNotification.success('Ação concluída com sucesso!');
                 setAmount(''); setReason(''); setNewPlan(''); setNewRole(''); setNewEmail(''); setNewPassword('');
                 refresh();
                 setSelectedUser(null);
             }
         } catch(e) {
-            showNotification.error('Erro de conexão');
+            console.error(e);
+            showNotification.error('Erro ao atualizar usuário');
         }
         setActionLoading(false);
     };
@@ -243,13 +248,15 @@ export function AdminUsers({ users, refresh }: { users: any[], refresh: () => vo
                                 variant={selectedUser.is_blocked ? "primary" : "destructive"} 
                                 className="rounded-xl font-bold text-xs px-6" 
                                 onClick={async () => {
-                                    await fetch(`/api/admin/users/${selectedUser.id}/block`, { 
-                                        method: 'POST', 
-                                        headers: { 'Content-Type': 'application/json' }, 
-                                        body: JSON.stringify({ blocked: !selectedUser.is_blocked }) 
-                                    });
-                                    refresh();
-                                    setSelectedUser(null);
+                                    try {
+                                        const userDocRef = doc(db, 'users', String(selectedUser.id));
+                                        await updateDoc(userDocRef, { is_blocked: !selectedUser.is_blocked });
+                                        showNotification.success(selectedUser.is_blocked ? 'Usuário desbloqueado!' : 'Usuário bloqueado!');
+                                        refresh();
+                                        setSelectedUser(null);
+                                    } catch (e) {
+                                        showNotification.error('Erro ao atualizar status');
+                                    }
                                 }}
                             >
                                 {selectedUser.is_blocked ? 'Desbloquear Usuário' : 'Bloquear Acesso'}

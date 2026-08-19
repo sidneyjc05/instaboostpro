@@ -4,6 +4,7 @@ import { Input } from '../ui/Input';
 import { showNotification } from '../../context/NotificationContext';
 import { Save, Zap } from 'lucide-react';
 import { AnimatedIcon } from '../AnimatedIcon';
+import { getStoreConfig, saveStoreConfig } from '../../lib/store';
 
 export default function AdminStore() {
     const [config, setConfig] = useState<any>(null);
@@ -11,8 +12,7 @@ export default function AdminStore() {
     const [saving, setSaving] = useState(false);
 
     useEffect(() => {
-        fetch('/api/store/config')
-            .then(res => res.json())
+        getStoreConfig()
             .then(data => {
                 setConfig(data);
                 setLoading(false);
@@ -23,19 +23,8 @@ export default function AdminStore() {
     const handleSave = async () => {
         setSaving(true);
         try {
-            const res = await fetch('/api/admin/settings', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    key: 'store_config',
-                    value: JSON.stringify(config)
-                })
-            });
-            if (res.ok) {
-                showNotification.success('Loja atualizada com sucesso!');
-            } else {
-                showNotification.error('Erro ao atualizar loja');
-            }
+            await saveStoreConfig(config);
+            showNotification.success('Loja atualizada com sucesso!');
         } catch {
             showNotification.error('Erro de conexão');
         } finally {

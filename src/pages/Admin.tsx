@@ -9,7 +9,7 @@ import { AdminPayments } from '../components/admin/AdminPayments';
 import { motion, AnimatePresence } from 'motion/react';
 import { Shield, Users, Activity, Settings as SettingsIcon, MessageSquare, Store, Zap, CreditCard, Crown, Clock } from 'lucide-react';
 import { GlobalLoader } from '../components/GlobalLoader';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, getDocs } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 
 export default function Admin() {
@@ -27,13 +27,39 @@ export default function Admin() {
 
     const fetchAdminData = async () => {
         try {
-            const [usersRes, statsRes] = await Promise.all([
-                fetch('/api/admin/users/all'),
-                fetch('/api/admin/stats')
-            ]);
-            if (usersRes.ok) setUsers(await usersRes.json());
-            if (statsRes.ok) setStats(await statsRes.json());
-        } catch(e) {}
+            const usersSnap = await getDocs(collection(db, 'users'));
+            const usersData = usersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            
+            const paymentsSnap = await getDocs(collection(db, 'payments'));
+            const paymentsData = paymentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+            setUsers(usersData);
+            
+            let totalCoins = 0;
+            let activePlans = 0;
+            usersData.forEach((u: any) => {
+                totalCoins += Number(u.credits) || 0;
+                if (u.plan_type && u.plan_type !== 'basic') activePlans++;
+            });
+
+            let totalPixValue = 0;
+            paymentsData.forEach((p: any) => {
+                const isDelivered = p.status === 'delivered' || p.status === 'approved' || p.delivered;
+                if (isDelivered) {
+                    const val = Number(p.amount ?? p.price ?? p.total ?? p.value ?? p.transaction_amount ?? 0);
+                    totalPixValue += isNaN(val) ? 0 : val;
+                }
+            });
+
+            setStats({
+                totalUsers: usersData.length,
+                totalCoins,
+                activePlans,
+                totalPixValue
+            });
+        } catch(e) {
+            console.error("Error fetching admin data:", e);
+        }
         setLoading(false);
     };
 

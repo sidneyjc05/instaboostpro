@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { QRCodeSVG } from 'qrcode.react';
+import { generatePixPayload } from '../../lib/pixUtils';
 import { 
   CreditCard, 
   Clock, 
@@ -87,12 +89,6 @@ export function AdminPayments() {
     playClick();
     setProcessingId(payment.id);
     try {
-      // Try API approval first
-      const res = await fetch(`/api/admin/payments/${payment.id}/approve`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      });
-
       // Also deliver in Firestore if present
       const targetUserId = payment.userId || payment.user_id;
       if (targetUserId) {
@@ -100,10 +96,10 @@ export function AdminPayments() {
           const userDocRef = doc(db, 'users', targetUserId);
           const itemType = payment.itemType || payment.item_type || 'coins';
 
-          if (itemType === 'coins' && payment.amount) {
-            await updateDoc(userDocRef, { credits: increment(Number(payment.amount)) });
-          } else if (itemType === 'tickets' && payment.amount) {
-            await updateDoc(userDocRef, { tickets: increment(Number(payment.amount)) });
+          if (itemType === 'coins' && (payment.amount || payment.price)) {
+            await updateDoc(userDocRef, { credits: increment(Number(payment.amount || payment.price)) });
+          } else if (itemType === 'tickets' && (payment.amount || payment.price)) {
+            await updateDoc(userDocRef, { tickets: increment(Number(payment.amount || payment.price)) });
           } else if (itemType === 'plan') {
             const planId = payment.planId || payment.plan_id || 'pro';
             const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
@@ -123,6 +119,7 @@ export function AdminPayments() {
           });
         } catch (fErr) {
           console.warn("Firestore direct delivery notice:", fErr);
+          throw new Error('Falha ao entregar itens no banco de dados');
         }
       }
 
@@ -144,16 +141,32 @@ export function AdminPayments() {
     playClick();
     setProcessingId(payment.id);
     try {
-      const res = await fetch(`/api/admin/payments/${payment.id}/confirm-refund`, {
-        method: 'POST'
-      });
-      const data = await res.json();
-      if (data.error) {
-        showNotification.error(data.error);
-      } else {
-        playSuccess();
-        showNotification.success('Reembolso concluído. Os itens foram removidos do usuário.');
+      const targetUserId = payment.userId || payment.user_id;
+      if (targetUserId) {
+          const userDocRef = doc(db, 'users', targetUserId);
+          const itemType = payment.itemType || payment.item_type || 'coins';
+
+          if (itemType === 'coins' && (payment.amount || payment.price)) {
+            await updateDoc(userDocRef, { credits: increment(-Number(payment.amount || payment.price)) });
+          } else if (itemType === 'tickets' && (payment.amount || payment.price)) {
+            await updateDoc(userDocRef, { tickets: increment(-Number(payment.amount || payment.price)) });
+          } else if (itemType === 'plan') {
+            await updateDoc(userDocRef, {
+              plan_type: 'basic',
+              plan_expires_at: null
+            });
+          }
+
+          // Update payment document in Firestore
+          const paymentDocRef = doc(db, 'payments', payment.id);
+          await updateDoc(paymentDocRef, {
+            status: 'refunded',
+            updated_at: new Date().toISOString()
+          });
       }
+
+      playSuccess();
+      showNotification.success('Reembolso concluído. Os itens foram removidos do usuário.');
     } catch (err) {
       showNotification.error('Erro de conexão ao processar reembolso.');
     }
@@ -163,7 +176,10 @@ export function AdminPayments() {
   // Metrics calculation
   const totalRevenue = payments
     .filter(p => p.status === 'delivered' || p.status === 'approved' || p.delivered)
-    .reduce((acc, p) => acc + (Number(p.price) || 0), 0);
+    .reduce((acc, p) => {
+      const val = Number(p.amount ?? p.price ?? p.total ?? p.value ?? p.transaction_amount ?? 0);
+      return acc + (isNaN(val) ? 0 : val);
+    }, 0);
 
   const pendingPayments = payments.filter(p => p.status === 'pending' || p.status === 'in_queue' || (!p.delivered && p.status !== 'approved' && p.status !== 'refund_requested' && p.status !== 'refunded'));
   const deliveredPayments = payments.filter(p => p.status === 'delivered' || p.status === 'approved' || p.delivered);
@@ -448,18 +464,32 @@ export function AdminPayments() {
                         </Button>
                       ) : p.status === 'refund_requested' ? (
                         <div className="flex flex-col items-end gap-2">
-                           <div className="text-[10px] font-mono bg-secondary/50 px-2 py-1 rounded text-muted-foreground max-w-[150px] truncate flex items-center gap-1">
-                              PIX: {p.refund_pix_key} 
-                              <button onClick={() => handleCopy(p.refund_pix_key)}><Copy size={10} /></button>
+                           <div className="flex gap-2">
+                             {p.refund_pix_key && (
+                               <div className="bg-white p-1 rounded-md shadow-sm border border-gray-200" title="Escaneie para Reembolsar">
+                                 <QRCodeSVG value={generatePixPayload(p.refund_pix_key, Number(p.amount) || p.price || 0)} size={48} />
+                               </div>
+                             )}
+                             <div className="flex flex-col items-end gap-1">
+                               <div className="text-[10px] font-mono bg-secondary/50 px-2 py-1 rounded text-muted-foreground max-w-[120px] truncate flex items-center gap-1">
+                                  PIX: {p.refund_pix_key} 
+                                  <button onClick={() => {
+                                      const payload = generatePixPayload(p.refund_pix_key, Number(p.amount) || p.price || 0);
+                                      handleCopy(payload);
+                                  }} title="Copiar PIX Copia e Cola">
+                                    <Copy size={10} />
+                                  </button>
+                               </div>
+                               <Button
+                                  size="sm"
+                                  isLoading={processingId === p.id}
+                                  onClick={() => handleConfirmRefund(p)}
+                                  className="bg-red-500 hover:bg-red-400 text-white font-black text-[10px] h-6 px-2 rounded-lg shadow-md shadow-red-500/20"
+                               >
+                                  Confirmar
+                               </Button>
+                             </div>
                            </div>
-                           <Button
-                              size="sm"
-                              isLoading={processingId === p.id}
-                              onClick={() => handleConfirmRefund(p)}
-                              className="bg-red-500 hover:bg-red-400 text-white font-black text-xs h-8 px-3 rounded-xl shadow-md shadow-red-500/20"
-                           >
-                              Confirmar Reembolso
-                           </Button>
                         </div>
                       ) : p.status === 'refunded' ? (
                         <span className="text-[10px] font-bold text-muted-foreground">Itens Removidos</span>
