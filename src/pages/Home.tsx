@@ -4,14 +4,17 @@ import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { showNotification } from '../context/NotificationContext';
 import { Button } from '../components/ui/Button';
-import { Heart, UserPlus, RefreshCw, ShieldCheck, Gift, Target, Play } from 'lucide-react';
+import { Heart, UserPlus, RefreshCw, ShieldCheck, Gift, Target, Play, Sparkles, Filter, Film, PlusCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { DailyRewardModal } from '../components/DailyRewardModal';
 import { MissionsTab } from '../components/MissionsTab';
 import { InstaViewerModal } from '../components/InstaViewerModal';
+import { InstaPreviewCard } from '../components/InstaPreviewCard';
+import { MyPromotionModal } from '../components/MyPromotionModal';
 import { AnimatedIcon } from '../components/AnimatedIcon';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import { GlobalLoader } from '../components/GlobalLoader';
+import { useNavigate } from 'react-router';
 
 interface Promotion {
   id: string;
@@ -20,19 +23,19 @@ interface Promotion {
   username: string;
   expires_at: string;
   plan?: 'ultra' | 'premium' | 'pro' | 'basic';
+  interactions_count?: number;
 }
 
-const getPlanConfig = (plan?: string) => {
+const getPlanPriority = (plan?: string) => {
   switch (plan) {
-    case 'ultra': return { priority: 4, label: 'Ultra - Prioridade Máxima', color: 'amber', icon: ShieldCheck };
-    case 'premium': return { priority: 3, label: 'Premium - Destaque', color: 'purple', icon: Gift };
-    case 'pro': return { priority: 2, label: 'Pro - Vantagem', color: 'blue', icon: Target };
-    default: return { priority: 1, label: 'Básico', color: 'slate', icon: null };
+    case 'ultra': return 4;
+    case 'premium': return 3;
+    case 'pro': return 2;
+    default: return 1;
   }
 };
 
-// ... inside Home component, sort promotions
-const getInstaLinkType = (link: string) => {
+const getInstaLinkType = (link: string): 'reel' | 'post' | 'profile' => {
   if (!link) return 'profile';
   if (link.includes('/reel/')) return 'reel';
   return /\/(p|tv)\//i.test(link) ? 'post' : 'profile';
@@ -40,21 +43,26 @@ const getInstaLinkType = (link: string) => {
 
 export default function Home() {
   const [promotions, setPromotions] = useState<Promotion[]>([]);
-  const sortedPromotions = [...promotions].sort((a, b) => getPlanConfig(b.plan).priority - getPlanConfig(a.plan).priority);
   const [loading, setLoading] = useState(true);
   const [refreshCount, setRefreshCount] = useState(0);
   const { user, refreshUser } = useAuth();
+  const navigate = useNavigate();
   
   const [showDailyModal, setShowDailyModal] = useState(false);
   const [hasDailyRewardAvailable, setHasDailyRewardAvailable] = useState(false);
   
   const [activeTab, setActiveTab] = useState<'missions' | 'feed'>('missions');
+  const [feedFilter, setFeedFilter] = useState<'all' | 'reels' | 'posts' | 'profiles' | 'mine'>('all');
   
   // Viewer Modal State
   const [viewerOpen, setViewerOpen] = useState(false);
   const [activePromo, setActivePromo] = useState<Promotion | null>(null);
 
-  useBodyScrollLock(showDailyModal || viewerOpen);
+  // My Promotion Modal State
+  const [myPromoModalOpen, setMyPromoModalOpen] = useState(false);
+  const [selectedMyPromo, setSelectedMyPromo] = useState<Promotion | null>(null);
+
+  useBodyScrollLock(showDailyModal || viewerOpen || myPromoModalOpen);
 
   const loadPromos = async () => {
     try {
@@ -65,7 +73,14 @@ export default function Home() {
         .filter(p => !p.expires_at || p.expires_at > now);
       
       const interacted = (user as any)?.interacted_promos || [];
-      const availablePromos = loadedPromos.filter(p => !interacted.includes(p.id));
+      
+      // Include all non-expired promotions. For user's own promos, we keep them visible!
+      const availablePromos = loadedPromos.filter(p => {
+        // If it's user's own promotion, always show it!
+        if (user && p.user_id === user.id) return true;
+        // Otherwise show if not interacted yet
+        return !interacted.includes(p.id);
+      });
       
       setPromotions(availablePromos);
     } catch (error) {
@@ -76,7 +91,6 @@ export default function Home() {
 
   const checkDailyRewards = async () => {
     try {
-      // Determine daily reward availability based on user document
       const lastClaim = (user as any)?.last_daily_claim;
       const today = new Date().toISOString().split('T')[0];
       setHasDailyRewardAvailable(lastClaim !== today);
@@ -99,7 +113,7 @@ export default function Home() {
 
   useEffect(() => {
     handleRefresh();
-  }, []);
+  }, [user?.id]);
 
   const handleInteract = async () => {
     if (!activePromo || !user) return;
@@ -118,12 +132,6 @@ export default function Home() {
       }
 
       const userRef = doc(db, 'users', user.id);
-      
-      // We will store missions progress inside the user document 
-      // under a map: missions_progress: { 'likes': { level: 1, progress: 5, updated_at: ... }, 'follows': ... }
-      // To simplify, we can just fetch the user doc first to check and update the map correctly,
-      // but an easier way for a basic implementation is to do it transactionally or just read it first.
-      
       const userDoc = await getDoc(userRef);
       const userData = userDoc.data();
       const missionsProgress = userData?.missions_progress || {};
@@ -184,30 +192,54 @@ export default function Home() {
         interactions_count: increment(1)
       });
 
-      showNotification.success(`Você ganhou 0.2 moedas!`);
+      showNotification.success(`Parabéns! Você ganhou +0.2 moedas!`);
       setPromotions(prev => prev.filter(p => p.id !== activePromo.id));
-      refreshUser();
+      await refreshUser();
     } catch (error) {
       console.error('Error interacting:', error);
-      showNotification.error('Erro ao interagir');
+      showNotification.error('Erro ao processar interação');
     } finally {
       setViewerOpen(false);
       setActivePromo(null);
     }
   };
 
-  const openViewer = (promo: Promotion) => {
-     if (user?.id === promo.user_id) {
-         showNotification.error('Você não pode interagir com a própria divulgação!');
-         return;
-     }
-     setActivePromo(promo);
-     setViewerOpen(true);
+  const handleCardClick = (promo: Promotion) => {
+    // If it's user's own promo, open management modal
+    if (user && promo.user_id === user.id) {
+      setSelectedMyPromo(promo);
+      setMyPromoModalOpen(true);
+      return;
+    }
+
+    setActivePromo(promo);
+    setViewerOpen(true);
   };
+
+  // Sort & Filter promotions
+  const filteredPromotions = promotions.filter(p => {
+    const type = getInstaLinkType(p.url);
+    const isMine = user && p.user_id === user.id;
+
+    if (feedFilter === 'mine') return isMine;
+    if (feedFilter === 'reels') return type === 'reel';
+    if (feedFilter === 'posts') return type === 'post';
+    if (feedFilter === 'profiles') return type === 'profile';
+    return true;
+  }).sort((a, b) => {
+    // Show user's own promos or VIP boosted promos at the top
+    const aMine = (user && a.user_id === user.id) ? 10 : 0;
+    const bMine = (user && b.user_id === user.id) ? 10 : 0;
+    return (getPlanPriority(b.plan) + bMine) - (getPlanPriority(a.plan) + aMine);
+  });
+
+  const myPromosCount = promotions.filter(p => user && p.user_id === user.id).length;
 
   return (
     <div className="flex flex-col gap-6 pb-20 max-w-xl mx-auto w-full">
       <GlobalLoader isLoading={loading} />
+      
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-extrabold tracking-tight">InstaBoost <span className="text-primary">PRO</span></h1>
@@ -223,6 +255,7 @@ export default function Home() {
         </div>
       </div>
 
+      {/* Rewards & Tips Bar */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
          <button 
            onClick={() => setShowDailyModal(true)}
@@ -251,29 +284,30 @@ export default function Home() {
             <div className="flex items-start gap-3 relative z-10">
               <ShieldCheck className="text-blue-500 dark:text-blue-400 shrink-0 mt-0.5" size={20} />
               <div className="flex flex-col">
-                <h3 className="font-extrabold text-xs sm:text-sm text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-600 animate-pulse uppercase tracking-wider">Termos e Dicas</h3>
+                <h3 className="font-extrabold text-xs sm:text-sm text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-600 animate-pulse uppercase tracking-wider">Perfil Público</h3>
                 <p className="text-[10px] sm:text-xs text-blue-900/90 dark:text-blue-100/90 font-medium mt-1">
-                  Use "fakes" para interagir. Seus perfis devem ser <b>Públicos</b>.
+                  Certifique-se de que os posts e perfis divulgados sejam <b>Públicos</b> para receber interações.
                 </p>
               </div>
             </div>
          </div>
       </div>
 
-      <div className="bg-secondary/40 p-1 rounded-xl flex">
+      {/* Main Tabs (Missões / Feed Geral) */}
+      <div className="bg-secondary/40 p-1 rounded-2xl flex border border-border">
         <button 
           onClick={() => setActiveTab('missions')}
-          className={`flex-1 py-3 text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-2 ${activeTab === 'missions' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+          className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all flex items-center justify-center gap-2 ${activeTab === 'missions' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
         >
           <Target size={18} className={activeTab === 'missions' ? 'text-primary' : ''} />
           Missões
         </button>
         <button 
           onClick={() => setActiveTab('feed')}
-          className={`flex-1 py-3 text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-2 ${activeTab === 'feed' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+          className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all flex items-center justify-center gap-2 ${activeTab === 'feed' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
         >
-          <RefreshCw size={18} className={activeTab === 'feed' ? 'text-primary' : ''} />
-          Feed Geral
+          <Sparkles size={18} className={activeTab === 'feed' ? 'text-primary' : ''} />
+          Feed Geral {promotions.length > 0 && <span className="bg-primary/20 text-primary text-xs px-2 py-0.5 rounded-full font-bold">{promotions.length}</span>}
         </button>
       </div>
 
@@ -295,137 +329,125 @@ export default function Home() {
              animate={{ opacity: 1, x: 0 }}
              exit={{ opacity: 0, x: 10 }}
              transition={{ duration: 0.2 }}
-             className="flex flex-col gap-6"
+             className="flex flex-col gap-5"
            >
-              <div>
-                <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
-                  Divulgações Disponíveis
-                </h3>
-                <div className="grid gap-6">
+              {/* Category Filter Pills */}
+              <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar text-xs">
+                <button
+                  onClick={() => setFeedFilter('all')}
+                  className={`px-3.5 py-2 rounded-xl font-bold whitespace-nowrap transition-all flex items-center gap-1.5 ${
+                    feedFilter === 'all' 
+                      ? 'bg-primary text-primary-foreground shadow-md shadow-primary/20' 
+                      : 'bg-secondary text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  <Sparkles size={14} /> Todos ({promotions.length})
+                </button>
+
+                <button
+                  onClick={() => setFeedFilter('reels')}
+                  className={`px-3.5 py-2 rounded-xl font-bold whitespace-nowrap transition-all flex items-center gap-1.5 ${
+                    feedFilter === 'reels' 
+                      ? 'bg-rose-600 text-white shadow-md shadow-rose-600/20' 
+                      : 'bg-secondary text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  <Film size={14} /> Reels (10s)
+                </button>
+
+                <button
+                  onClick={() => setFeedFilter('posts')}
+                  className={`px-3.5 py-2 rounded-xl font-bold whitespace-nowrap transition-all flex items-center gap-1.5 ${
+                    feedFilter === 'posts' 
+                      ? 'bg-pink-600 text-white shadow-md shadow-pink-600/20' 
+                      : 'bg-secondary text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  <Heart size={14} /> Curtidas
+                </button>
+
+                <button
+                  onClick={() => setFeedFilter('profiles')}
+                  className={`px-3.5 py-2 rounded-xl font-bold whitespace-nowrap transition-all flex items-center gap-1.5 ${
+                    feedFilter === 'profiles' 
+                      ? 'bg-purple-600 text-white shadow-md shadow-purple-600/20' 
+                      : 'bg-secondary text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  <UserPlus size={14} /> Seguidores
+                </button>
+
+                {myPromosCount > 0 && (
+                  <button
+                    onClick={() => setFeedFilter('mine')}
+                    className={`px-3.5 py-2 rounded-xl font-bold whitespace-nowrap transition-all flex items-center gap-1.5 ${
+                      feedFilter === 'mine' 
+                        ? 'bg-amber-500 text-black shadow-md shadow-amber-500/20' 
+                        : 'bg-secondary text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <Sparkles size={14} /> Minhas ({myPromosCount})
+                  </button>
+                )}
+              </div>
+
+              {/* Promotions Cards Grid */}
+              <div className="flex flex-col gap-5">
                 <AnimatePresence>
                   {loading && promotions.length === 0 ? (
                     Array.from({ length: 3 }).map((_, i) => (
-                      <div key={i} className="h-64 bg-secondary animate-pulse rounded-2xl border border-border"></div>
+                      <div key={i} className="h-56 bg-secondary animate-pulse rounded-3xl border border-border"></div>
                     ))
-                  ) : promotions.length === 0 ? (
+                  ) : filteredPromotions.length === 0 ? (
                     <motion.div 
-                       initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                       className="text-center p-6 sm:p-12 bg-secondary/50 rounded-3xl border border-border flex flex-col items-center justify-center gap-4"
+                       initial={{ opacity: 0 }} 
+                       animate={{ opacity: 1 }}
+                       className="text-center p-8 sm:p-12 bg-card rounded-3xl border border-border flex flex-col items-center justify-center gap-4 shadow-sm"
                     >
-                      <div>
-                        <p className="text-muted-foreground">Nenhuma divulgação nova no momento.</p>
-                        <p className="text-xs mt-2 opacity-60">Volte mais tarde ou crie a sua!</p>
+                      <div className="w-14 h-14 rounded-full bg-secondary flex items-center justify-center text-muted-foreground">
+                        <Sparkles size={26} />
                       </div>
-                      <Button variant="outline" size="sm" onClick={handleRefresh} isLoading={loading}>
-                        <RefreshCw size={14} className="mr-2" /> Recarregar Página
-                      </Button>
+                      <div>
+                        <p className="font-bold text-foreground">Nenhuma divulgação encontrada neste filtro.</p>
+                        <p className="text-xs text-muted-foreground mt-1">Crie sua divulgação para alcançar milhares de pessoas!</p>
+                      </div>
+                      <div className="flex gap-2 mt-2">
+                        <Button variant="outline" size="sm" onClick={handleRefresh} isLoading={loading}>
+                          <RefreshCw size={14} className="mr-2" /> Recarregar
+                        </Button>
+                        <Button size="sm" onClick={() => navigate('/create')}>
+                          <PlusCircle size={14} className="mr-2" /> Divulgar Agora
+                        </Button>
+                      </div>
                     </motion.div>
                   ) : (
-                    sortedPromotions.map((p, i) => {
+                    filteredPromotions.map((p, i) => {
                       const linkType = getInstaLinkType(p.url);
-                      const isContent = linkType === 'post' || linkType === 'reel';
-                      const promoTypeLabel = linkType === 'post' ? 'Divulgação de Postagem' : (linkType === 'reel' ? 'Divulgação de Reel' : 'Divulgação de Perfil');
-                      const config = getPlanConfig(p.plan);
-                      const isPromoted = p.plan && p.plan !== 'basic';
-                      
-                      const BGS = {
-                        amber: 'bg-amber-500/10',
-                        purple: 'bg-purple-500/10',
-                        blue: 'bg-blue-500/10',
-                        slate: 'bg-slate-500/10'
-                      };
-                      const BORDERS = {
-                        amber: 'border-amber-500/30',
-                        purple: 'border-purple-500/30',
-                        blue: 'border-blue-500/30',
-                        slate: 'border-border'
-                      };
-                      const TEXTS = {
-                        amber: 'text-amber-500',
-                        purple: 'text-purple-500',
-                        blue: 'text-blue-500',
-                        slate: ''
-                      };
-                      const AVATARS = {
-                        amber: 'bg-gradient-to-tr from-amber-400 to-orange-500',
-                        purple: 'bg-gradient-to-tr from-purple-400 to-pink-500',
-                        blue: 'bg-gradient-to-tr from-blue-400 to-indigo-500',
-                        slate: isContent ? 'bg-gradient-to-tr from-purple-500 to-pink-500' : 'bg-gradient-to-tr from-yellow-400 to-orange-500'
-                      };
-                      const BADGES = {
-                        amber: 'bg-amber-500/20 text-amber-600',
-                        purple: 'bg-purple-500/20 text-purple-600',
-                        blue: 'bg-blue-500/20 text-blue-600',
-                        slate: 'bg-primary/10 text-primary'
-                      };
-                      const GRADIENTS = {
-                        amber: 'bg-gradient-to-tr from-amber-500/10 to-transparent',
-                        purple: 'bg-gradient-to-tr from-purple-500/10 to-transparent',
-                        blue: 'bg-gradient-to-tr from-blue-500/10 to-transparent',
-                        slate: 'bg-card'
-                      };
-
-                      const bgColor = isPromoted ? GRADIENTS[config.color as keyof typeof GRADIENTS] : 'bg-card';
-                      const borderColor = BORDERS[config.color as keyof typeof BORDERS];
-                      const textColor = TEXTS[config.color as keyof typeof TEXTS];
-                      const iconBg = BGS[config.color as keyof typeof BGS];
-                      const avatarBg = AVATARS[config.color as keyof typeof AVATARS];
-                      const badgeClasses = BADGES[config.color as keyof typeof BADGES];
+                      const isOwner = Boolean(user && p.user_id === user.id);
 
                       return (
-                      <motion.div 
-                        key={p.id}
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.9 }}
-                        transition={{ delay: i * 0.1 }}
-                        className={`p-5 rounded-3xl border ${bgColor} ${borderColor} shadow-lg flex flex-col gap-4 overflow-hidden relative`}
-                      >
-                        {isPromoted && (
-                           <div className={`text-[10px] font-bold ${textColor} uppercase flex items-center gap-1 mb-1 ${iconBg} px-2 py-0.5 rounded-full self-start`}>
-                              <motion.div
-                                animate={{ scale: [1, 1.2, 1] }}
-                                transition={{ repeat: Infinity, duration: 2 }}
-                              >
-                                {config.icon && <config.icon size={12} />}
-                              </motion.div>
-                              {config.label}
-                           </div>
-                        )}
-                        <div className="flex items-center gap-3 w-full">
-                          <div className={`w-12 h-12 rounded-full flex items-center flex-shrink-0 justify-center text-white font-bold text-sm ${avatarBg}`}>
-                            {p.username.substring(0, 2).toUpperCase()}
-                          </div>
-                          <div className="flex flex-col">
-                            <span className="font-bold text-sm">@{p.username}</span>
-                            <span className="text-[10px] text-muted-foreground uppercase tracking-widest">{promoTypeLabel}</span>
-                          </div>
-                          <motion.span 
-                             whileHover={{ scale: 1.05 }}
-                             className={`${badgeClasses} font-bold ml-auto px-3 py-1 rounded-full text-xs flex items-center gap-1 border border-current`}
-                          >
-                            +0.2 <AnimatedIcon type="coin" size={14} className="ml-1" />
-                          </motion.span>
-                        </div>
-
-                        {/* Thumbnail View */}
-                        <div 
-                           onClick={() => openViewer(p)}
-                           className="w-full h-40 bg-zinc-900 rounded-2xl mt-2 relative overflow-hidden flex items-center justify-center cursor-pointer group shadow-inner"
+                        <motion.div 
+                          key={p.id}
+                          initial={{ opacity: 0, y: 16 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, scale: 0.95 }}
+                          transition={{ delay: i * 0.05 }}
                         >
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent"></div>
-                            <div className="w-16 h-16 rounded-full bg-white/20 backdrop-blur-md border border-white/20 flex flex-col items-center justify-center text-white group-hover:scale-110 transition-transform duration-500">
-                               {isContent ? <Play size={28} className="ml-1" /> : <UserPlus size={24} />}
-                            </div>
-                            <span className="absolute bottom-4 text-white text-xs font-bold uppercase tracking-widest bg-black/40 px-3 py-1 rounded-full backdrop-blur-sm">
-                               {isContent ? 'Assistir Conteúdo' : 'Ver Perfil'}
-                            </span>
-                        </div>
-                      </motion.div>
-                    )})
+                          <InstaPreviewCard 
+                            url={p.url}
+                            type={linkType}
+                            username={p.username}
+                            isOwner={isOwner}
+                            plan={p.plan}
+                            interactionsCount={p.interactions_count || 0}
+                            expiresAt={p.expires_at}
+                            onClick={() => handleCardClick(p)}
+                          />
+                        </motion.div>
+                      );
+                    })
                   )}
                 </AnimatePresence>
-                </div>
               </div>
            </motion.div>
         )}
@@ -436,6 +458,7 @@ export default function Home() {
          onClose={() => setShowDailyModal(false)} 
       />
 
+      {/* Viewer Modal with 10-Second Reels Watch Timer */}
       <InstaViewerModal
          open={viewerOpen}
          onClose={() => {
@@ -443,11 +466,22 @@ export default function Home() {
             setActivePromo(null);
          }}
          url={activePromo?.url || ''}
-         type={activePromo ? (getInstaLinkType(activePromo.url) as any) : 'post'}
+         type={activePromo ? getInstaLinkType(activePromo.url) : 'post'}
          username={activePromo?.username || ''}
          onInteract={handleInteract}
-         title={activePromo ? (getInstaLinkType(activePromo.url) === 'post' ? 'Divulgação de Postagem' : (getInstaLinkType(activePromo.url) === 'reel' ? 'Assistir Reel' : 'Divulgação de Perfil')) : ''}
+         title={activePromo ? (getInstaLinkType(activePromo.url) === 'post' ? 'Divulgação de Postagem' : (getInstaLinkType(activePromo.url) === 'reel' ? 'Assistir Reel (10 Segundos)' : 'Divulgação de Perfil')) : ''}
+      />
+
+      {/* Modal for User's Own Promotion */}
+      <MyPromotionModal 
+        open={myPromoModalOpen}
+        onClose={() => {
+          setMyPromoModalOpen(false);
+          setSelectedMyPromo(null);
+        }}
+        promotion={selectedMyPromo}
       />
     </div>
   );
 }
+
