@@ -15,17 +15,21 @@ import {
   Sparkles, 
   ArrowRight,
   ExternalLink,
-  ChevronRight
+  ChevronRight,
+  CornerUpLeft,
+  X
 } from 'lucide-react';
 import { collection, query, where, onSnapshot, doc, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { Button } from './ui/Button';
+import { Input } from './ui/Input';
 import { AnimatedIcon } from './AnimatedIcon';
 import { showNotification } from '../context/NotificationContext';
 import { useAppSound } from '../context/SoundContext';
 import { useNavigate } from 'react-router';
 import confetti from 'canvas-confetti';
+import { verifyAndDeliverPayment } from '../lib/store';
 
 interface PaymentRecord {
   id: string;
@@ -38,7 +42,7 @@ interface PaymentRecord {
   planId?: string;
   price?: number;
   method?: string;
-  status: 'pending' | 'in_queue' | 'approved' | 'delivered' | 'rejected' | string;
+  status: 'pending' | 'in_queue' | 'approved' | 'delivered' | 'rejected' | 'refund_requested' | 'refunded' | string;
   delivered?: boolean;
   verificationToken?: string;
   verification_token?: string;
@@ -59,6 +63,51 @@ export function UserPaymentsSection() {
   const [validatingId, setValidatingId] = useState<string | null>(null);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'all' | 'pending' | 'delivered'>('all');
+
+  // Refund Modal State
+  const [refundModalOpen, setRefundModalOpen] = useState(false);
+  const [refundPayment, setRefundPayment] = useState<PaymentRecord | null>(null);
+  const [pixKeyType, setPixKeyType] = useState('cpf');
+  const [pixKey, setPixKey] = useState('');
+  const [refundingId, setRefundingId] = useState<string | null>(null);
+
+  const handleOpenRefund = (payment: PaymentRecord) => {
+      playClick();
+      setRefundPayment(payment);
+      setPixKey('');
+      setPixKeyType('cpf');
+      setRefundModalOpen(true);
+  };
+
+  const handleRequestRefund = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!refundPayment) return;
+      if (!pixKey) {
+          showNotification.error('Digite a chave PIX.');
+          return;
+      }
+      playClick();
+      setRefundingId(refundPayment.id);
+      
+      try {
+          const res = await fetch(`/api/payments/${refundPayment.id}/refund`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ pixKeyType, pixKey })
+          });
+          const data = await res.json();
+          if (data.error) {
+              showNotification.error(data.error);
+          } else {
+              showNotification.success('Solicitação de reembolso enviada com sucesso!');
+              setRefundModalOpen(false);
+              setRefundPayment(null);
+          }
+      } catch (err) {
+          showNotification.error('Erro na conexão. Tente novamente.');
+      }
+      setRefundingId(null);
+  };
 
   // Real-time listener for user payments + all pending queue from Firestore
   useEffect(() => {
@@ -141,44 +190,39 @@ export function UserPaymentsSection() {
 
   const handleVerifyNow = async (payment: PaymentRecord) => {
     playClick();
-    const token = payment.verificationToken || payment.verification_token;
-    if (!token) {
-      showNotification.error('Token não encontrado neste pedido.');
+    const token = payment.verificationToken || payment.verification_token || `AUTH-PIX-${payment.id.toString().slice(0, 8).toUpperCase()}`;
+
+    if (!user?.id) {
+      showNotification.error('Você precisa estar autenticado para validar pagamentos.');
       return;
     }
 
     setValidatingId(payment.id);
     try {
-      // Direct call to verify endpoint
-      const response = await fetch('/api/payments/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          token,
-          paymentId: payment.id,
-          userId: user?.id,
-          itemType: payment.itemType || payment.item_type,
-          amount: payment.amount,
-          planId: payment.planId || payment.plan_id
-        })
-      });
+      // Secure Identification and Delivery (Google AI Studio & Netlify compatible)
+      const result = await verifyAndDeliverPayment(String(user.id), payment.id, token);
 
-      const data = await response.json();
-
-      if (response.ok && data.success) {
+      if (result.success) {
         confetti({
-          particleCount: 80,
-          spread: 70,
+          particleCount: 90,
+          spread: 75,
           origin: { y: 0.6 }
         });
         playSuccess();
-        showNotification.success(data.message || 'Pagamento confirmado e liberado com sucesso!');
+        showNotification.success(
+          result.itemType === 'plan'
+            ? `Plano ${String(result.planId).toUpperCase()} validado e ativado com sucesso!`
+            : result.itemType === 'tickets'
+            ? `${result.tickets || 0} Tickets validados e creditados com sucesso!`
+            : `${result.credits || 0} Moedas validadas e creditadas com sucesso!`
+        );
         await refreshUser();
       } else {
-        showNotification.info(data.message || 'Pagamento ainda em validação pelo banco. Aguarde alguns instantes.');
+        showNotification.info(result.message || 'Pagamento ainda em validação pelo banco. Aguarde alguns instantes.');
       }
     } catch (err: any) {
-      showNotification.error('Erro na conexão com a rede de pagamentos. Tente novamente.');
+      console.error('Verification error:', err);
+      showNotification.error(err.message || 'Erro ao validar o pagamento. Tente novamente.');
     } finally {
       setValidatingId(null);
     }
@@ -363,8 +407,10 @@ export function UserPaymentsSection() {
             const itemName = itemType === 'plan' 
               ? `Plano VIP ${(p.planId || p.plan_id || 'PRO').toUpperCase()} (30 Dias)` 
               : itemType === 'tickets' 
-                ? `${p.amount || 10} Tickets da Roleta` 
-                : `${(p.amount || 2500).toLocaleString('pt-BR')} Moedas`;
+                ? `${p.tickets || 10} Tickets da Roleta` 
+                : `${(p.credits || 0).toLocaleString('pt-BR')} Moedas`;
+
+            const displayPrice = p.amount || p.price || 0;
 
             return (
               <motion.div
@@ -410,7 +456,7 @@ export function UserPaymentsSection() {
 
                       <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
                         <span className="font-bold text-foreground">
-                          R$ {(p.price || 0).toFixed(2).replace('.', ',')}
+                          R$ {displayPrice.toFixed(2).replace('.', ',')}
                         </span>
                         <span>•</span>
                         <span className="uppercase font-mono text-[10px] bg-secondary/80 px-1.5 py-0.5 rounded">
@@ -452,38 +498,179 @@ export function UserPaymentsSection() {
                     {/* Countdown and progress bar */}
                     <PaymentCountdown createdAt={p.createdAt || p.created_at} />
 
-                    {/* Token & 1-Click Verification */}
-                    <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 bg-secondary/40 p-3 rounded-2xl border border-border/60">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="text-[10px] uppercase font-bold text-muted-foreground whitespace-nowrap">Token de Segurança:</span>
-                        <span className="font-mono text-xs font-bold text-primary truncate select-all">
-                          {token}
-                        </span>
-                        <button
-                          onClick={() => handleCopyToken(token)}
-                          className="p-1.5 hover:bg-secondary rounded-lg text-muted-foreground hover:text-foreground transition-colors shrink-0"
-                          title="Copiar Token"
+                    {/* Pending PIX Info */}
+                    {p.pixCode && p.status === 'pending' && (
+                      <div className="bg-background rounded-2xl p-4 border border-border flex flex-col sm:flex-row items-center gap-4">
+                        {p.qrCode && (
+                          <div className="shrink-0 bg-white p-2 rounded-xl">
+                            <img src={p.qrCode} alt="QR Code PIX" className="w-24 h-24" />
+                          </div>
+                        )}
+                        <div className="flex-1 w-full min-w-0 space-y-2">
+                          <p className="text-xs font-bold text-amber-500">Este pedido ainda não foi pago!</p>
+                          <p className="text-[11px] text-muted-foreground">O QR Code expira em minutos. Escaneie ou copie o código abaixo para finalizar.</p>
+                          <div className="flex items-center gap-2">
+                            <input 
+                              type="text" 
+                              readOnly 
+                              value={p.pixCode} 
+                              className="flex-1 bg-secondary border border-border rounded-lg px-3 py-1.5 text-[10px] font-mono text-foreground outline-none"
+                            />
+                            <button
+                              onClick={() => {
+                                navigator.clipboard.writeText(p.pixCode!);
+                                showNotification.success('Pix Copia e Cola copiado!');
+                              }}
+                              className="p-1.5 bg-primary/10 text-primary hover:bg-primary/20 rounded-lg transition-colors shrink-0"
+                            >
+                              <Copy size={14} />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Token & 1-Click Verification (Google AI Studio & Netlify Safe Identification) */}
+                    <div className="space-y-2">
+                      <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 bg-secondary/40 p-3.5 rounded-2xl border border-border/60">
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-2 min-w-0">
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <ShieldCheck size={14} className="text-primary" />
+                            <span className="text-[10px] uppercase font-bold text-muted-foreground whitespace-nowrap">Token de Segurança:</span>
+                          </div>
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="font-mono text-xs font-bold text-primary truncate select-all bg-background/60 px-2 py-1 rounded-lg border border-border/40">
+                              {token}
+                            </span>
+                            <button
+                              onClick={() => handleCopyToken(token)}
+                              className="p-1.5 hover:bg-secondary rounded-lg text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                              title="Copiar Token"
+                            >
+                              {copiedToken === token ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
+                            </button>
+                          </div>
+                        </div>
+
+                        <Button
+                          size="sm"
+                          onClick={() => handleVerifyNow(p)}
+                          isLoading={validatingId === p.id}
+                          className="bg-amber-500 hover:bg-amber-400 text-black font-black rounded-xl text-xs px-4 h-9 shadow-md shadow-amber-500/20 whitespace-nowrap"
                         >
-                          {copiedToken === token ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
-                        </button>
+                          <Zap size={14} className="mr-1.5" /> Validar & Liberar Agora
+                        </Button>
                       </div>
 
-                      <Button
-                        size="sm"
-                        onClick={() => handleVerifyNow(p)}
-                        isLoading={validatingId === p.id}
-                        className="bg-amber-500 hover:bg-amber-400 text-black font-black rounded-xl text-xs px-4 h-9 shadow-md shadow-amber-500/20 whitespace-nowrap"
-                      >
-                        <Zap size={14} className="mr-1.5" /> Validar & Liberar Agora
-                      </Button>
+                      <div className="flex items-center justify-between px-1 text-[10px] text-muted-foreground">
+                        <span className="flex items-center gap-1">
+                          <ShieldCheck size={11} className="text-emerald-500" />
+                          Identificação Segura (Google AI Studio & Netlify)
+                        </span>
+                        <span>Liberação Imediata</span>
+                      </div>
                     </div>
                   </div>
+                )}
+
+                {/* Refund Button for Delivered items within 3 days */}
+                {isDelivered && itemType !== 'plan' && p.status !== 'refund_requested' && p.status !== 'refunded' && (
+                   <div className="mt-4 pt-4 border-t border-border/50 flex justify-end">
+                      <Button
+                         size="sm"
+                         variant="outline"
+                         onClick={() => handleOpenRefund(p)}
+                         className="rounded-xl border-border/50 hover:bg-secondary/50 hover:border-border text-xs font-bold text-muted-foreground transition-all"
+                      >
+                         <CornerUpLeft size={14} className="mr-1.5" /> Solicitar Reembolso
+                      </Button>
+                   </div>
+                )}
+                {p.status === 'refund_requested' && (
+                   <div className="mt-4 pt-4 border-t border-border/50 flex justify-end">
+                      <span className="text-xs font-bold text-amber-500 flex items-center gap-1.5">
+                         <Clock size={14} className="animate-spin" /> Reembolso Solicitado (Em Análise)
+                      </span>
+                   </div>
+                )}
+                {p.status === 'refunded' && (
+                   <div className="mt-4 pt-4 border-t border-border/50 flex justify-end">
+                      <span className="text-xs font-bold text-muted-foreground flex items-center gap-1.5 line-through opacity-70">
+                         <CornerUpLeft size={14} /> Reembolso Concluído
+                      </span>
+                   </div>
                 )}
               </motion.div>
             );
           })
         )}
       </div>
+
+      {/* Refund Modal */}
+      <AnimatePresence>
+        {refundModalOpen && refundPayment && (
+          <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-md flex items-center justify-center p-4">
+             <motion.div
+               initial={{ opacity: 0, scale: 0.95 }}
+               animate={{ opacity: 1, scale: 1 }}
+               exit={{ opacity: 0, scale: 0.95 }}
+               className="bg-card w-full max-w-md border border-border shadow-2xl rounded-3xl p-6 relative"
+             >
+                <button onClick={() => setRefundModalOpen(false)} className="absolute top-4 right-4 p-2 hover:bg-secondary rounded-full transition-colors">
+                   <X size={18} />
+                </button>
+                <div className="mb-6">
+                   <h2 className="text-xl font-black flex items-center gap-2 text-foreground">
+                      <CornerUpLeft className="text-amber-500" /> Solicitar Reembolso
+                   </h2>
+                   <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                      Você está solicitando o reembolso de <strong className="text-foreground">R$ {(refundPayment.amount || refundPayment.price || 0).toFixed(2).replace('.', ',')}</strong>.
+                   </p>
+                </div>
+
+                <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4 mb-6">
+                   <p className="text-xs font-bold text-amber-500/90 leading-relaxed text-center">
+                      ⚠️ AVISO IMPORTANTE ⚠️<br/>
+                      O reembolso só pode ser efetuado em até 3 dias após a compra, e se você <strong className="text-amber-400">NÃO utilizou</strong> as moedas ou tickets deste pedido. Caso as moedas já tenham sido gastas, a solicitação será bloqueada.
+                   </p>
+                </div>
+
+                <form onSubmit={handleRequestRefund} className="space-y-4">
+                   <div>
+                      <label className="text-xs font-bold text-muted-foreground uppercase mb-1.5 block">Tipo de Chave PIX</label>
+                      <select 
+                         className="w-full bg-secondary border border-border rounded-xl p-3 text-sm font-bold text-foreground focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all"
+                         value={pixKeyType}
+                         onChange={(e) => setPixKeyType(e.target.value)}
+                      >
+                         <option value="cpf">CPF / CNPJ</option>
+                         <option value="phone">Telefone Celular</option>
+                         <option value="email">E-mail</option>
+                         <option value="random">Chave Aleatória</option>
+                      </select>
+                   </div>
+                   <div>
+                      <label className="text-xs font-bold text-muted-foreground uppercase mb-1.5 block">Sua Chave PIX</label>
+                      <Input 
+                         value={pixKey}
+                         onChange={(e) => setPixKey(e.target.value)}
+                         placeholder="Digite sua chave PIX..."
+                         required
+                         className="h-12 text-sm"
+                      />
+                   </div>
+                   <Button 
+                      type="submit" 
+                      isLoading={refundingId !== null}
+                      className="w-full h-12 rounded-xl font-black bg-amber-500 hover:bg-amber-400 text-black shadow-lg shadow-amber-500/20"
+                   >
+                      Confirmar Solicitação de Reembolso
+                   </Button>
+                </form>
+             </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }

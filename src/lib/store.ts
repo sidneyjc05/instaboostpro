@@ -167,6 +167,35 @@ export function generateSecurityToken(seed?: string): string {
   return `AUTH-PIX-${p1}-${p2}-${p3}`;
 }
 
+export const checkPendingPixPayment = async (
+  userId: string,
+  type: string,
+  credits: string | number
+) => {
+  try {
+    const token = await auth.currentUser?.getIdToken();
+    const res = await fetch(`/api/payments/pending-check?type=${type}&credits=${credits}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.isExisting) {
+        return {
+          id: data.id,
+          qrCode: data.qrCode,
+          pixCode: data.pixCode,
+          isExisting: true,
+          expiresIn: data.expiresIn
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('[Pending Check]', err);
+  }
+  return null;
+};
+
 export const createPixPayment = async (
   userId: string,
   item: { credits: string | number; type: string; cpf?: string; birthDate?: string; username?: string; email?: string; plan_type?: string }
@@ -195,7 +224,9 @@ export const createPixPayment = async (
           pixCode: data.pixCode,
           verificationToken: data.verificationToken || verificationToken,
           status: 'pending',
-          amount: data.amount || amount
+          amount: data.amount || amount,
+          isExisting: data.isExisting,
+          expiresIn: data.expiresIn
         };
       }
     } else if (!res.ok && contentType.includes('application/json')) {
@@ -274,26 +305,74 @@ export const verifyAndDeliverPayment = async (
   verificationToken?: string
 ) => {
   const payDocRef = doc(db, 'payments', paymentId);
-  const payDoc = await getDoc(payDocRef);
+  let payDoc: any = null;
 
-  if (!payDoc.exists()) {
-    throw new Error('Registro de pagamento não localizado no banco de dados.');
+  try {
+    payDoc = await getDoc(payDocRef);
+  } catch (err) {
+    console.warn('[Firestore getDoc notice]', err);
   }
 
-  const payData = payDoc.data();
+  // 1. If payment document exists in Firestore (Direct Firebase / Netlify / Synced AI Studio)
+  if (payDoc && payDoc.exists()) {
+    const payData = payDoc.data();
 
-  // Security checks
-  if (payData.userId !== userId) {
-    throw new Error('Acesso não autorizado para esta transação.');
-  }
+    // Security check
+    if (payData.userId && String(payData.userId) !== String(userId)) {
+      throw new Error('Acesso não autorizado para esta transação.');
+    }
 
-  // Idempotency check: if already delivered, do not credit twice
-  if (payData.delivered) {
+    // Idempotency check: if already delivered, do not credit twice
+    if (payData.delivered) {
+      return {
+        success: true,
+        alreadyDelivered: true,
+        message: 'Itens já foram creditados na sua conta!',
+        itemType: payData.itemType || 'coins',
+        credits: payData.credits || 0,
+        tickets: payData.tickets || 0,
+        planId: payData.planId,
+        amount: payData.amount
+      };
+    }
+
+    // Deliver the items to the user document in Firestore (works on Netlify & AI Studio)
+    const creditValue = payData.itemType === 'plan' 
+      ? payData.planId 
+      : (payData.itemType === 'tickets' ? payData.tickets : (payData.credits || 0));
+
+    await deliverPurchase(userId, payData.itemType || 'coins', creditValue);
+
+    // Update payment status as approved and delivered in Firestore
+    try {
+      await updateDoc(payDocRef, {
+        status: 'approved',
+        delivered: true,
+        deliveredAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        verifiedVia: 'secure_verification_token'
+      });
+    } catch (e) {
+      console.warn('[Firestore updateDoc notice]', e);
+    }
+
+    // Notify backend Express server if available (for Google AI Studio full sync)
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      if (token) {
+        await fetch('/api/payments/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ paymentId, verificationToken })
+        });
+      }
+    } catch (e) {}
+
     return {
       success: true,
-      alreadyDelivered: true,
-      message: 'Itens já foram creditados na sua conta!',
-      itemType: payData.itemType,
+      delivered: true,
+      message: 'Pagamento verificado e itens liberados com sucesso!',
+      itemType: payData.itemType || 'coins',
       credits: payData.credits || 0,
       tickets: payData.tickets || 0,
       planId: payData.planId,
@@ -301,42 +380,48 @@ export const verifyAndDeliverPayment = async (
     };
   }
 
-  // Attempt backend verification if available
+  // 2. Fallback: Payment is in backend SQLite only (Google AI Studio backend API)
   try {
     const token = await auth.currentUser?.getIdToken();
-    await fetch('/api/payments/verify', {
+    const res = await fetch('/api/payments/verify', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ paymentId, verificationToken })
+      headers: { 
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify({ paymentId, verificationToken, userId })
     });
-  } catch (e) {}
 
-  // Deliver the items to the user document in Firestore
-  const creditValue = payData.itemType === 'plan' 
-    ? payData.planId 
-    : (payData.itemType === 'tickets' ? payData.tickets : payData.credits);
+    const contentType = res.headers.get('content-type') || '';
+    if (res.ok && contentType.includes('application/json')) {
+      const data = await res.json();
+      if (data.success) {
+        // Also deliver to Firestore user doc to ensure instant balance sync
+        if (data.credits || data.tickets || data.plan_id) {
+          const creditVal = data.item_type === 'plan' 
+            ? data.plan_id 
+            : (data.item_type === 'tickets' ? data.tickets : data.credits);
+          try {
+            await deliverPurchase(userId, data.item_type || 'coins', creditVal);
+          } catch (e) {}
+        }
 
-  await deliverPurchase(userId, payData.itemType, creditValue);
+        return {
+          success: true,
+          delivered: true,
+          message: data.message || 'Pagamento verificado e itens liberados com sucesso!',
+          itemType: data.item_type || 'coins',
+          credits: data.credits || 0,
+          tickets: data.tickets || 0,
+          planId: data.plan_id
+        };
+      }
+    }
+  } catch (apiErr) {
+    console.warn('[Backend verification notice]', apiErr);
+  }
 
-  // Update payment status as approved and delivered
-  await updateDoc(payDocRef, {
-    status: 'approved',
-    delivered: true,
-    deliveredAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    verifiedVia: 'secure_verification_token'
-  });
-
-  return {
-    success: true,
-    delivered: true,
-    message: 'Pagamento verificado e itens liberados com sucesso!',
-    itemType: payData.itemType,
-    credits: payData.credits || 0,
-    tickets: payData.tickets || 0,
-    planId: payData.planId,
-    amount: payData.amount
-  };
+  throw new Error('Não foi possível localizar este pedido para validação. Aguarde a confirmação bancária.');
 };
 
 export const processCardPayment = async (

@@ -72,6 +72,7 @@ const hasPaymentMethodCol = paymentCols.some(c => c.name === 'payment_method');
 const hasPaymentCardLast4 = paymentCols.some(c => c.name === 'card_last4');
 const hasPaymentCardBrand = paymentCols.some(c => c.name === 'card_brand');
 const hasPaymentInstallments = paymentCols.some(c => c.name === 'installments');
+const hasVerificationToken = paymentCols.some(c => c.name === 'verification_token');
 
 if (!hasPaymentTickets) db.exec('ALTER TABLE payments ADD COLUMN tickets INTEGER DEFAULT 0;');
 if (!hasPaymentItemType) db.exec(`ALTER TABLE payments ADD COLUMN item_type TEXT DEFAULT 'credits';`);
@@ -80,6 +81,7 @@ if (!hasPaymentMethodCol) db.exec(`ALTER TABLE payments ADD COLUMN payment_metho
 if (!hasPaymentCardLast4) db.exec('ALTER TABLE payments ADD COLUMN card_last4 TEXT;');
 if (!hasPaymentCardBrand) db.exec('ALTER TABLE payments ADD COLUMN card_brand TEXT;');
 if (!hasPaymentInstallments) db.exec('ALTER TABLE payments ADD COLUMN installments INTEGER DEFAULT 1;');
+if (!hasVerificationToken) db.exec('ALTER TABLE payments ADD COLUMN verification_token TEXT;');
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS saved_cards (

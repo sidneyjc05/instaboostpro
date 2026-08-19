@@ -15,7 +15,8 @@ import {
   Users, 
   ExternalLink,
   Filter,
-  Sparkles
+  Sparkles,
+  CornerUpLeft
 } from 'lucide-react';
 import { collection, query, onSnapshot, doc, updateDoc, increment, getDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
@@ -31,7 +32,7 @@ export function AdminPayments() {
   const [payments, setPayments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState<'all' | 'pending' | 'delivered'>('all');
+  const [filter, setFilter] = useState<'all' | 'pending' | 'delivered' | 'refunds'>('all');
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
 
@@ -139,18 +140,40 @@ export function AdminPayments() {
     }
   };
 
+  const handleConfirmRefund = async (payment: any) => {
+    playClick();
+    setProcessingId(payment.id);
+    try {
+      const res = await fetch(`/api/admin/payments/${payment.id}/confirm-refund`, {
+        method: 'POST'
+      });
+      const data = await res.json();
+      if (data.error) {
+        showNotification.error(data.error);
+      } else {
+        playSuccess();
+        showNotification.success('Reembolso concluído. Os itens foram removidos do usuário.');
+      }
+    } catch (err) {
+      showNotification.error('Erro de conexão ao processar reembolso.');
+    }
+    setProcessingId(null);
+  };
+
   // Metrics calculation
   const totalRevenue = payments
     .filter(p => p.status === 'delivered' || p.status === 'approved' || p.delivered)
     .reduce((acc, p) => acc + (Number(p.price) || 0), 0);
 
-  const pendingPayments = payments.filter(p => p.status === 'pending' || p.status === 'in_queue' || (!p.delivered && p.status !== 'approved'));
+  const pendingPayments = payments.filter(p => p.status === 'pending' || p.status === 'in_queue' || (!p.delivered && p.status !== 'approved' && p.status !== 'refund_requested' && p.status !== 'refunded'));
   const deliveredPayments = payments.filter(p => p.status === 'delivered' || p.status === 'approved' || p.delivered);
+  const refundRequests = payments.filter(p => p.status === 'refund_requested');
 
   const filtered = payments.filter(p => {
     const isDelivered = p.status === 'delivered' || p.status === 'approved' || p.delivered;
-    if (filter === 'pending') return !isDelivered;
+    if (filter === 'pending') return !isDelivered && p.status !== 'refund_requested' && p.status !== 'refunded';
     if (filter === 'delivered') return isDelivered;
+    if (filter === 'refunds') return p.status === 'refund_requested' || p.status === 'refunded';
     return true;
   }).filter(p => {
     if (!search) return true;
@@ -239,10 +262,10 @@ export function AdminPayments() {
           />
         </div>
 
-        <div className="flex gap-2 w-full md:w-auto">
+        <div className="flex gap-2 w-full md:w-auto overflow-x-auto pb-2 sm:pb-0">
           <button
             onClick={() => { playClick(); setFilter('all'); }}
-            className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${
+            className={`px-4 py-2 rounded-xl text-xs font-black transition-all whitespace-nowrap ${
               filter === 'all'
                 ? 'bg-primary text-white shadow-md shadow-primary/20'
                 : 'bg-secondary text-muted-foreground hover:text-foreground'
@@ -252,7 +275,7 @@ export function AdminPayments() {
           </button>
           <button
             onClick={() => { playClick(); setFilter('pending'); }}
-            className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 ${
+            className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 whitespace-nowrap ${
               filter === 'pending'
                 ? 'bg-amber-500 text-black shadow-md shadow-amber-500/20'
                 : 'bg-secondary text-muted-foreground hover:text-foreground'
@@ -263,7 +286,7 @@ export function AdminPayments() {
           </button>
           <button
             onClick={() => { playClick(); setFilter('delivered'); }}
-            className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 ${
+            className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 whitespace-nowrap ${
               filter === 'delivered'
                 ? 'bg-green-500 text-black shadow-md shadow-green-500/20'
                 : 'bg-secondary text-muted-foreground hover:text-foreground'
@@ -271,6 +294,17 @@ export function AdminPayments() {
           >
             <CheckCircle2 size={13} />
             Entregues ({deliveredPayments.length})
+          </button>
+          <button
+            onClick={() => { playClick(); setFilter('refunds'); }}
+            className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 whitespace-nowrap ${
+              filter === 'refunds'
+                ? 'bg-red-500 text-white shadow-md shadow-red-500/20'
+                : 'bg-secondary text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <CornerUpLeft size={13} />
+            Reembolsos ({refundRequests.length})
           </button>
         </div>
       </div>
@@ -314,8 +348,10 @@ export function AdminPayments() {
                 const itemName = itemType === 'plan' 
                   ? `Plano VIP ${(p.planId || p.plan_id || 'PRO').toUpperCase()}` 
                   : itemType === 'tickets' 
-                    ? `${p.amount || 10} Tickets` 
-                    : `${(p.amount || 2500).toLocaleString('pt-BR')} Moedas`;
+                    ? `${p.tickets || 10} Tickets` 
+                    : `${(p.credits || 0).toLocaleString('pt-BR')} Moedas`;
+                
+                const displayPrice = p.amount || p.price || 0;
 
                 return (
                   <tr 
@@ -361,7 +397,7 @@ export function AdminPayments() {
 
                     {/* Valor */}
                     <td className="p-3.5 font-bold font-mono text-green-400">
-                      R$ {(p.price || 0).toFixed(2).replace('.', ',')}
+                      R$ {displayPrice.toFixed(2).replace('.', ',')}
                     </td>
 
                     {/* Token */}
@@ -380,9 +416,17 @@ export function AdminPayments() {
 
                     {/* Status */}
                     <td className="p-3.5">
-                      {!isDelivered ? (
+                      {!isDelivered && p.status !== 'refund_requested' && p.status !== 'refunded' ? (
                         <span className="px-2.5 py-1 text-[11px] font-extrabold uppercase rounded-lg bg-amber-500/20 text-amber-300 border border-amber-400/30 flex items-center gap-1 w-fit">
                           <Clock size={12} className="animate-spin" /> Em Aguardo
+                        </span>
+                      ) : p.status === 'refund_requested' ? (
+                        <span className="px-2.5 py-1 text-[11px] font-extrabold uppercase rounded-lg bg-red-500/20 text-red-400 border border-red-500/30 flex items-center gap-1 w-fit">
+                          <CornerUpLeft size={12} /> Reembolso Solicitado
+                        </span>
+                      ) : p.status === 'refunded' ? (
+                        <span className="px-2.5 py-1 text-[11px] font-extrabold uppercase rounded-lg bg-secondary text-muted-foreground border border-border flex items-center gap-1 w-fit">
+                          <CornerUpLeft size={12} /> Reembolsado
                         </span>
                       ) : (
                         <span className="px-2.5 py-1 text-[11px] font-extrabold uppercase rounded-lg bg-green-500/20 text-green-400 border border-green-500/30 flex items-center gap-1 w-fit">
@@ -393,7 +437,7 @@ export function AdminPayments() {
 
                     {/* Action */}
                     <td className="p-3.5 text-right">
-                      {!isDelivered ? (
+                      {!isDelivered && p.status !== 'refund_requested' && p.status !== 'refunded' ? (
                         <Button
                           size="sm"
                           onClick={() => handleApprovePayment(p)}
@@ -402,6 +446,23 @@ export function AdminPayments() {
                         >
                           <Zap size={14} className="mr-1" /> Liberar Agora
                         </Button>
+                      ) : p.status === 'refund_requested' ? (
+                        <div className="flex flex-col items-end gap-2">
+                           <div className="text-[10px] font-mono bg-secondary/50 px-2 py-1 rounded text-muted-foreground max-w-[150px] truncate flex items-center gap-1">
+                              PIX: {p.refund_pix_key} 
+                              <button onClick={() => handleCopy(p.refund_pix_key)}><Copy size={10} /></button>
+                           </div>
+                           <Button
+                              size="sm"
+                              isLoading={processingId === p.id}
+                              onClick={() => handleConfirmRefund(p)}
+                              className="bg-red-500 hover:bg-red-400 text-white font-black text-xs h-8 px-3 rounded-xl shadow-md shadow-red-500/20"
+                           >
+                              Confirmar Reembolso
+                           </Button>
+                        </div>
+                      ) : p.status === 'refunded' ? (
+                        <span className="text-[10px] font-bold text-muted-foreground">Itens Removidos</span>
                       ) : (
                         <span className="text-xs text-muted-foreground font-semibold">
                           Concluído

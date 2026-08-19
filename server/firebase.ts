@@ -55,10 +55,13 @@ export interface PaymentFirestore {
   cardLast4?: string;
   cardBrand?: string;
   installments?: number;
+  verificationToken?: string;
   createdAt: string;
   updatedAt: string;
   approvedAt?: string | null;
   verifiedVia: string;
+  pixCode?: string;
+  qrCodeBase64?: string;
 }
 
 // -------------------------------------------------------------

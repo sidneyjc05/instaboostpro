@@ -1409,8 +1409,59 @@ apiRouter.post('/payments/card', authMiddleware, async (req: any, res) => {
   }
 });
 
+apiRouter.get('/payments/pending-check', authMiddleware, async (req: any, res) => {
+  const { type, credits } = req.query;
+  const numCredits = type === 'credits' ? Number(credits) : 0;
+  const numTickets = type === 'tickets' ? Number(credits) : 0;
+  const planIdVal = type === 'plan' ? String(credits) : null;
+
+  if (firestoreDb) {
+    try {
+      const querySnapshot = await firestoreDb.collection('payments')
+        .where('userId', '==', req.userId)
+        .where('status', '==', 'pending')
+        .where('paymentMethod', '==', 'pix')
+        .where('itemType', '==', type)
+        .get();
+
+      if (!querySnapshot.empty) {
+        const now = Date.now();
+        let validPending = null;
+        let validCreatedAt = 0;
+        
+        for (const doc of querySnapshot.docs) {
+          const data = doc.data();
+          if (data.credits === numCredits && data.tickets === numTickets && data.planId === planIdVal) {
+             const createdAt = new Date(data.createdAt || Date.now()).getTime();
+             if (now - createdAt < 14 * 60 * 1000) { 
+                 validPending = data;
+                 validCreatedAt = createdAt;
+                 break;
+             }
+          }
+        }
+        
+        if (validPending && validPending.pixCode) {
+           const expiresInSecs = (15 * 60) - Math.floor((now - validCreatedAt) / 1000);
+           return res.json({
+             id: validPending.id,
+             qrCode: validPending.qrCodeBase64 ? `data:image/png;base64,${validPending.qrCodeBase64}` : null,
+             pixCode: validPending.pixCode,
+             verificationToken: validPending.verificationToken,
+             isExisting: true,
+             expiresIn: expiresInSecs
+           });
+        }
+      }
+    } catch (e) {
+      console.warn('[Pending check error]', e);
+    }
+  }
+  return res.json({ isExisting: false });
+});
+
 apiRouter.post('/payments/pix', authMiddleware, async (req: any, res) => {
-  const { credits, type, cpf, birthDate } = req.body;
+  const { credits, type, cpf, birthDate, verificationToken } = req.body;
   if (!credits) return res.status(400).json({ error: 'Invalid amount' });
   if (!cpf || cpf.replace(/\D/g, '').length !== 11) {
     return res.status(400).json({ error: 'CPF inválido.' });
@@ -1462,6 +1513,54 @@ apiRouter.post('/payments/pix', authMiddleware, async (req: any, res) => {
 
   if (!amount) return res.status(400).json({ error: 'Pacote inválido' });
 
+  const numCredits = type === 'credits' ? Number(credits) : 0;
+  const numTickets = type === 'tickets' ? Number(credits) : 0;
+  const planIdVal = type === 'plan' ? String(credits) : null;
+
+  // Check for existing pending PIX payment
+  if (firestoreDb) {
+    try {
+      const querySnapshot = await firestoreDb.collection('payments')
+        .where('userId', '==', req.userId)
+        .where('status', '==', 'pending')
+        .where('paymentMethod', '==', 'pix')
+        .where('itemType', '==', type)
+        .get();
+
+      if (!querySnapshot.empty) {
+        const now = Date.now();
+        let validPending = null;
+        let validCreatedAt = 0;
+        
+        for (const doc of querySnapshot.docs) {
+          const data = doc.data();
+          if (data.credits === numCredits && data.tickets === numTickets && data.planId === planIdVal) {
+             const createdAt = new Date(data.createdAt || Date.now()).getTime();
+             if (now - createdAt < 14 * 60 * 1000) { // Valid if less than 14 minutes old (MP expires in 15)
+                 validPending = data;
+                 validCreatedAt = createdAt;
+                 break;
+             }
+          }
+        }
+        
+        if (validPending && validPending.pixCode) {
+           const expiresInSecs = (15 * 60) - Math.floor((now - validCreatedAt) / 1000);
+           return res.json({
+             id: validPending.id,
+             qrCode: validPending.qrCodeBase64 ? `data:image/png;base64,${validPending.qrCodeBase64}` : null,
+             pixCode: validPending.pixCode,
+             verificationToken: validPending.verificationToken,
+             isExisting: true,
+             expiresIn: expiresInSecs
+           });
+        }
+      }
+    } catch (e) {
+      console.warn('[Pending check error]', e);
+    }
+  }
+
   try {
     const expiresAtDate = new Date(Date.now() + 15 * 60 * 1000);
     const dateOfExpirationString = expiresAtDate.toISOString();
@@ -1496,15 +1595,11 @@ apiRouter.post('/payments/pix', authMiddleware, async (req: any, res) => {
     const rawBase64 = paymentResponse.point_of_interaction?.transaction_data?.qr_code_base64;
     const pixCode = paymentResponse.point_of_interaction?.transaction_data?.qr_code;
     
-    const numCredits = type === 'credits' ? Number(credits) : 0;
-    const numTickets = type === 'tickets' ? Number(credits) : 0;
-    const planIdVal = type === 'plan' ? String(credits) : null;
-
     try {
       db.prepare(`
-        INSERT INTO payments (id, user_id, amount, credits, tickets, item_type, plan_id, payment_method, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'pix', 'pending')
-      `).run(paymentId, req.userId, amount, numCredits, numTickets, type, planIdVal);
+        INSERT INTO payments (id, user_id, amount, credits, tickets, item_type, plan_id, payment_method, status, verification_token)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'pix', 'pending', ?)
+      `).run(paymentId, req.userId, amount, numCredits, numTickets, type, planIdVal, verificationToken || null);
     } catch (dbErr: any) {
       console.warn('[SQLite Payment Insert Notice]:', dbErr?.message || dbErr);
     }
@@ -1521,15 +1616,19 @@ apiRouter.post('/payments/pix', authMiddleware, async (req: any, res) => {
       planId: planIdVal,
       paymentMethod: 'pix',
       status: 'pending',
+      verificationToken: verificationToken || null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      verifiedVia: 'mercadopago_pix'
+      verifiedVia: 'mercadopago_pix',
+      pixCode,
+      qrCodeBase64: rawBase64
     }).catch(e => console.warn('[Firebase Payment Record Error]', e));
 
     res.json({ 
       id: paymentId, 
       qrCode: rawBase64 ? `data:image/png;base64,${rawBase64}` : null, 
-      pixCode 
+      pixCode,
+      verificationToken 
     });
   } catch (err: any) {
     console.error('MercadoPago Error:', err);
@@ -1580,7 +1679,7 @@ apiRouter.post('/payments/verify', authMiddleware, async (req: any, res) => {
     let payment = db.prepare('SELECT * FROM payments WHERE id = ?').get(paymentId.toString()) as any;
 
     if (payment) {
-      if (payment.user_id !== req.userId) {
+      if (String(payment.user_id) !== String(req.userId)) {
         return res.status(403).json({ error: 'Acesso não autorizado para esta transação.' });
       }
 
@@ -1603,9 +1702,43 @@ apiRouter.post('/payments/verify', authMiddleware, async (req: any, res) => {
       });
     }
 
-    // Update in Firestore
+    // Update in Firestore and deliver if not found in SQLite (e.g. from Netlify or direct Firestore client)
     if (firestoreDb) {
-      updatePaymentInFirestore(paymentId.toString(), 'approved').catch(e => console.warn(e));
+      try {
+        const payRef = firestoreDb.collection('payments').doc(paymentId.toString());
+        const payDoc = await payRef.get();
+        if (payDoc.exists) {
+          const payData = payDoc.data();
+          if (String(payData?.userId) === String(req.userId)) {
+            await payRef.set({
+              status: 'approved',
+              delivered: true,
+              updatedAt: new Date().toISOString(),
+              approvedAt: new Date().toISOString(),
+              verifiedVia: 'token_verification'
+            }, { merge: true });
+
+            await grantUserRewardsInFirestore(req.userId, {
+              credits: payData.credits || 0,
+              tickets: payData.tickets || 0,
+              plan_type: payData.planId,
+              plan_expires_at: payData.itemType === 'plan' ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() : undefined
+            });
+
+            return res.json({
+              success: true,
+              delivered: true,
+              status: 'approved',
+              item_type: payData.itemType,
+              credits: payData.credits,
+              tickets: payData.tickets,
+              plan_id: payData.planId
+            });
+          }
+        }
+      } catch (e) {
+        console.warn('[Firestore fallback verification notice]', e);
+      }
     }
 
     return res.json({ success: true, delivered: true, status: 'approved' });
@@ -1613,6 +1746,74 @@ apiRouter.post('/payments/verify', authMiddleware, async (req: any, res) => {
     console.error('Payment verification error:', err);
     res.status(500).json({ error: 'Erro ao verificar pagamento.' });
   }
+});
+
+// Request Refund Endpoint
+apiRouter.post('/payments/:id/refund', authMiddleware, async (req: any, res) => {
+    try {
+        const paymentId = req.params.id;
+        const { pixKeyType, pixKey } = req.body;
+
+        if (!pixKeyType || !pixKey) {
+            return res.status(400).json({ error: 'Chave PIX é obrigatória.' });
+        }
+
+        const payment = db.prepare("SELECT * FROM payments WHERE id = ?").get(paymentId.toString()) as any;
+        if (!payment) return res.status(404).json({ error: 'Pagamento não encontrado.' });
+
+        if (payment.user_id !== req.userId) {
+            return res.status(403).json({ error: 'Não autorizado.' });
+        }
+
+        if (payment.status !== 'approved' && payment.status !== 'delivered') {
+             return res.status(400).json({ error: 'Apenas pagamentos aprovados podem ser reembolsados.' });
+        }
+
+        if (payment.item_type === 'plan') {
+             return res.status(400).json({ error: 'Planos VIP não são reembolsáveis.' });
+        }
+
+        const createdDate = new Date(payment.created_at);
+        const diffDays = (Date.now() - createdDate.getTime()) / (1000 * 3600 * 24);
+        
+        if (diffDays > 3) {
+             return res.status(400).json({ error: 'O prazo de 3 dias para reembolso expirou.' });
+        }
+
+        const user = db.prepare('SELECT credits, tickets FROM users WHERE id = ?').get(req.userId) as any;
+        const amount = Number(payment.amount) || 0;
+        const itemType = payment.item_type || 'coins';
+
+        if (itemType === 'coins' && user.credits < amount) {
+             return res.status(400).json({ error: 'Você já utilizou as moedas deste pedido. Reembolso bloqueado.' });
+        }
+        if (itemType === 'tickets' && user.tickets < amount) {
+             return res.status(400).json({ error: 'Você já utilizou os tickets deste pedido. Reembolso bloqueado.' });
+        }
+
+        // Add columns if they don't exist yet, we will just store them in a new table or json column if needed
+        // For simplicity, we can update the payments table status to 'refund_requested' 
+        // We will store the pix key in a new table or in firestore. Let's just create a refund_requests table or add to firestore.
+        
+        // Ensure refund details column exists in payments if not using firestore. We will use firestore.
+        db.prepare("UPDATE payments SET status = 'refund_requested' WHERE id = ?").run(paymentId.toString());
+
+        if (firestoreDb) {
+             try {
+                  await firestoreDb.collection('payments').doc(paymentId.toString()).update({
+                      status: 'refund_requested',
+                      refund_pix_key_type: pixKeyType,
+                      refund_pix_key: pixKey,
+                      refund_requested_at: new Date().toISOString()
+                  });
+             } catch(e) {}
+        }
+
+        res.json({ success: true });
+    } catch(err) {
+         console.error('Refund request error:', err);
+         res.status(500).json({ error: 'Erro ao solicitar reembolso.' });
+    }
 });
 
 // Simulates a webhook hitting our endpoint from Mercado Pago
@@ -1996,3 +2197,38 @@ apiRouter.post('/missions/claim', authMiddleware, (req: any, res) => {
         res.status(400).json({ error: err.message });
     }
 });
+
+// Periodic cleanup of payments older than 7 days
+setInterval(async () => {
+  try {
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    
+    // SQLite Cleanup
+    const oldPayments = db.prepare(`SELECT id FROM payments WHERE created_at < ?`).all(sevenDaysAgo) as {id: string}[];
+    if (oldPayments.length > 0) {
+      const ids = oldPayments.map(p => p.id);
+      const placeholders = ids.map(() => '?').join(',');
+      db.prepare(`DELETE FROM payments WHERE id IN (${placeholders})`).run(...ids);
+      console.log(`[Cleanup] Deleted ${oldPayments.length} old payments from SQLite.`);
+      
+      // Firestore Cleanup
+      if (firestoreDb) {
+        let deletedCount = 0;
+        const batchSize = 100;
+        for (let i = 0; i < ids.length; i += batchSize) {
+          const batch = ids.slice(i, i + batchSize);
+          const fbBatch = firestoreDb.batch();
+          batch.forEach(id => {
+            const ref = firestoreDb.collection('payments').doc(id.toString());
+            fbBatch.delete(ref);
+            deletedCount++;
+          });
+          await fbBatch.commit();
+        }
+        console.log(`[Cleanup] Deleted ${deletedCount} old payments from Firestore.`);
+      }
+    }
+  } catch (err) {
+    console.error('[Cleanup Error]', err);
+  }
+}, 60 * 60 * 1000); // Run every 1 hour

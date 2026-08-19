@@ -34,6 +34,8 @@ import {
   verifyAndDeliverPayment,
   processCardPayment,
   deliverPurchase,
+  checkPendingPixPayment,
+  generateSecurityToken,
   SavedCard
 } from '../lib/store';
 
@@ -176,8 +178,26 @@ export function CheckoutModal({ isOpen, onClose, item, onSuccess }: CheckoutModa
       setBirthDate('');
       setInstallments('1');
       setSavedCardCvv('');
+
+      // Check for pending PIX
+      if (item && user?.id) {
+        checkPendingPixPayment(String(user.id), item.type, item.credits).then((pending) => {
+          if (pending && isOpen) {
+            showNotification.warning('Você já tem um pedido em andamento! Finalize o pagamento.');
+            setPixData({
+              id: pending.id,
+              qrCode: pending.qrCode,
+              pixCode: pending.pixCode,
+              verificationToken: generateSecurityToken(String(user.id)),
+              exactExpiry: Date.now() + (pending.expiresIn * 1000)
+            });
+            setPixTimeLeft(pending.expiresIn);
+            setPaymentMethod('pix');
+          }
+        });
+      }
     }
-  }, [isOpen, user?.id]);
+  }, [isOpen, user?.id, item]);
 
   // Handle PIX Countdown & Polling
   useEffect(() => {
@@ -355,15 +375,27 @@ export function CheckoutModal({ isOpen, onClose, item, onSuccess }: CheckoutModa
         email: user?.email || auth.currentUser?.email || undefined
       });
 
-      playSuccess();
-      setPixData({
-        id: data.id,
-        qrCode: data.qrCode,
-        pixCode: data.pixCode,
-        verificationToken: data.verificationToken,
-        exactExpiry: Date.now() + (30 * 60 * 1000)
-      });
-      setPixTimeLeft(30 * 60);
+      if (data.isExisting) {
+        showNotification.warning('Você já tem um pedido em andamento! Finalize o pagamento.');
+        setPixData({
+          id: data.id,
+          qrCode: data.qrCode,
+          pixCode: data.pixCode,
+          verificationToken: data.verificationToken,
+          exactExpiry: Date.now() + (data.expiresIn * 1000)
+        });
+        setPixTimeLeft(data.expiresIn);
+      } else {
+        playSuccess();
+        setPixData({
+          id: data.id,
+          qrCode: data.qrCode,
+          pixCode: data.pixCode,
+          verificationToken: data.verificationToken,
+          exactExpiry: Date.now() + (30 * 60 * 1000)
+        });
+        setPixTimeLeft(30 * 60);
+      }
     } catch (err: any) {
       showNotification.error(err.message || 'Erro ao gerar PIX');
     } finally {

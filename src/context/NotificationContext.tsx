@@ -31,4 +31,14 @@ export const showNotification = {
   error: (msg: string) => toast.error(msg),
   loading: (msg: string) => toast.loading(msg),
   info: (msg: string, opts?: any) => toast(msg, { duration: 4000, ...opts }),
+  warning: (msg: string, opts?: any) => toast(msg, { 
+    icon: '⚠️',
+    duration: 5000,
+    style: {
+      background: 'rgba(30, 20, 0, 0.9)',
+      border: '1px solid rgba(255, 170, 0, 0.3)',
+      color: '#ffb700'
+    },
+    ...opts 
+  }),
 };

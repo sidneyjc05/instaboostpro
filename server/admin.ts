@@ -1,12 +1,65 @@
 import { Router } from 'express';
 import { db, createNotification } from './db.js';
 import { authMiddleware, adminMiddleware } from './auth.js';
+import { firestoreDb, updatePaymentInFirestore } from './firebase.js';
 import bcrypt from 'bcryptjs';
 
 export const adminRouter = Router();
 
-// Middleware that all these routes need both auth and admin
 adminRouter.use(authMiddleware, adminMiddleware);
+
+adminRouter.post('/payments/:id/confirm-refund', async (req: any, res) => {
+    try {
+        const paymentId = req.params.id;
+        const payment = db.prepare('SELECT * FROM payments WHERE id = ?').get(paymentId) as any;
+        
+        if (!payment || payment.status !== 'refund_requested') {
+            return res.status(400).json({ error: 'Pedido de reembolso não encontrado ou inválido.' });
+        }
+
+        const user = db.prepare('SELECT * FROM users WHERE id = ?').get(payment.user_id) as any;
+        if (!user) return res.status(404).json({ error: 'Usuário não encontrado.' });
+
+        const itemType = payment.item_type || 'coins';
+        const amount = Number(payment.amount) || 0;
+
+        // Verify balance again before deducting
+        if (itemType === 'coins' && user.credits < amount) {
+             return res.status(400).json({ error: 'Usuário não tem moedas suficientes para este reembolso.' });
+        }
+        if (itemType === 'tickets' && user.tickets < amount) {
+             return res.status(400).json({ error: 'Usuário não tem tickets suficientes para este reembolso.' });
+        }
+
+        // Deduct items
+        if (itemType === 'coins') {
+            db.prepare('UPDATE users SET credits = credits - ? WHERE id = ?').run(amount, user.id);
+        } else if (itemType === 'tickets') {
+            db.prepare('UPDATE users SET tickets = tickets - ? WHERE id = ?').run(amount, user.id);
+        }
+
+        db.prepare("UPDATE payments SET status = 'refunded' WHERE id = ?").run(paymentId);
+        
+        if (firestoreDb) {
+             try {
+                 const pRef = firestoreDb.collection('payments').doc(paymentId);
+                 await pRef.update({ status: 'refunded' });
+                 
+                 const uRef = firestoreDb.collection('users').doc(user.id.toString());
+                 if (itemType === 'coins') {
+                     await uRef.update({ credits: FirebaseFirestore.FieldValue.increment(-amount) });
+                 } else if (itemType === 'tickets') {
+                     await uRef.update({ tickets: FirebaseFirestore.FieldValue.increment(-amount) });
+                 }
+             } catch(e) {}
+        }
+
+        res.json({ success: true });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Erro ao processar reembolso.' });
+    }
+});
 
 // Helper for audit logs
 function logAction(adminId: number, targetId: number | null, action: string, details: string) {
