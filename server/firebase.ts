@@ -208,3 +208,47 @@ export async function grantUserRewardsInFirestore(
     }
   }
 }
+
+export async function saveReelDurationInFirestore(reelData: {
+  url: string;
+  shortcode: string;
+  duration: number;
+  source: string;
+  title?: string;
+  authorName?: string;
+}): Promise<void> {
+  if (!firestoreDb) return;
+  try {
+    const docId = reelData.shortcode || Buffer.from(reelData.url).toString('base64url').substring(0, 32);
+    const reelRef = firestoreDb.collection('video_durations').doc(docId);
+    await reelRef.set({
+      ...reelData,
+      updatedAt: new Date().toISOString(),
+    }, { merge: true });
+    console.log(`[Firebase] Reel duration saved in Firestore: ${reelData.duration}s (${reelData.shortcode})`);
+  } catch (e: any) {
+    if (!hasLoggedPermissionWarning && (e?.message?.includes('PERMISSION_DENIED') || e?.code === 7)) {
+      hasLoggedPermissionWarning = true;
+    }
+  }
+}
+
+export async function getReelDurationFromFirestore(urlOrShortcode: string): Promise<number | null> {
+  if (!firestoreDb) return null;
+  try {
+    const docId = urlOrShortcode.includes('/') 
+      ? Buffer.from(urlOrShortcode).toString('base64url').substring(0, 32)
+      : urlOrShortcode;
+    const doc = await firestoreDb.collection('video_durations').doc(docId).get();
+    if (doc.exists) {
+      const data = doc.data();
+      if (data && typeof data.duration === 'number' && data.duration > 0) {
+        return Math.min(data.duration, 93);
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+

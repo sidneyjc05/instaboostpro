@@ -228,6 +228,17 @@ db.exec(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS video_durations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    url TEXT UNIQUE NOT NULL,
+    shortcode TEXT,
+    duration INTEGER NOT NULL,
+    source TEXT DEFAULT 'ai_gemini',
+    title TEXT,
+    author_name TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
 `);
 
 // Fast Garbage Collector for Payments and Expired Promotions: every 1 minute

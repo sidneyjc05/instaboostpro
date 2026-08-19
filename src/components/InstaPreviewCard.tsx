@@ -141,7 +141,7 @@ export function InstaPreviewCard({
 
             <div className="mt-3 flex items-center gap-1.5 bg-black/60 backdrop-blur-md px-3 py-1 rounded-full border border-white/10 text-white shadow-md">
               <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
-              <span className="text-xs font-bold uppercase tracking-wider">Assistir Reel • 10s</span>
+              <span className="text-xs font-bold uppercase tracking-wider">Assistir Reel • Até 1m 33s</span>
             </div>
           </div>
         ) : (
@@ -170,7 +170,7 @@ export function InstaPreviewCard({
             ) : (
               <span className="bg-black/60 backdrop-blur-md text-white/90 text-[10px] sm:text-xs font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border border-white/10 flex items-center gap-1.5 shadow-sm">
                 {type === 'reel' ? <Play size={10} className="fill-current text-rose-400" /> : type === 'post' ? <Heart size={10} className="fill-current text-pink-400" /> : <UserPlus size={10} className="text-purple-400" />}
-                {type === 'reel' ? 'Reel (10s)' : type === 'post' ? 'Postagem' : 'Perfil'}
+                {type === 'reel' ? 'Reel • IA' : type === 'post' ? 'Postagem' : 'Perfil'}
               </span>
             )}
           </div>
