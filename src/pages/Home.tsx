@@ -4,7 +4,7 @@ import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { showNotification } from '../context/NotificationContext';
 import { Button } from '../components/ui/Button';
-import { Heart, UserPlus, RefreshCw, ShieldCheck, Gift, Target, Play, Sparkles, Filter, Film, PlusCircle } from 'lucide-react';
+import { Heart, UserPlus, RefreshCw, ShieldCheck, Gift, Target, Play, Sparkles, Filter, Film, PlusCircle, Eye, EyeOff, Clock, Flame } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { DailyRewardModal } from '../components/DailyRewardModal';
 import { MissionsTab } from '../components/MissionsTab';
@@ -54,6 +54,30 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<'missions' | 'feed'>('missions');
   const [feedFilter, setFeedFilter] = useState<'all' | 'reels' | 'posts' | 'profiles' | 'mine'>('all');
   
+  // Hide My Posts toggle state (stored in localStorage for convenience)
+  const [hideMyPosts, setHideMyPosts] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('instaboost_hide_my_posts') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleHideMyPosts = () => {
+    setHideMyPosts(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem('instaboost_hide_my_posts', String(next));
+      } catch {}
+      if (next) {
+        showNotification.info('Seus posts foram ocultados do feed.');
+      } else {
+        showNotification.info('Seus posts agora estão visíveis no feed.');
+      }
+      return next;
+    });
+  };
+
   // Viewer Modal State
   const [viewerOpen, setViewerOpen] = useState(false);
   const [activePromo, setActivePromo] = useState<Promotion | null>(null);
@@ -87,6 +111,29 @@ export default function Home() {
       console.error('Error fetching promos:', error);
       showNotification.error('Erro ao carregar feed');
     }
+  };
+
+  // Real-time automatic removal of expired promotions without page refresh
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = Date.now();
+      setPromotions(prev => {
+        const remaining = prev.filter(p => {
+          if (!p.expires_at) return true;
+          return new Date(p.expires_at).getTime() > now;
+        });
+        if (remaining.length !== prev.length) {
+          return remaining;
+        }
+        return prev;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleExpirePromo = (promoId: string) => {
+    setPromotions(prev => prev.filter(p => p.id !== promoId));
   };
 
   const checkDailyRewards = async () => {
@@ -219,9 +266,14 @@ export default function Home() {
   // Sort & Filter promotions
   const filteredPromotions = promotions.filter(p => {
     const type = getInstaLinkType(p.url);
-    const isMine = user && p.user_id === user.id;
+    const isMine = Boolean(user && p.user_id === user.id);
 
+    // If explicit "mine" filter is selected, show only user's promos
     if (feedFilter === 'mine') return isMine;
+
+    // If "hideMyPosts" is active and it's user's promo, hide it from general feed
+    if (hideMyPosts && isMine) return false;
+
     if (feedFilter === 'reels') return type === 'reel';
     if (feedFilter === 'posts') return type === 'post';
     if (feedFilter === 'profiles') return type === 'profile';
@@ -329,70 +381,106 @@ export default function Home() {
              animate={{ opacity: 1, x: 0 }}
              exit={{ opacity: 0, x: 10 }}
              transition={{ duration: 0.2 }}
-             className="flex flex-col gap-5"
+             className="flex flex-col gap-4"
            >
-              {/* Category Filter Pills */}
-              <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar text-xs">
-                <button
-                  onClick={() => setFeedFilter('all')}
-                  className={`px-3.5 py-2 rounded-xl font-bold whitespace-nowrap transition-all flex items-center gap-1.5 ${
-                    feedFilter === 'all' 
-                      ? 'bg-primary text-primary-foreground shadow-md shadow-primary/20' 
-                      : 'bg-secondary text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  <Sparkles size={14} /> Todos ({promotions.length})
-                </button>
-
-                <button
-                  onClick={() => setFeedFilter('reels')}
-                  className={`px-3.5 py-2 rounded-xl font-bold whitespace-nowrap transition-all flex items-center gap-1.5 ${
-                    feedFilter === 'reels' 
-                      ? 'bg-rose-600 text-white shadow-md shadow-rose-600/20' 
-                      : 'bg-secondary text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  <Film size={14} /> Reels (10s)
-                </button>
-
-                <button
-                  onClick={() => setFeedFilter('posts')}
-                  className={`px-3.5 py-2 rounded-xl font-bold whitespace-nowrap transition-all flex items-center gap-1.5 ${
-                    feedFilter === 'posts' 
-                      ? 'bg-pink-600 text-white shadow-md shadow-pink-600/20' 
-                      : 'bg-secondary text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  <Heart size={14} /> Curtidas
-                </button>
-
-                <button
-                  onClick={() => setFeedFilter('profiles')}
-                  className={`px-3.5 py-2 rounded-xl font-bold whitespace-nowrap transition-all flex items-center gap-1.5 ${
-                    feedFilter === 'profiles' 
-                      ? 'bg-purple-600 text-white shadow-md shadow-purple-600/20' 
-                      : 'bg-secondary text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  <UserPlus size={14} /> Seguidores
-                </button>
-
-                {myPromosCount > 0 && (
+              {/* Feed Controls Header: Categories + Hide My Posts Toggle */}
+              <div className="flex flex-col gap-2.5 bg-secondary/30 p-3 rounded-2xl border border-border/80">
+                {/* Top row with Category Filter Pills */}
+                <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar text-xs">
                   <button
-                    onClick={() => setFeedFilter('mine')}
-                    className={`px-3.5 py-2 rounded-xl font-bold whitespace-nowrap transition-all flex items-center gap-1.5 ${
-                      feedFilter === 'mine' 
-                        ? 'bg-amber-500 text-black shadow-md shadow-amber-500/20' 
-                        : 'bg-secondary text-muted-foreground hover:text-foreground'
+                    onClick={() => setFeedFilter('all')}
+                    className={`px-3 py-2 rounded-xl font-bold whitespace-nowrap transition-all flex items-center gap-1.5 ${
+                      feedFilter === 'all' 
+                        ? 'bg-primary text-primary-foreground shadow-md shadow-primary/20' 
+                        : 'bg-background/80 text-muted-foreground hover:text-foreground border border-border/60'
                     }`}
                   >
-                    <Sparkles size={14} /> Minhas ({myPromosCount})
+                    <Sparkles size={13} /> Todos ({promotions.length})
                   </button>
-                )}
+
+                  <button
+                    onClick={() => setFeedFilter('reels')}
+                    className={`px-3 py-2 rounded-xl font-bold whitespace-nowrap transition-all flex items-center gap-1.5 ${
+                      feedFilter === 'reels' 
+                        ? 'bg-rose-600 text-white shadow-md shadow-rose-600/20' 
+                        : 'bg-background/80 text-muted-foreground hover:text-foreground border border-border/60'
+                    }`}
+                  >
+                    <Film size={13} />
+                    <Heart size={11} className="fill-current text-rose-300" />
+                    <span>Reels (Assistir & Curtir)</span>
+                  </button>
+
+                  <button
+                    onClick={() => setFeedFilter('posts')}
+                    className={`px-3 py-2 rounded-xl font-bold whitespace-nowrap transition-all flex items-center gap-1.5 ${
+                      feedFilter === 'posts' 
+                        ? 'bg-pink-600 text-white shadow-md shadow-pink-600/20' 
+                        : 'bg-background/80 text-muted-foreground hover:text-foreground border border-border/60'
+                    }`}
+                  >
+                    <Heart size={13} className="fill-current" />
+                    <span>Posts (Curtir)</span>
+                  </button>
+
+                  <button
+                    onClick={() => setFeedFilter('profiles')}
+                    className={`px-3 py-2 rounded-xl font-bold whitespace-nowrap transition-all flex items-center gap-1.5 ${
+                      feedFilter === 'profiles' 
+                        ? 'bg-purple-600 text-white shadow-md shadow-purple-600/20' 
+                        : 'bg-background/80 text-muted-foreground hover:text-foreground border border-border/60'
+                    }`}
+                  >
+                    <UserPlus size={13} />
+                    <span>Perfis (Seguir)</span>
+                  </button>
+
+                  {myPromosCount > 0 && (
+                    <button
+                      onClick={() => setFeedFilter('mine')}
+                      className={`px-3 py-2 rounded-xl font-bold whitespace-nowrap transition-all flex items-center gap-1.5 ${
+                        feedFilter === 'mine' 
+                          ? 'bg-amber-500 text-black shadow-md shadow-amber-500/20' 
+                          : 'bg-background/80 text-muted-foreground hover:text-foreground border border-border/60'
+                      }`}
+                    >
+                      <Sparkles size={13} /> Minhas ({myPromosCount})
+                    </button>
+                  )}
+                </div>
+
+                {/* Second row: "Ocultar meus posts" Toggle button */}
+                <div className="flex items-center justify-between pt-1 border-t border-border/40 text-xs">
+                  <div className="flex items-center gap-1.5 text-muted-foreground">
+                    <Sparkles size={13} className="text-primary" />
+                    <span>Feed inteligente em tempo real</span>
+                  </div>
+
+                  <button
+                    onClick={toggleHideMyPosts}
+                    className={`px-3 py-1.5 rounded-xl font-bold transition-all flex items-center gap-1.5 text-xs border ${
+                      hideMyPosts
+                        ? 'bg-amber-500/15 border-amber-500/40 text-amber-500 hover:bg-amber-500/25'
+                        : 'bg-background/80 border-border/70 text-muted-foreground hover:text-foreground hover:bg-secondary'
+                    }`}
+                  >
+                    {hideMyPosts ? (
+                      <>
+                        <EyeOff size={13} className="text-amber-500" />
+                        <span>Meus posts ocultos</span>
+                      </>
+                    ) : (
+                      <>
+                        <Eye size={13} />
+                        <span>Ocultar meus posts</span>
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
 
               {/* Promotions Cards Grid */}
-              <div className="flex flex-col gap-5">
+              <div className="flex flex-col gap-4">
                 <AnimatePresence>
                   {loading && promotions.length === 0 ? (
                     Array.from({ length: 3 }).map((_, i) => (
@@ -409,9 +497,18 @@ export default function Home() {
                       </div>
                       <div>
                         <p className="font-bold text-foreground">Nenhuma divulgação encontrada neste filtro.</p>
-                        <p className="text-xs text-muted-foreground mt-1">Crie sua divulgação para alcançar milhares de pessoas!</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {hideMyPosts && myPromosCount > 0 
+                            ? 'Seus posts estão ocultos. Clique em "Ocultar meus posts" para mostrá-los ou acesse "Minhas".'
+                            : 'Crie sua divulgação para alcançar milhares de pessoas!'}
+                        </p>
                       </div>
                       <div className="flex gap-2 mt-2">
+                        {hideMyPosts && myPromosCount > 0 && (
+                          <Button variant="outline" size="sm" onClick={toggleHideMyPosts}>
+                            <Eye size={14} className="mr-2" /> Mostrar Meus Posts
+                          </Button>
+                        )}
                         <Button variant="outline" size="sm" onClick={handleRefresh} isLoading={loading}>
                           <RefreshCw size={14} className="mr-2" /> Recarregar
                         </Button>
@@ -428,10 +525,11 @@ export default function Home() {
                       return (
                         <motion.div 
                           key={p.id}
+                          layout
                           initial={{ opacity: 0, y: 16 }}
                           animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, scale: 0.95 }}
-                          transition={{ delay: i * 0.05 }}
+                          exit={{ opacity: 0, scale: 0.9, y: -12, transition: { duration: 0.35 } }}
+                          transition={{ duration: 0.25, delay: i * 0.04 }}
                         >
                           <InstaPreviewCard 
                             url={p.url}
@@ -442,6 +540,7 @@ export default function Home() {
                             interactionsCount={p.interactions_count || 0}
                             expiresAt={p.expires_at}
                             onClick={() => handleCardClick(p)}
+                            onExpired={() => handleExpirePromo(p.id)}
                           />
                         </motion.div>
                       );

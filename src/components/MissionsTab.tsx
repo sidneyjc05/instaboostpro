@@ -15,7 +15,7 @@ const MISSION_CONFIG = {
     baseColor: 'emerald',
     goals: [10, 25, 50, 100, 200],
     rewards: [0.2, 0.5, 1.5, 3.0, 6.0],
-    tickets: [0, 1, 1, 2, 3],
+    tickets: [0, 0, 0, 0, 1],
     actionText: 'Curtir no Instagram',
     dummyLink: 'https://www.instagram.com/p/C_q41-fM-sW/',
     type: 'post'
@@ -26,7 +26,7 @@ const MISSION_CONFIG = {
     baseColor: 'emerald',
     goals: [3, 8, 15, 30, 60],
     rewards: [0.3, 1.0, 3.0, 7.0, 14.0],
-    tickets: [1, 2, 3, 4, 5],
+    tickets: [0, 0, 0, 0, 1],
     actionText: 'Assistir Reel',
     dummyLink: 'https://www.instagram.com/reel/C-16HntO_5N/',
     type: 'reel'
@@ -37,7 +37,7 @@ const MISSION_CONFIG = {
     baseColor: 'emerald',
     goals: [5, 15, 30, 60, 120],
     rewards: [0.3, 1.0, 2.5, 5.0, 12.0],
-    tickets: [1, 1, 2, 2, 3],
+    tickets: [0, 0, 0, 0, 1],
     actionText: 'Seguir Perfil',
     dummyLink: 'https://www.instagram.com/instagram/',
     type: 'profile'
@@ -48,7 +48,7 @@ const MISSION_CONFIG = {
     baseColor: 'emerald',
     goals: [1, 5, 10, 20, 40],
     rewards: [0.5, 1.5, 3.5, 7.0, 15.0],
-    tickets: [0, 0, 1, 1, 2],
+    tickets: [0, 0, 0, 0, 1],
     actionText: '',
     dummyLink: '',
     type: 'time'
@@ -88,7 +88,7 @@ const getDynamicMissionConfig = (type: string, level: number) => {
     if (goal > 100) goal = Math.round(goal / 10) * 10;
     
     const reward = parseFloat((baseReward * rewardMultiplier).toFixed(1));
-    const tickets = Math.floor(baseTickets + diff / 2);
+    const tickets = baseTickets > 0 ? baseTickets * Math.pow(2, diff) : 0;
 
     return { goal, reward, tickets };
 };

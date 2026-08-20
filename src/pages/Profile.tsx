@@ -519,8 +519,22 @@ export default function Profile() {
         className="flex flex-col items-center justify-center text-center space-y-4 pt-4"
       >
         <div className="relative">
-          <div className="w-24 h-24 sm:w-32 sm:h-32 rounded-full bg-primary/20 border-2 border-primary/50 flex items-center justify-center text-4xl sm:text-5xl font-black text-primary shadow-[0_0_30px_rgba(126,34,206,0.3)]">
-            {user?.username?.[0]?.toUpperCase() || 'U'}
+          <div className="w-24 h-24 sm:w-32 sm:h-32 rounded-full overflow-hidden bg-primary/20 border-2 border-primary/50 flex items-center justify-center text-4xl sm:text-5xl font-black text-primary shadow-[0_0_30px_rgba(126,34,206,0.3)]">
+            <img
+              src={`/api/instagram/avatar/${encodeURIComponent((user?.username || 'user').replace(/^@/, ''))}`}
+              alt={user?.username || 'Profile'}
+              className="w-full h-full object-cover"
+              onError={(e) => {
+                const target = e.currentTarget;
+                target.style.display = 'none';
+                if (target.nextElementSibling) {
+                  (target.nextElementSibling as HTMLElement).style.display = 'flex';
+                }
+              }}
+            />
+            <span className="hidden w-full h-full items-center justify-center uppercase">
+              {user?.username?.[0]?.toUpperCase() || 'U'}
+            </span>
           </div>
           <div className={`absolute -bottom-2 md:-bottom-3 left-1/2 transform -translate-x-1/2 px-3 py-1 rounded-full text-[10px] md:text-xs font-bold whitespace-nowrap shadow-lg border ${
             userPlan === 'pro' ? 'bg-green-500 text-black border-green-400' :

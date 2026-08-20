@@ -69,6 +69,13 @@ db.exec(`
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (user_id, mission_type)
   );
+
+  CREATE TABLE IF NOT EXISTS instagram_avatars (
+    username TEXT PRIMARY KEY,
+    avatar_url TEXT,
+    full_name TEXT,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
 `);
 
 function getUTCDateString(d: Date) {
@@ -370,6 +377,14 @@ apiRouter.post('/support/:id/chat', authMiddleware, (req: any, res) => {
 });
 
 apiRouter.get('/me', authMiddleware, (req: any, res) => {
+  // Check if user was offline for 15+ minutes and reset all missions if so
+  db.prepare(`
+    UPDATE missions_progress 
+    SET level = 1, progress = 0, updated_at = CURRENT_TIMESTAMP 
+    WHERE user_id = ? 
+      AND (SELECT datetime(last_active_at, '+15 minutes') FROM users WHERE id = ?) < datetime('now')
+  `).run(req.userId, req.userId);
+
   db.prepare('UPDATE users SET last_active_at = CURRENT_TIMESTAMP WHERE id = ?').run(req.userId);
   const user = db.prepare('SELECT id, username, email, role, is_verified, credits, tickets, plan_type, plan_expires_at, created_at, referral_code FROM users WHERE id = ? AND is_blocked = 0').get(req.userId) as any;
   if (!user) return res.status(400).json({ error: 'User blocked or not found' });
@@ -740,7 +755,7 @@ apiRouter.get('/instagram/inspect-reel', async (req, res) => {
 
     // 1. Check local database cache first for instant calculation
     try {
-      const cached = db.prepare('SELECT * FROM video_durations WHERE url = ? OR (shortcode = ? AND shortcode != "")').get(cleanUrl, shortcode) as any;
+      const cached = db.prepare("SELECT * FROM video_durations WHERE url = ? OR (shortcode = ? AND shortcode != '')").get(cleanUrl, shortcode) as any;
       if (cached && typeof cached.duration === 'number' && cached.duration > 0) {
         const dur = Math.min(cached.duration, 93);
         return res.json({
@@ -810,57 +825,78 @@ apiRouter.get('/instagram/inspect-reel', async (req, res) => {
 
     // 4. Use Integrated Gemini AI (gemini-3.7-flash) for precise intelligent video duration calculation
     if (!calculatedDuration && process.env.GEMINI_API_KEY) {
-      try {
-        const ai = new GoogleGenAI({
-          apiKey: process.env.GEMINI_API_KEY,
-          httpOptions: {
-            headers: {
-              'User-Agent': 'aistudio-build'
+      let attempts = 3;
+      while (attempts > 0 && !calculatedDuration) {
+        try {
+          const ai = new GoogleGenAI({
+            apiKey: process.env.GEMINI_API_KEY,
+            httpOptions: {
+              headers: {
+                'User-Agent': 'aistudio-build'
+              }
             }
-          }
-        });
+          });
 
-        const prompt = `Você é um motor de inteligência artificial de alta precisão para analisar conteúdos do Instagram (Reels e Vídeos).
-Analise as informações fornecidas deste conteúdo:
+          const prompt = `Você é um motor de inteligência artificial super inteligente responsável por estimar a duração de vídeos do Instagram (Reels e Vídeos).
+Analise as informações deste conteúdo:
 URL: ${cleanUrl}
 Shortcode: ${shortcode}
 Título/Legenda: ${oembedData?.title || 'Reels / Vídeo'}
 Autor: ${oembedData?.author_name || 'Instagram User'}
 
-Objetivo:
-Estimar com exatidão a duração ideal de reprodução em segundos do Reels.
-Regras Estritas:
-1. Vídeos curtos do Instagram Reels geralmente variam entre 15s e 25s (como 19 segundos). Se o padrão ou legenda sugerir um vídeo curto, retorne o número exato (exemplo: 19).
-2. Para vídeos médios, considere entre 28s e 60s.
-3. O teto máximo permitido pelo sistema é estritamente 93 segundos (1 minuto e 33 segundos).
-4. O valor deve ser um número inteiro entre 10 e 93.
+Objetivo: Estimar a duração de reprodução em segundos para a plataforma.
+
+ATENÇÃO CRÍTICA SOBRE A EXPERIÊNCIA DO USUÁRIO E TEMPO MÁXIMO:
+O cronômetro da plataforma não pode rodar mais tempo que a duração real do vídeo. A meta principal é que o cronômetro acabe SEMPRE ANTES do vídeo terminar, permitindo que o usuário assista e ainda tenha tempo de curtir/interagir no final sem o player travar.
+
+Regras Estritas e Absolutas:
+1. TETO MÁXIMO (LIMITE ABSOLUTO): O tempo máximo que você pode gerar é estritamente 93 segundos (1 minuto e 33 segundos). Independente de qualquer coisa (mesmo que o vídeo tenha 4, 10 ou 20 minutos), o limite máximo retornado será 93. NUNCA passe de 93.
+2. ADAPTAÇÃO E REDUÇÃO (VÍDEOS CURTOS): Se o vídeo parece ter menos de 93 segundos, você DEVE reduzir e adaptar a estimativa para o menor tempo possível e seguro. Se um vídeo parece ter 36s, retorne 20s ou 24s. O cronômetro precisa acabar antes!
+3. VALORES MÉDIOS: Para 90% dos Reels comuns, subestime fortemente. Retorne valores orgânicos entre 15 e 25 segundos (ex: 17, 19, 21, 23). Só passe de 30s se tiver certeza absoluta que é longo (e lembre-se, nunca passe de 93s).
+4. O valor retornado deve ser um número inteiro.
 
 Responda APENAS em formato JSON válido:
 {
-  "duration": 19,
-  "reasoning": "Vídeo curto estimado com precisão para formato Reels.",
+  "duration": 22,
+  "reasoning": "Adaptei o tempo para 22s (menor que o total do vídeo) garantindo que o usuário termine o cronômetro antes e possa curtir.",
   "category": "short_reel"
 }`;
 
-        const response = await ai.models.generateContent({
-          model: 'gemini-3.7-flash',
-          contents: prompt,
-          config: {
-            responseMimeType: 'application/json'
-          }
-        });
+          const response = await ai.models.generateContent({
+            model: 'gemini-3.6-flash',
+            contents: prompt,
+            config: {
+              responseMimeType: 'application/json'
+            }
+          });
 
-        const textOutput = response.text?.trim();
-        if (textOutput) {
-          const parsed = JSON.parse(textOutput);
-          if (parsed && typeof parsed.duration === 'number' && parsed.duration >= 10) {
-            calculatedDuration = Math.min(Math.round(parsed.duration), 93);
-            calculationSource = 'ai_gemini';
-            aiReasoning = parsed.reasoning || '';
+          const textOutput = response.text?.trim();
+          if (textOutput) {
+            const parsed = JSON.parse(textOutput);
+            if (parsed && typeof parsed.duration === 'number' && parsed.duration >= 10) {
+              calculatedDuration = Math.min(Math.round(parsed.duration), 93);
+              calculationSource = 'ai_gemini';
+              aiReasoning = parsed.reasoning || '';
+            }
           }
+          break; // Exit loop on success
+        } catch (aiErr: any) {
+          attempts--;
+          const errMsg = aiErr?.message || (typeof aiErr === 'object' ? JSON.stringify(aiErr) : String(aiErr));
+          
+          // If the error is related to high demand (503) or rate limits (429), retry after a delay
+          if (attempts > 0 && (errMsg.includes('503') || errMsg.includes('429'))) {
+            await new Promise(resolve => setTimeout(resolve, (4 - attempts) * 1500));
+            continue;
+          }
+          
+          if (errMsg.includes('503') || errMsg.includes('429')) {
+             console.log(`[AI Calculation] Gemini API busy, gracefully using deterministic fallback.`);
+          } else {
+             console.warn(`[AI Calculation] Gemini API error, using fallback:`, errMsg);
+          }
+          break; // Exit loop on non-retryable error
         }
-      } catch (aiErr: any) {
-        console.warn('[AI Inspection] Gemini calculation fallback:', aiErr?.message || aiErr);
       }
     }
 
@@ -941,6 +977,164 @@ Responda APENAS em formato JSON válido:
       isAI: false,
       maxDuration: 93
     });
+  }
+});
+
+// --- INSTAGRAM PROFILE & AVATAR RESOLVER --- //
+
+// Helper to generate a clean, official Instagram-styled SVG Avatar
+function generateInstagramSvgAvatar(username: string): string {
+  const clean = (username || 'U').replace(/^@/, '').trim();
+  const initial = (clean[0] || 'U').toUpperCase();
+  const secondChar = clean.length > 1 ? clean[1].toUpperCase() : '';
+  const displayText = clean.length <= 2 ? clean.toUpperCase() : initial;
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" width="160" height="160">
+  <defs>
+    <linearGradient id="ig-grad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#f09433" />
+      <stop offset="25%" stop-color="#e6683c" />
+      <stop offset="50%" stop-color="#dc2743" />
+      <stop offset="75%" stop-color="#cc2366" />
+      <stop offset="100%" stop-color="#bc1888" />
+    </linearGradient>
+    <linearGradient id="inner-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#18181b" />
+      <stop offset="100%" stop-color="#09090b" />
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#dc2743" flood-opacity="0.4" />
+    </filter>
+  </defs>
+  <!-- Background Instagram Gradient Circle -->
+  <circle cx="80" cy="80" r="76" fill="url(#ig-grad)" filter="url(#glow)" />
+  <!-- Dark inner badge -->
+  <circle cx="80" cy="80" r="70" fill="url(#inner-grad)" stroke="rgba(255,255,255,0.15)" stroke-width="2" />
+  <!-- Subtle inner gradient glow ring -->
+  <circle cx="80" cy="80" r="66" fill="none" stroke="url(#ig-grad)" stroke-width="2" stroke-opacity="0.6" stroke-dasharray="3 2" />
+  <!-- Monogram Initials -->
+  <text 
+    x="80" 
+    y="88" 
+    font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" 
+    font-size="${displayText.length > 1 ? '48' : '58'}" 
+    font-weight="900" 
+    fill="#ffffff" 
+    text-anchor="middle" 
+    dominant-baseline="central"
+    letter-spacing="-1px"
+  >${displayText}</text>
+</svg>`;
+}
+
+// GET /api/instagram/profile/:username - Fetch profile information
+apiRouter.get('/instagram/profile/:username', async (req, res) => {
+  try {
+    const rawUsername = req.params.username || '';
+    const username = rawUsername.replace(/^@/, '').trim().toLowerCase();
+
+    if (!username) {
+      return res.status(400).json({ error: 'Username obrigatório' });
+    }
+
+    // 1. Check local SQLite cache
+    const cached = db.prepare('SELECT username, avatar_url, full_name, updated_at FROM instagram_avatars WHERE username = ?').get(username) as any;
+    if (cached && cached.avatar_url) {
+      return res.json({
+        success: true,
+        username,
+        avatar_url: cached.avatar_url,
+        full_name: cached.full_name || `@${username}`,
+        source: 'cached'
+      });
+    }
+
+    // 2. Default fallback avatar URL
+    const avatarUrl = `/api/instagram/avatar/${encodeURIComponent(username)}`;
+
+    // Store in DB for instant lookup
+    db.prepare(`
+      INSERT INTO instagram_avatars (username, avatar_url, full_name)
+      VALUES (?, ?, ?)
+      ON CONFLICT(username) DO UPDATE SET
+        avatar_url = excluded.avatar_url,
+        full_name = excluded.full_name,
+        updated_at = CURRENT_TIMESTAMP
+    `).run(username, avatarUrl, `@${username}`);
+
+    res.json({
+      success: true,
+      username,
+      avatar_url: avatarUrl,
+      full_name: `@${username}`,
+      source: 'generated'
+    });
+  } catch (err: any) {
+    console.error('[Instagram Profile] Error:', err);
+    res.json({
+      success: true,
+      username: req.params.username,
+      avatar_url: `/api/instagram/avatar/${encodeURIComponent(req.params.username)}`,
+      full_name: `@${req.params.username}`,
+      source: 'fallback'
+    });
+  }
+});
+
+// GET /api/instagram/avatar/:username - Directly deliver the Instagram Avatar Image
+apiRouter.get('/instagram/avatar/:username', async (req, res) => {
+  try {
+    const rawUsername = req.params.username || 'user';
+    const username = rawUsername.replace(/^@/, '').trim().toLowerCase();
+
+    // Check if custom external avatar exists in DB
+    const cached = db.prepare('SELECT avatar_url FROM instagram_avatars WHERE username = ?').get(username) as any;
+    if (cached && cached.avatar_url && cached.avatar_url.startsWith('http')) {
+      return res.redirect(cached.avatar_url);
+    }
+
+    // Generate crisp Instagram SVG Avatar
+    const svg = generateInstagramSvgAvatar(username);
+    res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400');
+    return res.send(svg);
+  } catch (err) {
+    const svg = generateInstagramSvgAvatar('instagram');
+    res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
+    return res.send(svg);
+  }
+});
+
+// POST /api/instagram/avatar-update - Allow user to update their Instagram avatar
+apiRouter.post('/instagram/avatar-update', authMiddleware, async (req: any, res) => {
+  try {
+    const { instagram_username, avatar_url } = req.body;
+    if (!instagram_username) {
+      return res.status(400).json({ error: 'Nome de usuário do Instagram é obrigatório' });
+    }
+
+    const clean = instagram_username.replace(/^@/, '').trim().toLowerCase();
+    const finalUrl = (avatar_url && avatar_url.trim()) 
+      ? avatar_url.trim() 
+      : `/api/instagram/avatar/${encodeURIComponent(clean)}`;
+
+    db.prepare(`
+      INSERT INTO instagram_avatars (username, avatar_url, full_name)
+      VALUES (?, ?, ?)
+      ON CONFLICT(username) DO UPDATE SET
+        avatar_url = excluded.avatar_url,
+        updated_at = CURRENT_TIMESTAMP
+    `).run(clean, finalUrl, `@${clean}`);
+
+    res.json({
+      success: true,
+      username: clean,
+      avatar_url: finalUrl,
+      message: 'Avatar do Instagram atualizado com sucesso!'
+    });
+  } catch (err: any) {
+    console.error('[Avatar Update] Error:', err);
+    res.status(500).json({ error: 'Erro ao atualizar avatar' });
   }
 });
 
@@ -2393,22 +2587,22 @@ const MISSION_CONFIG = {
   likes: {
     goals: [10, 25, 50, 100, 200],
     rewards: [0.2, 0.5, 1.5, 3.0, 6.0],
-    tickets: [0, 1, 1, 2, 3]
+    tickets: [0, 0, 0, 0, 1]
   },
   reels: {
     goals: [3, 8, 15, 30, 60],
     rewards: [0.3, 1.0, 3.0, 7.0, 14.0],
-    tickets: [1, 2, 3, 4, 5]
+    tickets: [0, 0, 0, 0, 1]
   },
   follows: {
     goals: [5, 15, 30, 60, 120],
     rewards: [0.3, 1.0, 2.5, 5.0, 12.0],
-    tickets: [1, 1, 2, 2, 3]
+    tickets: [0, 0, 0, 0, 1]
   },
   time: {
     goals: [1, 5, 10, 20, 40], // in minutes
     rewards: [0.5, 1.5, 3.5, 7.0, 15.0],
-    tickets: [0, 0, 1, 1, 2]
+    tickets: [0, 0, 0, 0, 1]
   }
 };
 
@@ -2440,18 +2634,19 @@ function getMissionConfig(type: string, level: number) {
     if (goal > 100) goal = Math.round(goal / 10) * 10;
     
     const reward = parseFloat((baseReward * rewardMultiplier).toFixed(1));
-    const tickets = Math.floor(baseTickets + diff / 2);
+    const tickets = baseTickets > 0 ? baseTickets * Math.pow(2, diff) : 0;
 
     return { goal, reward, tickets };
 }
 
 apiRouter.get('/missions', authMiddleware, (req: any, res) => {
-    // 10 minutes timeout reset (progress = 0)
+    // 15 minutes timeout global reset (progress = 0, level = 1)
     db.prepare(`
        UPDATE missions_progress 
-       SET progress = 0, updated_at = CURRENT_TIMESTAMP 
-       WHERE user_id = ? AND datetime(updated_at, '+10 minutes') < datetime('now')
-    `).run(req.userId);
+       SET level = 1, progress = 0, updated_at = CURRENT_TIMESTAMP 
+       WHERE user_id = ? 
+         AND (SELECT datetime(last_active_at, '+15 minutes') FROM users WHERE id = ?) < datetime('now')
+    `).run(req.userId, req.userId);
 
     const rows = db.prepare('SELECT mission_type, level, progress, updated_at FROM missions_progress WHERE user_id = ?').all(req.userId) as any[];
     const state: Record<string, any> = {};
@@ -2478,12 +2673,13 @@ apiRouter.post('/missions/progress', authMiddleware, (req: any, res) => {
     const { type, amount = 1 } = req.body;
     if (!(type in MISSION_CONFIG)) return res.status(400).json({ error: 'Invalid mission type' });
 
-    // Enforce 10-minute reset
+    // Enforce 15-minute global inactivity reset
     db.prepare(`
        UPDATE missions_progress 
-       SET progress = 0, updated_at = CURRENT_TIMESTAMP
-       WHERE user_id = ? AND mission_type = ? AND datetime(updated_at, '+10 minutes') < datetime('now')
-    `).run(req.userId, type);
+       SET level = 1, progress = 0, updated_at = CURRENT_TIMESTAMP
+       WHERE user_id = ? 
+         AND (SELECT datetime(last_active_at, '+15 minutes') FROM users WHERE id = ?) < datetime('now')
+    `).run(req.userId, req.userId);
 
     const row = db.prepare('SELECT level, progress FROM missions_progress WHERE user_id = ? AND mission_type = ?').get(req.userId, type) as any;
     

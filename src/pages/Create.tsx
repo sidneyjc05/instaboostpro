@@ -41,10 +41,19 @@ export default function Create() {
     setLoading(true);
     try {
       const expiresAt = new Date(Date.now() + duration * 60 * 1000).toISOString();
+      const detectedType = getInstaLinkType(url.trim());
       
+      let promoUsername = user.username || user.email?.split('@')[0] || 'Usuário';
+      if (detectedType === 'profile') {
+        const match = url.trim().match(/instagram\.com\/([a-zA-Z0-9._]+)/);
+        if (match && !['p', 'reel', 'tv', 'stories', 'explore'].includes(match[1])) {
+          promoUsername = match[1];
+        }
+      }
+
       await addDoc(collection(db, 'promotions'), {
         user_id: user.id,
-        username: user.username || user.email?.split('@')[0] || 'Usuário',
+        username: promoUsername,
         url: url.trim(),
         expires_at: expiresAt,
         created_at: new Date().toISOString(),
