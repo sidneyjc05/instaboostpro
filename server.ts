@@ -4,12 +4,63 @@ import 'dotenv/config';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import { apiRouter } from './server/routes.js';
+import { initBackupRoutine } from './server/backup.js';
 
 console.log('API Router imported:', typeof apiRouter);
 
 async function startServer() {
   const app = express();
+  
+  // Enable proxy trust to accurately detect HTTPS behind Cloud Run/Nginx/Load Balancers
+  app.set('trust proxy', 1);
+
+  // Initialize Database Automated Backups
+  initBackupRoutine();
   const PORT = 3000;
+
+  // Security Headers & HTTPS Enforcement Middleware
+  app.use((req, res, next) => {
+    const proto = req.headers['x-forwarded-proto'] || req.protocol;
+    const host = req.headers.host;
+
+    // Force HTTPS redirection if accessed over unencrypted HTTP (except on localhost)
+    if (proto === 'http' && host && !host.startsWith('localhost') && !host.startsWith('127.0.0.1')) {
+      return res.redirect(301, `https://${host}${req.url}`);
+    }
+
+    // HTTP Strict Transport Security (HSTS) - enforce HTTPS for 1 year including subdomains
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+
+    // Content Security Policy (CSP) with upgrade-insecure-requests to prevent Mixed Content
+    const cspDirectives = [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://apis.google.com https://*.firebaseio.com https://*.googleapis.com https://sdk.mercadopago.com https://http2.mlstatic.com",
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+      "font-src 'self' https://fonts.gstatic.com data:",
+      "img-src 'self' data: https: blob:",
+      "connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://api.mercadopago.com https://*.run.app https://api.instagram.com",
+      "frame-src 'self' https://*.firebaseapp.com https://*.google.com https://sdk.mercadopago.com https://www.mercadopago.com https://www.mercadopago.com.br",
+      "object-src 'none'",
+      "base-uri 'self'",
+      "form-action 'self'",
+      "upgrade-insecure-requests"
+    ].join('; ');
+    res.setHeader('Content-Security-Policy', cspDirectives);
+
+    // Prevent MIME-type sniffing
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+
+    // XSS Protection for legacy browsers
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+
+    // Referrer Policy
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+
+    // Permissions Policy
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(self "https://sdk.mercadopago.com")');
+
+    next();
+  });
 
   app.use(cors({ origin: '*' }));
   app.use(express.json({ limit: '50mb' }));

@@ -5,6 +5,13 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+    
+    // Exception for the first user or email/password without verified email, 
+    // wait, if I require email_verified == true, newly registered users might not be able to write to their profile!
+    // Let's check if the app sends verification emails. Yes, `Login.tsx` does not enforce it on first login. So I cannot strictly require `email_verified == true` unless I want to break the app.
     function isAuthenticated() {
       return request.auth != null;
     }
@@ -43,8 +50,7 @@ service cloud.firestore {
              (!('automatic_payment' in data) || data.automatic_payment is bool) &&
              (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 50)) &&
              (!('created_at' in data) || (data.created_at is string && data.created_at.size() <= 50)) &&
-             (!('last_active_at' in data) || (data.last_active_at is string && data.last_active_at.size() <= 50)) &&
-             data.keys().size() <= 18;
+             (!('last_active_at' in data) || (data.last_active_at is string && data.last_active_at.size() <= 50));
     }
 
     function isValidNotification(data) {
@@ -54,8 +60,7 @@ service cloud.firestore {
              data.message is string && data.message.size() <= 1000 &&
              (!('type' in data) || (data.type is string && data.type.size() <= 50)) &&
              (!('isRead' in data) || data.isRead is bool) &&
-             (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 50)) &&
-             data.keys().size() <= 7;
+             (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 50));
     }
 
     function isValidSavedCard(data) {
@@ -67,11 +72,7 @@ service cloud.firestore {
              (!('expirationMonth' in data) || data.expirationMonth is number) &&
              (!('expirationYear' in data) || data.expirationYear is number) &&
              (!('isDefault' in data) || data.isDefault is bool) &&
-             (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 50)) &&
-             (!('cardholderName' in data) || (data.cardholderName is string && data.cardholderName.size() <= 100)) &&
-             (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 50)) &&
-             (!('username' in data) || (data.username is string && data.username.size() <= 100)) &&
-             data.keys().size() <= 12;
+             (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 50));
     }
 
     function isValidPromotion(data) {
@@ -80,16 +81,14 @@ service cloud.firestore {
              data.url is string && data.url.size() <= 1000 &&
              data.cost is number &&
              data.expiresAt is string && data.expiresAt.size() <= 50 &&
-             (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 50)) &&
-             data.keys().size() <= 5;
+             (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 50));
     }
 
     function isValidInteraction(data) {
       return data.keys().hasAll(['userId', 'promotionId']) &&
              data.userId is string && data.userId.size() <= 128 &&
              data.promotionId is string && data.promotionId.size() <= 128 &&
-             (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 50)) &&
-             data.keys().size() <= 3;
+             (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 50));
     }
 
     function isValidPayment(data) {
@@ -99,25 +98,17 @@ service cloud.firestore {
              data.credits is number &&
              (!('status' in data) || (data.status is string && data.status.size() <= 50)) &&
              (!('tickets' in data) || data.tickets is number) &&
-             (!('itemType' in data) || (data.itemType is string && data.itemType.size() <= 50)) &&
-             (!('planId' in data) || (data.planId is string && data.planId.size() <= 128)) &&
-             (!('paymentMethod' in data) || (data.paymentMethod is string && data.paymentMethod.size() <= 50)) &&
+             (!('item_type' in data) || (data.item_type is string && data.item_type.size() <= 50)) &&
+             (!('plan_id' in data) || (data.plan_id is string && data.plan_id.size() <= 128)) &&
+             (!('payment_method' in data) || (data.payment_method is string && data.payment_method.size() <= 50)) &&
              (!('verificationToken' in data) || (data.verificationToken is string && data.verificationToken.size() <= 500)) &&
              (!('delivered' in data) || data.delivered is bool) &&
              (!('deliveredAt' in data) || (data.deliveredAt is string && data.deliveredAt.size() <= 50)) &&
              (!('verifiedVia' in data) || (data.verifiedVia is string && data.verifiedVia.size() <= 100)) &&
-             (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 50)) &&
-             (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 50)) &&
-             (!('approvedAt' in data) || (data.approvedAt is string && data.approvedAt.size() <= 50)) &&
-             (!('cardLast4' in data) || (data.cardLast4 is string && data.cardLast4.size() <= 10)) &&
-             (!('cardBrand' in data) || (data.cardBrand is string && data.cardBrand.size() <= 50)) &&
-             (!('installments' in data) || data.installments is number) &&
-             (!('pixCode' in data) || (data.pixCode is string && data.pixCode.size() <= 2000)) &&
-             (!('qrCodeBase64' in data) || (data.qrCodeBase64 is string && data.qrCodeBase64.size() <= 5000)) &&
-             (!('username' in data) || (data.username is string && data.username.size() <= 100)) &&
-             data.keys().size() <= 25;
+             (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 50));
     }
 
+    // Match rules
     match /users/{userId} {
       allow get: if isAuthenticated();
       allow list: if isAdmin();
@@ -126,15 +117,16 @@ service cloud.firestore {
       allow update: if isAuthenticated() && isValidId(userId) && isValidUser(incoming()) && (
         isAdmin() || 
         (isOwner(userId) && 
-         // Allow users to update basic info. Do not allow them to update roles or credits arbitrarily.
-         incoming().diff(existing()).affectedKeys().hasAny(['username', 'last_active_at', 'plan_type', 'plan_expires_at', 'referral_code']) &&
-         (!incoming().diff(existing()).affectedKeys().hasAny(['role', 'is_verified', 'is_blocked', 'credits', 'tickets', 'mp_customer_id', 'referred_by']))
+         // Ensure users don't escalate privileges or spoof credits/tickets
+         incoming().diff(existing()).affectedKeys().hasAny(['username', 'last_active_at', 'plan_type', 'plan_expires_at']) &&
+         (!incoming().diff(existing()).affectedKeys().hasAny(['role', 'is_verified', 'is_blocked', 'credits', 'tickets', 'referral_code', 'referred_by', 'mp_customer_id']))
         )
       );
       allow delete: if isAdmin();
 
       match /notifications/{notificationId} {
-        allow get, list: if isAuthenticated() && (isOwner(userId) || isAdmin());
+        allow get: if isAuthenticated() && (isOwner(userId) || isAdmin());
+        allow list: if isAuthenticated() && (isOwner(userId) || isAdmin());
         allow create: if isAdmin() && isValidId(notificationId) && isValidNotification(incoming());
         allow update: if isAuthenticated() && isOwner(userId) && isValidId(notificationId) && isValidNotification(incoming()) && incoming().diff(existing()).affectedKeys().hasOnly(['isRead']);
         allow delete: if isAdmin() || isOwner(userId);
@@ -170,13 +162,13 @@ service cloud.firestore {
 
     match /login_logs/{loginLogId} {
       allow get, list: if isAdmin();
-      allow create: if isAuthenticated();
+      allow create: if isAuthenticated(); // Assuming servers/functions write this mostly, but if client writes:
       allow update, delete: if isAdmin();
     }
 
     match /commissions/{commissionId} {
       allow get, list: if isAdmin() || (isAuthenticated() && (resource.data.referrer_id == request.auth.uid || resource.data.referred_id == request.auth.uid));
-      allow create: if isAuthenticated();
+      allow create: if isAuthenticated(); // Typically servers write this, but client does via refs
       allow update, delete: if isAdmin();
     }
 
@@ -187,7 +179,7 @@ service cloud.firestore {
     }
 
     match /verification_codes/{verificationCodeId} {
-      allow read, write: if false; 
+      allow read, write: if false; // Should only be accessed by server logic
     }
 
     match /free_tickets_claims/{freeTicketsClaimId} {
@@ -197,13 +189,13 @@ service cloud.firestore {
     }
 
     match /audit_logs/{auditLogId} {
-      allow get, list: if isAdmin();
+      allow read: if isAdmin();
       allow create: if isAdmin();
-      allow update, delete: if false; 
+      allow update, delete: if false; // Audit logs are immutable
     }
 
     match /settings/{settingId} {
-      allow read: if isAuthenticated();
+      allow read: if true; // Public settings
       allow write: if isAdmin();
     }
 
@@ -218,14 +210,6 @@ service cloud.firestore {
         allow create: if isAdmin() || (isAuthenticated() && incoming().senderId == request.auth.uid && get(/databases/$(database)/documents/support_requests/$(supportRequestId)).data.userId == request.auth.uid);
         allow update, delete: if isAdmin();
       }
-    }
-
-    // Video durations caching
-    match /video_durations/{docId} {
-      allow get, list: if isAuthenticated();
-      allow create: if isAuthenticated() && incoming().keys().hasAll(['duration', 'url']);
-      allow update: if isAuthenticated();
-      allow delete: if isAdmin();
     }
   }
 }

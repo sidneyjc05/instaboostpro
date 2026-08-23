@@ -102,6 +102,15 @@ adminRouter.post('/users/:id/update', (req: any, res) => {
     const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId) as any;
     if (!user) return res.status(404).json({ error: 'User not found' });
 
+    // Privilege escalation prevention
+    const reqRole = req.userRole; // user, admin, or owner
+    if (user.role === 'owner' && reqRole !== 'owner') {
+        return res.status(403).json({ error: 'Você não tem permissão para modificar o dono (owner).' });
+    }
+    if (action === 'set_role' && (value === 'owner' || value === 'admin') && reqRole !== 'owner') {
+        return res.status(403).json({ error: 'Apenas o dono pode conceder privilégios de Admin/Owner.' });
+    }
+
     if (action === 'add_coins' || action === 'remove_coins') {
         const amt = Number(value);
         if (action === 'remove_coins' && user.credits < amt) return res.status(400).json({ error: 'Saldo insuficiente' });
@@ -209,6 +218,13 @@ adminRouter.post('/payments/:id/approve', (req: any, res) => {
 adminRouter.post('/users/:id/block', (req: any, res) => {
     const userId = req.params.id;
     const { blocked } = req.body;
+    
+    // Privilege escalation prevention
+    const user = db.prepare('SELECT role FROM users WHERE id = ?').get(userId) as any;
+    if (user && user.role === 'owner' && req.userRole !== 'owner') {
+        return res.status(403).json({ error: 'Você não tem permissão para bloquear o dono (owner).' });
+    }
+
     db.prepare(`UPDATE users SET is_blocked = ? WHERE id = ?`).run(blocked ? 1 : 0, userId);
     logAction(req.userId, userId, 'block_user', blocked ? 'Usuário bloqueado' : 'Usuário desbloqueado');
     res.json({ success: true });
@@ -326,6 +342,12 @@ adminRouter.get('/audit-logs', (req: any, res) => {
 });
 
 // Backup handling
+adminRouter.get('/backup/download', (req: any, res) => {
+    const dbPath = process.env.NODE_ENV === 'production' ? '/tmp/sqlite.db' : 'sqlite.db';
+    logAction(req.userId, null, 'export_backup', 'Baixou arquivo físico do banco de dados');
+    res.download(dbPath, `database-export-${Date.now()}.db`);
+});
+
 adminRouter.get('/backup', (req: any, res) => {
     const users = db.prepare('SELECT * FROM users').all();
     const payments = db.prepare('SELECT * FROM payments').all();

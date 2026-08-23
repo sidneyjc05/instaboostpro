@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { db, createNotification } from './db.js';
 import { authMiddleware, adminMiddleware } from './auth.js';
+import { validateData, RegisterSchema, LoginSchema, PromotionSchema, SavedCardSchema, RecoverResetSchema } from './validation.js';
 import crypto from 'crypto';
 import qrcode from 'qrcode';
 import { MercadoPagoConfig, Payment, Customer, CustomerCard } from 'mercadopago';
@@ -22,6 +23,20 @@ import {
 } from './firebase.js';
 
 import { adminRouter } from './admin.js';
+
+import rateLimit from 'express-rate-limit';
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10,
+  message: { error: 'Muitas tentativas. Tente novamente em 15 minutos.' }
+});
+
+const registerLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 5,
+  message: { error: 'Muitas tentativas de registro. Tente novamente em 1 hora.' }
+});
 
 export const apiRouter = express.Router();
 console.log('API Router Initializing...');
@@ -99,10 +114,8 @@ apiRouter.get('/settings/public', (req, res) => {
 });
 
 // --- AUTH --- //
-apiRouter.post('/auth/register', (req, res) => {
+apiRouter.post('/auth/register', registerLimiter, validateData(RegisterSchema), (req, res) => {
   const { username, email, password } = req.body;
-  if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
-
   // Block registration if maintenance mode is on
   const maintenanceMode = db.prepare('SELECT value FROM settings WHERE key = ?').get('maintenance_mode') as any;
   if (maintenanceMode && maintenanceMode.value === 'on') {
@@ -155,7 +168,7 @@ apiRouter.post('/auth/register', (req, res) => {
 });
 
 // PASSWORD RECOVERY
-apiRouter.post('/auth/recover/send', async (req, res) => {
+apiRouter.post('/auth/recover/send', authLimiter, async (req, res) => {
    const { email } = req.body;
    if (!email) return res.status(400).json({ error: 'Email requerido' });
 
@@ -183,9 +196,8 @@ apiRouter.post('/auth/recover/send', async (req, res) => {
    res.json({ success: true });
 });
 
-apiRouter.post('/auth/recover/reset', (req, res) => {
+apiRouter.post('/auth/recover/reset', authLimiter, validateData(RecoverResetSchema), (req, res) => {
    const { email, code, newPassword } = req.body;
-   if (!email || !code || !newPassword) return res.status(400).json({ error: 'Preencha todos os campos' });
 
    const user = db.prepare('SELECT id FROM users WHERE email = ?').get(email) as any;
    if (!user) return res.status(400).json({ error: 'Código inválido' });
@@ -203,7 +215,7 @@ apiRouter.post('/auth/recover/reset', (req, res) => {
    res.json({ success: true });
 });
 
-apiRouter.post('/auth/login', async (req, res) => {
+apiRouter.post('/auth/login', authLimiter, validateData(LoginSchema), async (req, res) => {
   try {
     const { username, password, verificationCode } = req.body;
     const user = db.prepare('SELECT * FROM users WHERE username = ? OR email = ?').get(username, username) as any;
@@ -624,10 +636,8 @@ apiRouter.get('/promotions', authMiddleware, (req: any, res) => {
   res.json(promotions);
 });
 
-apiRouter.post('/promotions', authMiddleware, (req: any, res) => {
+apiRouter.post('/promotions', authMiddleware, validateData(PromotionSchema), (req: any, res) => {
   const { url, durationMinutes } = req.body;
-  if (!url || !durationMinutes) return res.status(400).json({ error: 'URL and duration required' });
-
   const userRecord = db.prepare('SELECT plan_type FROM users WHERE id = ?').get(req.userId) as any;
   const planType = userRecord?.plan_type || 'basic';
 
@@ -739,7 +749,7 @@ apiRouter.post('/promotions/:id/interact', authMiddleware, (req: any, res) => {
 });
 
 // --- INSTAGRAM METADATA & REEL INSPECTION (AI + DATABASE POWERED) --- //
-apiRouter.get('/instagram/inspect-reel', async (req, res) => {
+apiRouter.get('/instagram/inspect-reel', authMiddleware, async (req, res) => {
   const rawUrl = (req.query.url as string) || '';
   if (!rawUrl) {
     return res.status(400).json({ error: 'URL required' });
@@ -1028,7 +1038,7 @@ function generateInstagramSvgAvatar(username: string): string {
 }
 
 // GET /api/instagram/profile/:username - Fetch profile information
-apiRouter.get('/instagram/profile/:username', async (req, res) => {
+apiRouter.get('/instagram/profile/:username', authMiddleware, async (req, res) => {
   try {
     const rawUsername = req.params.username || '';
     const username = rawUsername.replace(/^@/, '').trim().toLowerCase();
@@ -1082,7 +1092,7 @@ apiRouter.get('/instagram/profile/:username', async (req, res) => {
 });
 
 // GET /api/instagram/avatar/:username - Directly deliver the Instagram Avatar Image
-apiRouter.get('/instagram/avatar/:username', async (req, res) => {
+apiRouter.get('/instagram/avatar/:username', authMiddleware, async (req, res) => {
   try {
     const rawUsername = req.params.username || 'user';
     const username = rawUsername.replace(/^@/, '').trim().toLowerCase();
@@ -1499,14 +1509,10 @@ apiRouter.get('/user/saved-cards', authMiddleware, async (req: any, res) => {
   }
 });
 
-apiRouter.post('/user/saved-cards', authMiddleware, async (req: any, res) => {
+apiRouter.post('/user/saved-cards', authMiddleware, validateData(SavedCardSchema), async (req: any, res) => {
   try {
     const userId = Number(req.userId);
     const { cardholderName, cardNumber, expirationMonth, expirationYear, brand } = req.body;
-
-    if (!cardNumber || !cardholderName || !expirationMonth || !expirationYear) {
-      return res.status(400).json({ error: 'Dados do cartão incompletos.' });
-    }
 
     const cleanNumber = cardNumber.replace(/\D/g, '');
     const lastFour = cleanNumber.slice(-4) || '0000';
