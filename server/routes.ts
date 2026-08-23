@@ -2156,37 +2156,80 @@ apiRouter.post('/payments/pix', authMiddleware, async (req: any, res) => {
 });
 
 apiRouter.get('/payments/:id', authMiddleware, async (req: any, res) => {
-  const payment = db.prepare('SELECT * FROM payments WHERE id = ? AND user_id = ?').get(req.params.id, req.userId) as any;
-  if (!payment) return res.status(404).json({ error: 'Not found' });
+  let payment = db.prepare('SELECT * FROM payments WHERE id = ?').get(req.params.id) as any;
+
+  if (payment) {
+    if (String(payment.user_id) !== String(req.userId)) {
+      return res.status(403).json({ error: 'Acesso não autorizado' });
+    }
+  } else if (firestoreDb) {
+    try {
+      const payDoc = await firestoreDb.collection('payments').doc(req.params.id.toString()).get();
+      if (payDoc.exists) {
+        const payData = payDoc.data();
+        if (String(payData?.userId) !== String(req.userId)) {
+          return res.status(403).json({ error: 'Acesso não autorizado' });
+        }
+        payment = {
+          id: payData?.id || req.params.id,
+          user_id: payData?.userId,
+          status: payData?.status || 'pending',
+          credits: payData?.credits || 0,
+          tickets: payData?.tickets || 0,
+          item_type: payData?.itemType || 'coins',
+          plan_id: payData?.planId || null,
+          qrCode: payData?.qrCodeBase64 ? `data:image/png;base64,${payData.qrCodeBase64}` : null,
+          pixCode: payData?.pixCode || null,
+          amount: payData?.amount || 0
+        };
+      }
+    } catch (e) {}
+  }
+
+  if (!payment) return res.status(404).json({ error: 'Pagamento não encontrado' });
 
   if (payment.status === 'pending') {
-    try {
-      const mpPayInfo = await mpPayment.get({ id: payment.id });
-      
-      if (mpPayInfo.status === 'approved') {
-        const tx = db.transaction(() => {
-          const updateRes = db.prepare("UPDATE payments SET status = 'approved' WHERE id = ? AND status = 'pending'").run(payment.id.toString());
-          if (updateRes.changes > 0) {
-            fulfillPayment(payment, 'mercadopago_polling');
-          }
-        });
-        tx();
-        payment.status = 'approved';
-      } else if (mpPayInfo.status === 'cancelled' || mpPayInfo.status === 'rejected') {
-        db.prepare("UPDATE payments SET status = 'cancelled' WHERE id = ?").run(payment.id.toString());
-        updatePaymentInFirestore(payment.id.toString(), 'cancelled');
-        payment.status = 'cancelled';
-      } else {
-        const rawBase64 = mpPayInfo.point_of_interaction?.transaction_data?.qr_code_base64;
-        payment.qrCode = rawBase64 ? `data:image/png;base64,${rawBase64}` : null;
-        payment.pixCode = mpPayInfo.point_of_interaction?.transaction_data?.qr_code;
+    let isMpPayment = !payment.id.toString().startsWith('pix_');
+    if (isMpPayment) {
+      try {
+        const mpPayInfo = await mpPayment.get({ id: Number(payment.id) });
+        
+        if (mpPayInfo.status === 'approved') {
+          const tx = db.transaction(() => {
+            const updateRes = db.prepare("UPDATE payments SET status = 'approved' WHERE id = ? AND status = 'pending'").run(payment.id.toString());
+            if (updateRes.changes > 0) {
+              fulfillPayment(payment, 'mercadopago_polling');
+            }
+          });
+          tx();
+          updatePaymentInFirestore(payment.id.toString(), 'approved');
+          payment.status = 'approved';
+        } else if (mpPayInfo.status === 'cancelled' || mpPayInfo.status === 'rejected') {
+          db.prepare("UPDATE payments SET status = 'cancelled' WHERE id = ?").run(payment.id.toString());
+          updatePaymentInFirestore(payment.id.toString(), 'cancelled');
+          payment.status = 'cancelled';
+        } else {
+          const rawBase64 = mpPayInfo.point_of_interaction?.transaction_data?.qr_code_base64;
+          payment.qrCode = rawBase64 ? `data:image/png;base64,${rawBase64}` : payment.qrCode;
+          payment.pixCode = mpPayInfo.point_of_interaction?.transaction_data?.qr_code || payment.pixCode;
+        }
+      } catch (err) {
+        console.error('Failed to get QR/status from MP', err);
       }
-    } catch (err) {
-      console.error('Failed to get QR/status from MP', err);
     }
   }
 
-  res.json({ id: payment.id, status: payment.status, credits: payment.credits, qrCode: payment.qrCode, pixCode: payment.pixCode, item_type: payment.item_type, tickets: payment.tickets, plan_id: payment.plan_id });
+  res.json({ 
+    id: payment.id, 
+    status: payment.status, 
+    credits: payment.credits, 
+    qrCode: payment.qrCode, 
+    pixCode: payment.pixCode, 
+    item_type: payment.item_type, 
+    tickets: payment.tickets, 
+    plan_id: payment.plan_id,
+    amount: payment.amount 
+  });
 });
 
 // Secure Payment Verification Endpoint with Token Authentication
@@ -2241,20 +2284,50 @@ apiRouter.post('/payments/verify', authMiddleware, async (req: any, res) => {
       }
     }
 
-    // Update in Firestore and deliver if not found in SQLite (e.g. from Netlify or direct Firestore client)
+    // Check in Firestore if not found in SQLite (e.g. from Netlify or direct Firestore client)
     if (firestoreDb) {
       try {
         const payRef = firestoreDb.collection('payments').doc(paymentId.toString());
         const payDoc = await payRef.get();
         if (payDoc.exists) {
           const payData = payDoc.data();
-          if (String(payData?.userId) === String(req.userId)) {
+          if (String(payData?.userId) !== String(req.userId)) {
+            return res.status(403).json({ error: 'Acesso não autorizado para esta transação.' });
+          }
+
+          // If already marked approved
+          if (payData.status === 'approved') {
+            return res.json({
+              success: true,
+              delivered: true,
+              status: 'approved',
+              item_type: payData.itemType,
+              credits: payData.credits,
+              tickets: payData.tickets,
+              plan_id: payData.planId
+            });
+          }
+
+          // For Mercado Pago payments, verify real status with Mercado Pago API
+          let isMp = !paymentId.toString().startsWith('pix_');
+          let currentStatus = payData.status || 'pending';
+
+          if (isMp) {
+            try {
+              const mpPayInfo = await mpPayment.get({ id: Number(paymentId) });
+              currentStatus = mpPayInfo.status;
+            } catch (mpErr) {
+              console.error('Failed to get status from MP for firestore doc:', mpErr);
+            }
+          }
+
+          if (currentStatus === 'approved') {
             await payRef.set({
               status: 'approved',
               delivered: true,
               updatedAt: new Date().toISOString(),
               approvedAt: new Date().toISOString(),
-              verifiedVia: 'token_verification'
+              verifiedVia: 'mercadopago_token_verification'
             }, { merge: true });
 
             await grantUserRewardsInFirestore(req.userId, {
@@ -2273,6 +2346,12 @@ apiRouter.post('/payments/verify', authMiddleware, async (req: any, res) => {
               tickets: payData.tickets,
               plan_id: payData.planId
             });
+          } else {
+            return res.status(400).json({
+              error: 'O pagamento ainda não foi confirmado pelo banco. Você está na fila de verificação segura. Aguarde alguns instantes.',
+              queue: true,
+              status: currentStatus
+            });
           }
         }
       } catch (e: any) {
@@ -2282,7 +2361,11 @@ apiRouter.post('/payments/verify', authMiddleware, async (req: any, res) => {
       }
     }
 
-    return res.json({ success: true, delivered: true, status: 'approved' });
+    return res.status(400).json({ 
+      error: 'Pagamento pendente de confirmação bancária. Aguarde alguns instantes ou verifique o comprovante no app do seu banco.',
+      queue: true,
+      status: 'pending' 
+    });
   } catch (err: any) {
     console.error('Payment verification error:', err);
     res.status(500).json({ error: 'Erro ao verificar pagamento.' });

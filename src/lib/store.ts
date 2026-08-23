@@ -307,83 +307,7 @@ export const verifyAndDeliverPayment = async (
   paymentId: string,
   verificationToken?: string
 ) => {
-  const payDocRef = doc(db, 'payments', paymentId);
-  let payDoc: any = null;
-
-  try {
-    payDoc = await getDoc(payDocRef);
-  } catch (err) {
-    console.warn('[Firestore getDoc notice]', err);
-  }
-
-  // 1. If payment document exists in Firestore (Direct Firebase / Netlify / Synced AI Studio)
-  if (payDoc && payDoc.exists()) {
-    const payData = payDoc.data();
-
-    // Security check
-    if (payData.userId && String(payData.userId) !== String(userId)) {
-      throw new Error('Acesso não autorizado para esta transação.');
-    }
-
-    // Idempotency check: if already delivered, do not credit twice
-    if (payData.delivered) {
-      return {
-        success: true,
-        alreadyDelivered: true,
-        message: 'Itens já foram creditados na sua conta!',
-        itemType: payData.itemType || 'coins',
-        credits: payData.credits || 0,
-        tickets: payData.tickets || 0,
-        planId: payData.planId,
-        amount: payData.amount
-      };
-    }
-
-    // Deliver the items to the user document in Firestore (works on Netlify & AI Studio)
-    const creditValue = payData.itemType === 'plan' 
-      ? payData.planId 
-      : (payData.itemType === 'tickets' ? payData.tickets : (payData.credits || 0));
-
-    await deliverPurchase(userId, payData.itemType || 'coins', creditValue);
-
-    // Update payment status as approved and delivered in Firestore
-    try {
-      await updateDoc(payDocRef, {
-        status: 'approved',
-        delivered: true,
-        deliveredAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        verifiedVia: 'secure_verification_token'
-      });
-    } catch (e) {
-      console.warn('[Firestore updateDoc notice]', e);
-    }
-
-    // Notify backend Express server if available (for Google AI Studio full sync)
-    try {
-      const token = await auth.currentUser?.getIdToken();
-      if (token) {
-        await fetch('/api/payments/verify', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ paymentId, verificationToken })
-        });
-      }
-    } catch (e) {}
-
-    return {
-      success: true,
-      delivered: true,
-      message: 'Pagamento verificado e itens liberados com sucesso!',
-      itemType: payData.itemType || 'coins',
-      credits: payData.credits || 0,
-      tickets: payData.tickets || 0,
-      planId: payData.planId,
-      amount: payData.amount
-    };
-  }
-
-  // 2. Fallback: Payment is in backend SQLite only (Google AI Studio backend API)
+  // 1. Strict backend API verification against Mercado Pago / Bank Gateway
   try {
     const token = await auth.currentUser?.getIdToken();
     const res = await fetch('/api/payments/verify', {
@@ -398,8 +322,8 @@ export const verifyAndDeliverPayment = async (
     const contentType = res.headers.get('content-type') || '';
     if (res.ok && contentType.includes('application/json')) {
       const data = await res.json();
-      if (data.success) {
-        // Also deliver to Firestore user doc to ensure instant balance sync
+      if (data.success && data.status === 'approved') {
+        // Safe delivery synchronization
         if (data.credits || data.tickets || data.plan_id) {
           const creditVal = data.item_type === 'plan' 
             ? data.plan_id 
@@ -412,23 +336,86 @@ export const verifyAndDeliverPayment = async (
         return {
           success: true,
           delivered: true,
-          message: data.message || 'Pagamento verificado e itens liberados com sucesso!',
+          message: data.message || 'Pagamento confirmado e itens liberados com sucesso!',
           itemType: data.item_type || 'coins',
           credits: data.credits || 0,
           tickets: data.tickets || 0,
-          planId: data.plan_id
+          planId: data.plan_id,
+          amount: data.amount
         };
       }
     } else if (!res.ok && contentType.includes('application/json')) {
        const errData = await res.json();
-       throw new Error(errData.error || 'Erro na verificação.');
+       throw new Error(errData.error || 'Pagamento ainda não confirmado pelo banco.');
     }
   } catch (apiErr: any) {
+    if (apiErr?.message && !apiErr.message.includes('Unexpected token') && !apiErr.message.includes('<!doctype') && !apiErr.message.includes('Failed to fetch')) {
+      throw apiErr;
+    }
     console.warn('[Backend verification notice]', apiErr);
-    throw apiErr;
   }
 
-  throw new Error('Não foi possível localizar este pedido para validação. Aguarde a confirmação bancária.');
+  // 2. Check Firestore payments document status (must already be approved by webhook/admin to deliver)
+  const payDocRef = doc(db, 'payments', paymentId);
+  let payDoc: any = null;
+
+  try {
+    payDoc = await getDoc(payDocRef);
+  } catch (err) {
+    console.warn('[Firestore getDoc notice]', err);
+  }
+
+  if (payDoc && payDoc.exists()) {
+    const payData = payDoc.data();
+
+    // Security check: Must belong to current authenticated user
+    if (payData.userId && String(payData.userId) !== String(userId)) {
+      throw new Error('Acesso não autorizado para esta transação.');
+    }
+
+    // Only deliver if status is strictly 'approved' in database by Mercado Pago Webhook / Backend
+    if (payData.status === 'approved') {
+      if (payData.delivered) {
+        return {
+          success: true,
+          alreadyDelivered: true,
+          message: 'Itens já foram creditados na sua conta!',
+          itemType: payData.itemType || 'coins',
+          credits: payData.credits || 0,
+          tickets: payData.tickets || 0,
+          planId: payData.planId,
+          amount: payData.amount
+        };
+      }
+
+      const creditValue = payData.itemType === 'plan' 
+        ? payData.planId 
+        : (payData.itemType === 'tickets' ? payData.tickets : (payData.credits || 0));
+
+      await deliverPurchase(userId, payData.itemType || 'coins', creditValue);
+
+      try {
+        await updateDoc(payDocRef, {
+          delivered: true,
+          deliveredAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        });
+      } catch (e) {}
+
+      return {
+        success: true,
+        delivered: true,
+        message: 'Pagamento aprovado e itens liberados com sucesso!',
+        itemType: payData.itemType || 'coins',
+        credits: payData.credits || 0,
+        tickets: payData.tickets || 0,
+        planId: payData.planId,
+        amount: payData.amount
+      };
+    }
+  }
+
+  throw new Error('O pagamento ainda não foi confirmado pelo banco. Você está na fila de verificação segura. Aguarde alguns instantes.');
 };
 
 export const processCardPayment = async (

@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { Request, Response, NextFunction } from 'express';
 
 // Validation middleware
-export const validateData = (schema: z.AnyZodObject | z.ZodEffects<z.AnyZodObject>) => {
+export const validateData = (schema: z.ZodTypeAny) => {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
       req.body = await schema.parseAsync(req.body);
