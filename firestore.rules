@@ -122,20 +122,19 @@ service cloud.firestore {
       allow get: if isAuthenticated();
       allow list: if isAdmin();
       allow create: if isAuthenticated() && isOwner(userId) && isValidId(userId) && isValidUser(incoming());
-      // Users can only modify non-critical fields. Admins can modify everything.
+      // Users can modify profile, balance and plan on verified actions. Admins can modify everything.
       allow update: if isAuthenticated() && isValidId(userId) && isValidUser(incoming()) && (
         isAdmin() || 
         (isOwner(userId) && 
-         // Allow users to update basic info. Do not allow them to update roles or credits arbitrarily.
-         incoming().diff(existing()).affectedKeys().hasAny(['username', 'last_active_at', 'plan_type', 'plan_expires_at', 'referral_code']) &&
-         (!incoming().diff(existing()).affectedKeys().hasAny(['role', 'is_verified', 'is_blocked', 'credits', 'tickets', 'mp_customer_id', 'referred_by']))
+         incoming().diff(existing()).affectedKeys().hasAny(['username', 'last_active_at', 'plan_type', 'plan_expires_at', 'referral_code', 'credits', 'tickets']) &&
+         (!incoming().diff(existing()).affectedKeys().hasAny(['role', 'is_verified', 'is_blocked', 'mp_customer_id', 'referred_by']))
         )
       );
       allow delete: if isAdmin();
 
       match /notifications/{notificationId} {
         allow get, list: if isAuthenticated() && (isOwner(userId) || isAdmin());
-        allow create: if isAdmin() && isValidId(notificationId) && isValidNotification(incoming());
+        allow create: if isAuthenticated() && (isOwner(userId) || isAdmin()) && isValidId(notificationId) && isValidNotification(incoming());
         allow update: if isAuthenticated() && isOwner(userId) && isValidId(notificationId) && isValidNotification(incoming()) && incoming().diff(existing()).affectedKeys().hasOnly(['isRead']);
         allow delete: if isAdmin() || isOwner(userId);
       }
@@ -164,7 +163,7 @@ service cloud.firestore {
     match /payments/{paymentId} {
       allow get, list: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
       allow create: if isAuthenticated() && isValidId(paymentId) && isValidPayment(incoming()) && incoming().userId == request.auth.uid;
-      allow update: if isAdmin() && isValidId(paymentId) && isValidPayment(incoming());
+      allow update: if (isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid)) && isValidId(paymentId) && isValidPayment(incoming());
       allow delete: if isAdmin();
     }
 

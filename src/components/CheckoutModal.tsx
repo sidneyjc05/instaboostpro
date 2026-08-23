@@ -811,10 +811,20 @@ export function CheckoutModal({ isOpen, onClose, item, onSuccess }: CheckoutModa
 
                 {/* Primary Action Button: Manual Verification & Immediate Delivery */}
                 {isQueued ? (
-                  <div className="w-full bg-warning/10 border border-warning/30 rounded-2xl p-4 flex flex-col items-center justify-center text-center mt-2 animate-pulse">
-                    <Clock size={28} className="text-warning mb-2" />
-                    <h5 className="font-bold text-warning text-sm">Na fila de verificação</h5>
-                    <p className="text-xs text-muted-foreground mt-1">O Mercado Pago ainda não confirmou o pagamento. O sistema continuará checando automaticamente.</p>
+                  <div className="w-full bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 flex flex-col items-center justify-center text-center mt-2 gap-2">
+                    <Clock size={28} className="text-amber-400 animate-spin" />
+                    <div>
+                      <h5 className="font-bold text-amber-400 text-sm">Na fila de verificação do banco</h5>
+                      <p className="text-xs text-muted-foreground mt-1">O sistema está checando a confirmação. Se você já transferiu o PIX, clique abaixo para liberar imediatamente.</p>
+                    </div>
+                    <Button 
+                      onClick={handleManualVerifyPix}
+                      isLoading={verifyingPix}
+                      size="sm"
+                      className="w-full h-11 text-xs font-black uppercase tracking-wider rounded-xl shadow-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white mt-1"
+                    >
+                      <ShieldCheck className="mr-1.5" size={16} /> Confirmar & Liberar Moedas Agora
+                    </Button>
                   </div>
                 ) : (
                   <Button 

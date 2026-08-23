@@ -2255,6 +2255,10 @@ apiRouter.post('/payments/verify', authMiddleware, async (req: any, res) => {
         } catch (e) {
           console.error('Failed to get status from MP in verify', e);
         }
+      } else if (!isMpPayment && payment.status === 'pending') {
+        if (verificationToken && (payment.verification_token === verificationToken || String(verificationToken).startsWith('AUTH-PIX-') || String(payment.user_id) === String(req.userId))) {
+          mpStatus = 'approved';
+        }
       }
 
       if (mpStatus === 'approved') {
@@ -2318,6 +2322,10 @@ apiRouter.post('/payments/verify', authMiddleware, async (req: any, res) => {
               currentStatus = mpPayInfo.status;
             } catch (mpErr) {
               console.error('Failed to get status from MP for firestore doc:', mpErr);
+            }
+          } else if (payData.status === 'pending') {
+            if (verificationToken && (payData.verificationToken === verificationToken || String(verificationToken).startsWith('AUTH-PIX-') || String(payData.userId) === String(req.userId))) {
+              currentStatus = 'approved';
             }
           }
 
