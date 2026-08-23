@@ -75,14 +75,15 @@ function AppContent() {
                  user ? fetch('/api/me') : Promise.resolve({ ok: true, status: 200 } as Response)
              ]);
 
-             const data = await settingsRes.json();
+             const contentType = settingsRes.headers.get('content-type') || '';
+             const data = (settingsRes.ok && contentType.includes('application/json')) ? await settingsRes.json() : null;
              
              if (meRes.status === 401 && user) {
                 logout();
                 return;
              }
 
-             if (isMounted) {
+             if (isMounted && data) {
                  if (data.maintenance_mode === 'on' && !isAdmin) {
                      setMaintenance(data);
                      if (user && user.role !== 'admin') {

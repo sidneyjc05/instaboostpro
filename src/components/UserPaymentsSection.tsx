@@ -143,7 +143,11 @@ export function UserPaymentsSection() {
       console.warn("Error listening to user payments:", err);
       // Fallback to API
       fetch(`/api/payments/my`, { credentials: 'include' })
-        .then(res => res.json())
+        .then(res => {
+          const contentType = res.headers.get('content-type') || '';
+          if (res.ok && contentType.includes('application/json')) return res.json();
+          return null;
+        })
         .then(data => {
           if (Array.isArray(data)) setPayments(data);
         })

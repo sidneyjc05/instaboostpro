@@ -178,7 +178,8 @@ export const checkPendingPixPayment = async (
       headers: { Authorization: `Bearer ${token}` }
     });
     
-    if (res.ok) {
+    const contentType = res.headers.get('content-type') || '';
+    if (res.ok && contentType.includes('application/json')) {
       const data = await res.json();
       if (data && data.isExisting) {
         return {
@@ -190,8 +191,10 @@ export const checkPendingPixPayment = async (
         };
       }
     }
-  } catch (err) {
-    console.warn('[Pending Check]', err);
+  } catch (err: any) {
+    if (err && !err.message?.includes('Unexpected token') && !err.message?.includes('<!doctype')) {
+      console.warn('[Pending Check Notice]', err.message || err);
+    }
   }
   return null;
 };
