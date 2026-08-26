@@ -90,7 +90,7 @@ async function startServer() {
   app.use('/api', apiRouter);
 
   // Catch-all for missing API routes to prevent HTML response
-  app.all('/api/*', (req, res) => {
+  app.all('/api/*all', (req, res) => {
     console.log(`[CATCH-ALL 404] ${req.method} ${req.url}`);
     res.status(404).json({ error: `API route not found: ${req.method} ${req.url}` });
   });
@@ -126,7 +126,7 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath, { dotfiles: 'allow' }));
-    app.get('*', (req, res) => {
+    app.get('*all', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }

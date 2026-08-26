@@ -182,22 +182,41 @@ export default function Home() {
       const userDoc = await getDoc(userRef);
       const userData = userDoc.data();
       const missionsProgress = userData?.missions_progress || {};
-      const missionData = missionsProgress[missionType] || { level: 1, progress: 0 };
       
       const now = new Date();
+      const missionData = missionsProgress[missionType] || { level: 1, progress: 0 };
       const lastUpdatedMs = missionData.updated_at ? new Date(missionData.updated_at).getTime() : 0;
-      if (lastUpdatedMs > 0 && now.getTime() - lastUpdatedMs > 15 * 60 * 1000) {
-        missionData.progress = 1;
+      const isTimedOut = lastUpdatedMs > 0 && (now.getTime() - lastUpdatedMs > 15 * 60 * 1000);
+
+      const updatedProgressMap: Record<string, any> = {};
+      if (isTimedOut) {
+        // Inactivity timeout: reset all missions to level 1
+        for (const key of ['likes', 'reels', 'follows', 'time']) {
+          updatedProgressMap[key] = {
+            level: 1,
+            progress: key === missionType ? 1 : 0,
+            progress_seconds: 0,
+            updated_at: now.toISOString()
+          };
+        }
       } else {
         missionData.progress = (missionData.progress || 0) + 1;
+        missionData.updated_at = now.toISOString();
+        updatedProgressMap[missionType] = missionData;
       }
-      missionData.updated_at = now.toISOString();
 
-      await updateDoc(userRef, {
+      const updatePayload: Record<string, any> = {
         credits: increment(0.2),
-        interacted_promos: arrayUnion(activePromo.id),
-        [`missions_progress.${missionType}`]: missionData
-      });
+        interacted_promos: arrayUnion(activePromo.id)
+      };
+
+      if (isTimedOut) {
+        updatePayload.missions_progress = updatedProgressMap;
+      } else {
+        updatePayload[`missions_progress.${missionType}`] = missionData;
+      }
+
+      await updateDoc(userRef, updatePayload);
 
       // Award referral commission if user was invited by someone
       if (userData?.referred_by) {

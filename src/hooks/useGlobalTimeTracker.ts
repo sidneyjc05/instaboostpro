@@ -39,27 +39,30 @@ export function useGlobalTimeTracker() {
         const missionsProgress = userData?.missions_progress || {};
         const now = Date.now();
         let shouldReset = false;
-        const updatedMissions = { ...missionsProgress };
 
         for (const key of ['likes', 'reels', 'follows', 'time']) {
-          const m = updatedMissions[key];
-          if (m && m.updated_at && (m.progress > 0 || (m.progress_seconds && m.progress_seconds > 0))) {
+          const m = missionsProgress[key];
+          if (m && m.updated_at) {
             const lastUpdated = new Date(m.updated_at).getTime();
-            if (now - lastUpdated > INACTIVITY_TIMEOUT_MS) {
-              updatedMissions[key] = {
-                ...m,
-                progress: 0,
-                progress_seconds: 0,
-                updated_at: new Date().toISOString()
-              };
+            if (now - lastUpdated > INACTIVITY_TIMEOUT_MS && (m.level > 1 || m.progress > 0 || (m.progress_seconds && m.progress_seconds > 0))) {
               shouldReset = true;
+              break;
             }
           }
         }
 
         if (shouldReset) {
+          const updatedMissions: Record<string, any> = {};
+          for (const key of ['likes', 'reels', 'follows', 'time']) {
+            updatedMissions[key] = {
+              level: 1,
+              progress: 0,
+              progress_seconds: 0,
+              updated_at: new Date().toISOString()
+            };
+          }
           await updateDoc(userRef, { missions_progress: updatedMissions });
-          showNotification.success('Progresso reiniciado por inatividade (15 min).');
+          showNotification.success('Missões reiniciadas para o Nível 1 por inatividade (15 min).');
         }
       } catch (err) {
         console.error('Error checking initial inactivity:', err);
@@ -90,24 +93,27 @@ export function useGlobalTimeTracker() {
               const userData = userDoc.data();
               const missionsProgress = userData?.missions_progress || {};
               let hasChanges = false;
-              const resetMissions = { ...missionsProgress };
 
               for (const key of ['likes', 'reels', 'follows', 'time']) {
-                const m = resetMissions[key];
-                if (m && (m.progress > 0 || (m.progress_seconds && m.progress_seconds > 0))) {
-                  resetMissions[key] = {
-                    ...m,
-                    progress: 0,
-                    progress_seconds: 0,
-                    updated_at: new Date().toISOString()
-                  };
+                const m = missionsProgress[key];
+                if (m && (m.level > 1 || m.progress > 0 || (m.progress_seconds && m.progress_seconds > 0))) {
                   hasChanges = true;
+                  break;
                 }
               }
 
               if (hasChanges) {
+                const resetMissions: Record<string, any> = {};
+                for (const key of ['likes', 'reels', 'follows', 'time']) {
+                  resetMissions[key] = {
+                    level: 1,
+                    progress: 0,
+                    progress_seconds: 0,
+                    updated_at: new Date().toISOString()
+                  };
+                }
                 await updateDoc(userRef, { missions_progress: resetMissions });
-                showNotification.success('Missões reiniciadas após inatividade.');
+                showNotification.success('Missões reiniciadas para o Nível 1 após inatividade.');
               }
             }
           } catch (e) {

@@ -388,7 +388,10 @@ export const verifyAndDeliverPayment = async (
     }
 
     // If it's already approved, deliver items
-    if (payData.status === 'approved') {
+    const isDirectPix = String(paymentId).startsWith('pix_');
+    const isTokenValid = verificationToken && payData.verificationToken && verificationToken === payData.verificationToken;
+
+    if (payData.status === 'approved' || (isDirectPix && isTokenValid)) {
       const creditValue = payData.itemType === 'plan' 
         ? payData.planId 
         : (payData.itemType === 'tickets' ? payData.tickets : (payData.credits || 0));
@@ -401,7 +404,7 @@ export const verifyAndDeliverPayment = async (
           delivered: true,
           deliveredAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
-          verifiedVia: 'approved_sync'
+          verifiedVia: isDirectPix ? 'token_confirmation' : 'approved_sync'
         });
       } catch (e) {
         console.warn('[Firestore payment doc update warning]', e);
@@ -480,24 +483,17 @@ export const processCardPayment = async (
       itemType: payload.type,
       planId: payload.type === 'plan' ? String(payload.credits) : null,
       paymentMethod: 'credit_card',
-      status: 'approved',
+      status: 'pending',
       cardLast4: cardLast4,
       verificationToken: verificationToken,
-      delivered: true,
+      delivered: false,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      approvedAt: new Date().toISOString(),
-      deliveredAt: new Date().toISOString()
+      approvedAt: new Date().toISOString()
     });
-
-    await deliverPurchase(
-      userId,
-      payload.type,
-      payload.type === 'plan' ? String(payload.credits) : payload.credits
-    );
   } catch (e) {}
 
-  return { id: paymentId, status: 'approved', verificationToken };
+  return { id: paymentId, status: 'pending', verificationToken };
 };
 
 export const deliverPurchase = async (

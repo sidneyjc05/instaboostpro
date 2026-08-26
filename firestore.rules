@@ -173,8 +173,8 @@ service cloud.firestore {
 
     match /payments/{paymentId} {
       allow get, list: if isAuthenticated();
-      allow create: if isAuthenticated() && isValidId(paymentId) && isValidPayment(incoming());
-      allow update: if isAuthenticated() && isValidId(paymentId) && isValidPayment(incoming());
+      allow create: if isAuthenticated() && isValidId(paymentId) && isValidPayment(incoming()) && (isAdmin() || (incoming().status != "approved" && incoming().status != "delivered" && incoming().delivered != true));
+      allow update: if isAuthenticated() && isValidId(paymentId) && isValidPayment(incoming()) && (isAdmin() || (isOwner(existing().userId) && (incoming().status == existing().status || incoming().status == "refund_requested") && incoming().delivered == existing().delivered && incoming().amount == existing().amount && incoming().credits == existing().credits));
       allow delete: if isAdmin();
     }
 

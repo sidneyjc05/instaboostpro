@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { db, createNotification } from './db.js';
 import { authMiddleware, adminMiddleware } from './auth.js';
 import { firestoreDb, updatePaymentInFirestore } from './firebase.js';
+import { FieldValue } from 'firebase-admin/firestore';
 import bcrypt from 'bcryptjs';
 
 export const adminRouter = Router();
@@ -47,9 +48,9 @@ adminRouter.post('/payments/:id/confirm-refund', async (req: any, res) => {
                  
                  const uRef = firestoreDb.collection('users').doc(user.id.toString());
                  if (itemType === 'coins') {
-                     await uRef.update({ credits: FirebaseFirestore.FieldValue.increment(-amount) });
+                     await uRef.update({ credits: FieldValue.increment(-amount) });
                  } else if (itemType === 'tickets') {
-                     await uRef.update({ tickets: FirebaseFirestore.FieldValue.increment(-amount) });
+                     await uRef.update({ tickets: FieldValue.increment(-amount) });
                  }
              } catch(e) {}
         }

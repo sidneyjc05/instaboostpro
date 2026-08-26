@@ -252,7 +252,7 @@ export function CheckoutModal({ isOpen, onClose, item, onSuccess }: CheckoutModa
         unsubFirestore = onSnapshot(doc(db, 'payments', pixData.id), (docSnap) => {
           if (docSnap.exists()) {
             const data = docSnap.data();
-            if (data.status === 'approved') {
+            if (data.status === 'approved' || data.status === 'delivered') {
               handleApproved(data.amount);
             } else if (data.status === 'rejected' || data.status === 'cancelled') {
               clearInterval(timer);
@@ -277,7 +277,7 @@ export function CheckoutModal({ isOpen, onClose, item, onSuccess }: CheckoutModa
           const contentType = res.headers.get('content-type') || '';
           if (res.ok && contentType.includes('application/json')) {
             const result = await res.json();
-            if (result.status === 'approved') {
+            if (result.status === 'approved' || result.status === 'delivered') {
               handleApproved(result.amount);
             } else if (result.status === 'rejected' || result.status === 'cancelled') {
               clearInterval(timer);
@@ -515,7 +515,7 @@ export function CheckoutModal({ isOpen, onClose, item, onSuccess }: CheckoutModa
 
       const data = await processCardPayment(String(user.id), payload);
 
-      if (data.status === 'approved') {
+      if (data.status === 'approved' || data.status === 'delivered') {
         try {
           await deliverPurchase(String(user.id), item.type, item.credits);
         } catch (e) {

@@ -19,7 +19,7 @@ import {
   CornerUpLeft,
   X
 } from 'lucide-react';
-import { collection, query, where, onSnapshot, doc, getDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { Button } from './ui/Button';
@@ -90,21 +90,18 @@ export function UserPaymentsSection() {
       setRefundingId(refundPayment.id);
       
       try {
-          const res = await fetch(`/api/payments/${refundPayment.id}/refund`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ pixKeyType, pixKey })
+          const paymentRef = doc(db, "payments", refundPayment.id);
+          await updateDoc(paymentRef, {
+            status: "refund_requested",
+            refund_pix_key_type: pixKeyType,
+            refund_pix_key: pixKey,
+            refund_requested_at: new Date().toISOString()
           });
-          const data = await res.json();
-          if (data.error) {
-              showNotification.error(data.error);
-          } else {
-              showNotification.success('Solicitação de reembolso enviada com sucesso!');
-              setRefundModalOpen(false);
-              setRefundPayment(null);
-          }
+          showNotification.success("Solicitação de reembolso enviada com sucesso!");
+          setRefundModalOpen(false);
       } catch (err) {
-          showNotification.error('Erro na conexão. Tente novamente.');
+          console.error("Refund error:", err);
+          showNotification.error("Erro ao solicitar reembolso.");
       }
       setRefundingId(null);
   };

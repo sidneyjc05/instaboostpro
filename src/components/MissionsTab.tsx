@@ -15,7 +15,7 @@ const MISSION_CONFIG = {
     baseColor: 'emerald',
     goals: [10, 25, 50, 100, 200],
     rewards: [0.2, 0.5, 1.5, 3.0, 6.0],
-    tickets: [0, 0, 0, 0, 1],
+    tickets: [0, 0, 0, 0, 0],
     actionText: 'Curtir no Instagram',
     dummyLink: 'https://www.instagram.com/p/C_q41-fM-sW/',
     type: 'post'
@@ -26,7 +26,7 @@ const MISSION_CONFIG = {
     baseColor: 'emerald',
     goals: [3, 8, 15, 30, 60],
     rewards: [0.3, 1.0, 3.0, 7.0, 14.0],
-    tickets: [0, 0, 0, 0, 1],
+    tickets: [0, 0, 0, 0, 0],
     actionText: 'Assistir Reel',
     dummyLink: 'https://www.instagram.com/reel/C-16HntO_5N/',
     type: 'reel'
@@ -37,7 +37,7 @@ const MISSION_CONFIG = {
     baseColor: 'emerald',
     goals: [5, 15, 30, 60, 120],
     rewards: [0.3, 1.0, 2.5, 5.0, 12.0],
-    tickets: [0, 0, 0, 0, 1],
+    tickets: [0, 0, 0, 0, 0],
     actionText: 'Seguir Perfil',
     dummyLink: 'https://www.instagram.com/instagram/',
     type: 'profile'
@@ -48,7 +48,7 @@ const MISSION_CONFIG = {
     baseColor: 'emerald',
     goals: [1, 5, 10, 20, 40],
     rewards: [0.5, 1.5, 3.5, 7.0, 15.0],
-    tickets: [0, 0, 0, 0, 1],
+    tickets: [0, 0, 0, 0, 0],
     actionText: '',
     dummyLink: '',
     type: 'time'
@@ -63,6 +63,8 @@ const LEVEL_COLORS = [
   'from-purple-500 to-violet-600'
 ];
 
+const INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutos
+
 const getDynamicMissionConfig = (type: string, level: number) => {
     const baseConfig = MISSION_CONFIG[type as keyof typeof MISSION_CONFIG];
     if (!baseConfig) return null;
@@ -71,16 +73,16 @@ const getDynamicMissionConfig = (type: string, level: number) => {
         return {
             goal: baseConfig.goals[level - 1],
             reward: baseConfig.rewards[level - 1],
-            tickets: baseConfig.tickets ? baseConfig.tickets[level - 1] : 0
+            tickets: 0 // Sem tickets nos níveis 1 a 5
         };
     }
 
+    // A partir do nível 6: concessão progressiva de tickets!
     const lastPaidLevel = 5;
     const baseGoal = baseConfig.goals[lastPaidLevel - 1];
     const baseReward = baseConfig.rewards[lastPaidLevel - 1];
-    const baseTickets = baseConfig.tickets ? baseConfig.tickets[lastPaidLevel - 1] : 0;
 
-    const diff = level - lastPaidLevel;
+    const diff = level - lastPaidLevel; // Nível 6 => diff = 1
     const goalMultiplier = Math.pow(1.5, diff);
     const rewardMultiplier = Math.pow(1.4, diff);
 
@@ -88,7 +90,8 @@ const getDynamicMissionConfig = (type: string, level: number) => {
     if (goal > 100) goal = Math.round(goal / 10) * 10;
     
     const reward = parseFloat((baseReward * rewardMultiplier).toFixed(1));
-    const tickets = baseTickets > 0 ? baseTickets * Math.pow(2, diff) : 0;
+    // Nível 6: 1 ticket, Nível 7: 2 tickets, Nível 8: 4 tickets, etc.
+    const tickets = Math.pow(2, diff - 1);
 
     return { goal, reward, tickets };
 };
@@ -102,16 +105,45 @@ export function MissionsTab({ onGoToFeed }: { onGoToFeed: () => void }) {
         if (!user?.id || !auth.currentUser) return;
         
         const userRef = doc(db, 'users', user.id);
-        const unsubscribe = onSnapshot(userRef, (userDoc) => {
+        const unsubscribe = onSnapshot(userRef, async (userDoc) => {
             if (userDoc.exists()) {
                 const userData = userDoc.data();
                 const missionsProgress = userData?.missions_progress || {};
+                const now = Date.now();
+                let hasTimedOut = false;
                 
-                const newState: Record<string, any> = {};
+                // Verificar inatividade de 15 minutos e resetar tudo para nível 1 caso tenha expirado
                 for (const key of Object.keys(MISSION_CONFIG)) {
-                    newState[key] = missionsProgress[key] || { level: 1, progress: 0, progress_seconds: 0, updated_at: null };
+                    const m = missionsProgress[key];
+                    if (m?.updated_at) {
+                        const lastUpdatedMs = new Date(m.updated_at).getTime();
+                        if (now - lastUpdatedMs > INACTIVITY_TIMEOUT_MS && (m.level > 1 || m.progress > 0 || m.progress_seconds > 0)) {
+                            hasTimedOut = true;
+                            break;
+                        }
+                    }
                 }
-                setState(newState);
+
+                const newState: Record<string, any> = {};
+                if (hasTimedOut) {
+                    const resetProgress: Record<string, any> = {};
+                    for (const key of Object.keys(MISSION_CONFIG)) {
+                        const defaultEntry = { level: 1, progress: 0, progress_seconds: 0, updated_at: new Date().toISOString() };
+                        newState[key] = defaultEntry;
+                        resetProgress[key] = defaultEntry;
+                    }
+                    setState(newState);
+                    try {
+                        await updateDoc(userRef, { missions_progress: resetProgress });
+                    } catch (e) {
+                        console.warn('Erro ao sincronizar reset de missões:', e);
+                    }
+                } else {
+                    for (const key of Object.keys(MISSION_CONFIG)) {
+                        newState[key] = missionsProgress[key] || { level: 1, progress: 0, progress_seconds: 0, updated_at: null };
+                    }
+                    setState(newState);
+                }
             }
             setLoading(false);
         }, (error) => {
@@ -136,14 +168,14 @@ export function MissionsTab({ onGoToFeed }: { onGoToFeed: () => void }) {
 
     return (
         <div className="flex flex-col gap-5">
-            {/* Smart Inactivity Notice Card */}
+            {/* Smart Inactivity & Level 6 Tickets Notice Card */}
             <div className="bg-gradient-to-r from-purple-500/10 via-primary/10 to-indigo-500/10 border border-primary/20 rounded-2xl p-4 sm:p-5 flex flex-col gap-2">
                 <div className="flex items-center gap-2 text-primary font-bold text-sm sm:text-base">
                    <Zap size={18} className="animate-pulse" />
-                   <span>Sistema Inteligente de Missões e Inatividade</span>
+                   <span>Sistema de Missões, Reset por Inatividade e Tickets</span>
                 </div>
                 <p className="text-xs sm:text-sm text-foreground/80 leading-relaxed">
-                   O tempo e as ações das missões são contabilizados continuamente em segundo plano e salvos no Firebase. Se você ficar mais de <strong>15 minutos inativo</strong>, o progresso do nível atual é reiniciado para incentivar o engajamento diário. Seus níveis conquistados e moedas resgatadas estão 100% seguros!
+                   O tempo e as ações das missões são contabilizados continuamente. Se você ficar mais de <strong>15 minutos inativo</strong>, todas as missões são <strong>reiniciadas e voltam para o Nível 1</strong>. A partir do <strong>Nível 6</strong>, todas as missões passam a conceder <strong>Tickets adicionais</strong> junto com as moedas!
                 </p>
             </div>
 
@@ -249,7 +281,8 @@ function MissionCard({ missionKey, config, state, refreshUser, onOpenViewer }: a
                 }
             });
 
-            showNotification.success(`Nível ${mState.level} completo! Você ganhou ${actualReward} moedas.`);
+            const ticketsAwarded = dynConfig.tickets || 0;
+            showNotification.success(`Nível ${mState.level} completo! Você ganhou ${actualReward} moedas${ticketsAwarded > 0 ? ` e ${ticketsAwarded} ticket(s)` : ''}!`);
             refreshUser();
         } catch (err: any) {
             showNotification.error(err.message || 'Erro ao resgatar missão');

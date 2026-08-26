@@ -1706,7 +1706,7 @@ apiRouter.post('/payments/card', authMiddleware, async (req: any, res) => {
                 number: (docNumber || '11144477735').replace(/\D/g, '')
               }
             },
-            notification_url: 'https://ais-pre-tconxsfpyuznwzskpbmftf-186769099699.us-west2.run.app/api/webhook/mercadopago'
+            notification_url: `${req.headers.origin || 'https://' + req.headers.host}/api/webhook/mercadopago`
           }
         });
         if (mpResponse.id) {
@@ -2104,7 +2104,7 @@ apiRouter.post('/payments/pix', authMiddleware, async (req: any, res) => {
             number: cpf.replace(/\D/g, '')
           }
         },
-        notification_url: 'https://ais-pre-tconxsfpyuznwzskpbmftf-186769099699.us-west2.run.app/api/webhook/mercadopago'
+        notification_url: `${req.headers.origin || 'https://' + req.headers.host}/api/webhook/mercadopago`
       }
     });
 
@@ -2687,22 +2687,22 @@ const MISSION_CONFIG = {
   likes: {
     goals: [10, 25, 50, 100, 200],
     rewards: [0.2, 0.5, 1.5, 3.0, 6.0],
-    tickets: [0, 0, 0, 0, 1]
+    tickets: [0, 0, 0, 0, 0]
   },
   reels: {
     goals: [3, 8, 15, 30, 60],
     rewards: [0.3, 1.0, 3.0, 7.0, 14.0],
-    tickets: [0, 0, 0, 0, 1]
+    tickets: [0, 0, 0, 0, 0]
   },
   follows: {
     goals: [5, 15, 30, 60, 120],
     rewards: [0.3, 1.0, 2.5, 5.0, 12.0],
-    tickets: [0, 0, 0, 0, 1]
+    tickets: [0, 0, 0, 0, 0]
   },
   time: {
     goals: [1, 5, 10, 20, 40], // in minutes
     rewards: [0.5, 1.5, 3.5, 7.0, 15.0],
-    tickets: [0, 0, 0, 0, 1]
+    tickets: [0, 0, 0, 0, 0]
   }
 };
 
@@ -2714,18 +2714,16 @@ function getMissionConfig(type: string, level: number) {
         return {
             goal: baseConfig.goals[level - 1],
             reward: baseConfig.rewards[level - 1],
-            tickets: baseConfig.tickets ? baseConfig.tickets[level - 1] : 0
+            tickets: 0
         };
     }
 
-    // Dynamic calculation for level > 5
-    // Each level increases goal by ~50% and reward by ~40%
+    // Dynamic calculation for level >= 6: tickets starting at level 6!
     const lastPaidLevel = 5;
     const baseGoal = baseConfig.goals[lastPaidLevel - 1];
     const baseReward = baseConfig.rewards[lastPaidLevel - 1];
-    const baseTickets = baseConfig.tickets ? baseConfig.tickets[lastPaidLevel - 1] : 0;
 
-    const diff = level - lastPaidLevel;
+    const diff = level - lastPaidLevel; // Level 6 => diff = 1
     const goalMultiplier = Math.pow(1.5, diff);
     const rewardMultiplier = Math.pow(1.4, diff);
 
@@ -2734,7 +2732,8 @@ function getMissionConfig(type: string, level: number) {
     if (goal > 100) goal = Math.round(goal / 10) * 10;
     
     const reward = parseFloat((baseReward * rewardMultiplier).toFixed(1));
-    const tickets = baseTickets > 0 ? baseTickets * Math.pow(2, diff) : 0;
+    // Nível 6 = 1 ticket, Nível 7 = 2 tickets, Nível 8 = 4 tickets...
+    const tickets = Math.pow(2, diff - 1);
 
     return { goal, reward, tickets };
 }

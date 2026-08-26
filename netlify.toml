@@ -9,9 +9,13 @@
     Access-Control-Allow-Methods = "GET, POST, PUT, DELETE, OPTIONS"
     Access-Control-Allow-Headers = "Content-Type, Authorization"
 
+# IMPORTANTE: O Netlify apenas hospeda a parte visual (Frontend). 
+# Para o backend (rotas /api) e Mercado Pago funcionarem, você deve hospedar
+# o código Node.js (Express) em serviços como Render.com, Railway, ou Heroku.
+# Após fazer isso, altere o URL "to" abaixo para o seu servidor backend real.
 [[redirects]]
   from = "/api/*"
-  to = "https://ais-pre-tconxsfpyuznwzskpbmftf-186769099699.us-west2.run.app/api/:splat"
+  to = "https://SEU-BACKEND-NO-RENDER-OU-RAILWAY.com/api/:splat"
   status = 200
   force = true
 
