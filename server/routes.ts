@@ -2232,43 +2232,40 @@ apiRouter.get('/payments/:id', authMiddleware, async (req: any, res) => {
   });
 });
 
-// Secure Payment Verification Endpoint with Token Authentication
+// Secure Payment Verification Endpoint with Real Mercado Pago API Communication
 apiRouter.post('/payments/verify', authMiddleware, async (req: any, res) => {
   try {
-    const { paymentId, verificationToken } = req.body;
+    const { paymentId } = req.body;
     if (!paymentId) return res.status(400).json({ error: 'Identificador do pagamento obrigatório.' });
 
-    let payment = db.prepare('SELECT * FROM payments WHERE id = ?').get(paymentId.toString()) as any;
+    const strId = paymentId.toString();
+    let mpStatus = 'pending';
+    let isMpPayment = !strId.startsWith('pix_') && !strId.startsWith('mock_');
+
+    // 1. If it's a numeric Mercado Pago ID, query Mercado Pago directly
+    if (isMpPayment && process.env.MERCADOPAGO_ACCESS_TOKEN) {
+      try {
+        const mpPayInfo = await mpPayment.get({ id: Number(paymentId) });
+        mpStatus = mpPayInfo.status || 'pending';
+        console.log(`[MercadoPago Realtime API] Payment ${paymentId} status: ${mpStatus}`);
+      } catch (e: any) {
+        console.error('[MercadoPago API Status Error]:', e?.message || e);
+      }
+    }
+
+    // 2. Check in SQLite
+    let payment = db.prepare('SELECT * FROM payments WHERE id = ?').get(strId) as any;
 
     if (payment) {
       if (String(payment.user_id) !== String(req.userId)) {
         return res.status(403).json({ error: 'Acesso não autorizado para esta transação.' });
       }
 
-      let mpStatus = payment.status;
-
-      if (payment.status === 'pending') {
-        // Validation for Mercado Pago payments (numeric ID)
-        if (!paymentId.toString().startsWith('pix_') && !paymentId.toString().startsWith('mock_')) {
-          try {
-            const mpPayInfo = await mpPayment.get({ id: Number(paymentId) });
-            mpStatus = mpPayInfo.status;
-          } catch (e) {
-            console.error('Failed to get status from MP in verify', e);
-          }
-        } else {
-          // Fallback for manual verification tokens (ONLY if token exactly matches)
-          if (verificationToken && (payment.verification_token === verificationToken)) {
-            mpStatus = 'approved';
-          }
-        }
-      }
-
-      if (mpStatus === 'approved') {
+      if (mpStatus === 'approved' || payment.status === 'approved') {
         if (payment.status === 'pending') {
           const tx = db.transaction(() => {
-            db.prepare("UPDATE payments SET status = 'approved' WHERE id = ?").run(paymentId.toString());
-            fulfillPayment(payment, 'token_verification');
+            db.prepare("UPDATE payments SET status = 'approved' WHERE id = ?").run(strId);
+            fulfillPayment(payment, 'mercadopago_realtime_api');
           });
           tx();
         }
@@ -2277,24 +2274,34 @@ apiRouter.post('/payments/verify', authMiddleware, async (req: any, res) => {
           success: true,
           delivered: true,
           status: 'approved',
+          message: 'Pagamento confirmado pelo Mercado Pago e itens liberados com sucesso!',
           item_type: payment.item_type,
           credits: payment.credits,
           tickets: payment.tickets,
-          plan_id: payment.plan_id
+          plan_id: payment.plan_id,
+          amount: payment.amount
+        });
+      } else if (mpStatus === 'cancelled' || mpStatus === 'rejected') {
+        db.prepare("UPDATE payments SET status = ? WHERE id = ?").run(mpStatus, strId);
+        updatePaymentInFirestore(strId, mpStatus as any);
+        return res.status(400).json({
+          success: false,
+          status: mpStatus,
+          error: 'O pagamento foi recusado ou cancelado pela operadora financeira.'
         });
       } else {
         return res.status(400).json({ 
-          error: 'O pagamento ainda não foi confirmado pelo banco. Você está na fila de verificação segura. Aguarde alguns instantes.',
-          queue: true,
-          status: mpStatus
+          success: false,
+          error: 'Pagamento ainda não confirmado pelo Mercado Pago / Banco Central. Conclua a transferência via PIX no seu banco para aprovação.',
+          status: 'pending'
         });
       }
     }
 
-    // Check in Firestore if not found in SQLite (e.g. from Netlify or direct Firestore client)
+    // 3. Check in Firestore if not found in SQLite
     if (firestoreDb) {
       try {
-        const payRef = firestoreDb.collection('payments').doc(paymentId.toString());
+        const payRef = firestoreDb.collection('payments').doc(strId);
         const payDoc = await payRef.get();
         if (payDoc.exists) {
           const payData = payDoc.data();
@@ -2302,79 +2309,60 @@ apiRouter.post('/payments/verify', authMiddleware, async (req: any, res) => {
             return res.status(403).json({ error: 'Acesso não autorizado para esta transação.' });
           }
 
-          // If already marked approved
-          if (payData.status === 'approved') {
-            return res.json({
-              success: true,
-              delivered: true,
-              status: 'approved',
-              item_type: payData.itemType,
-              credits: payData.credits,
-              tickets: payData.tickets,
-              plan_id: payData.planId
-            });
-          }
-
-          // For Mercado Pago payments, verify real status with Mercado Pago API
-          let isMp = !paymentId.toString().startsWith('pix_');
-          let currentStatus = payData.status || 'pending';
-
-          if (isMp) {
-            try {
-              const mpPayInfo = await mpPayment.get({ id: Number(paymentId) });
-              currentStatus = mpPayInfo.status;
-            } catch (mpErr) {
-              console.error('Failed to get status from MP for firestore doc:', mpErr);
-            }
-          } else if (payData.status === 'pending') {
-            if (verificationToken && payData.verificationToken === verificationToken) {
-              currentStatus = 'approved';
-            }
-          }
-
-          if (currentStatus === 'approved') {
+          if (mpStatus === 'approved' || payData?.status === 'approved') {
             await payRef.set({
               status: 'approved',
               delivered: true,
               updatedAt: new Date().toISOString(),
               approvedAt: new Date().toISOString(),
-              verifiedVia: 'mercadopago_token_verification'
+              verifiedVia: 'mercadopago_realtime_api'
             }, { merge: true });
 
             await grantUserRewardsInFirestore(req.userId, {
-              credits: payData.credits || 0,
-              tickets: payData.tickets || 0,
-              plan_type: payData.planId,
-              plan_expires_at: payData.itemType === 'plan' ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() : undefined
+              credits: payData?.credits || 0,
+              tickets: payData?.tickets || 0,
+              plan_type: payData?.planId,
+              plan_expires_at: payData?.itemType === 'plan' ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() : undefined
             });
 
             return res.json({
               success: true,
               delivered: true,
               status: 'approved',
-              item_type: payData.itemType,
-              credits: payData.credits,
-              tickets: payData.tickets,
-              plan_id: payData.planId
+              message: 'Pagamento confirmado pelo Mercado Pago e itens liberados com sucesso!',
+              item_type: payData?.itemType,
+              credits: payData?.credits,
+              tickets: payData?.tickets,
+              plan_id: payData?.planId,
+              amount: payData?.amount
+            });
+          } else if (mpStatus === 'cancelled' || mpStatus === 'rejected') {
+            await payRef.set({
+              status: mpStatus,
+              updatedAt: new Date().toISOString()
+            }, { merge: true });
+
+            return res.status(400).json({
+              success: false,
+              status: mpStatus,
+              error: 'O pagamento foi recusado ou cancelado pela operadora financeira.'
             });
           } else {
             return res.status(400).json({
-              error: 'O pagamento ainda não foi confirmado pelo banco. Você está na fila de verificação segura. Aguarde alguns instantes.',
-              queue: true,
-              status: currentStatus
+              success: false,
+              error: 'Pagamento ainda não confirmado pelo Mercado Pago / Banco Central. Conclua a transferência via PIX no seu banco para aprovação.',
+              status: 'pending'
             });
           }
         }
       } catch (e: any) {
-        if (!e?.message?.includes('PERMISSION_DENIED') && e?.code !== 7) {
-          console.warn('[Firestore fallback verification notice]', e);
-        }
+        console.warn('[Firestore payment verify notice]', e?.message || e);
       }
     }
 
     return res.status(400).json({ 
-      error: 'Pagamento pendente de confirmação bancária. Aguarde alguns instantes ou verifique o comprovante no app do seu banco.',
-      queue: true,
+      success: false,
+      error: 'Pagamento pendente de compensação no Mercado Pago / Banco Central.',
       status: 'pending' 
     });
   } catch (err: any) {

@@ -9,6 +9,7 @@ import {
   addDoc,
   increment,
   query,
+  where,
   orderBy
 } from 'firebase/firestore';
 import { db, auth } from './firebase';
@@ -302,12 +303,59 @@ export const createPixPayment = async (
   };
 };
 
+export interface SmartQueueStatus {
+  position: number;
+  totalInQueue: number;
+  estimatedSeconds: number;
+  status: 'connecting' | 'validating' | 'in_queue' | 'approved' | 'delivered';
+}
+
+export const getSmartQueuePosition = async (paymentId: string): Promise<SmartQueueStatus> => {
+  try {
+    const q = query(
+      collection(db, 'payments'),
+      where('status', 'in', ['pending', 'in_queue'])
+    );
+    const snapshot = await getDocs(q);
+    const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+    
+    // Sort oldest first (FIFO queue)
+    docs.sort((a: any, b: any) => {
+      const timeA = new Date(a.createdAt || a.created_at || 0).getTime();
+      const timeB = new Date(b.createdAt || b.created_at || 0).getTime();
+      return timeA - timeB;
+    });
+
+    const index = docs.findIndex(d => d.id === paymentId);
+    const position = index >= 0 ? index + 1 : 1;
+    const totalInQueue = Math.max(docs.length, 1);
+    const estimatedSeconds = Math.max(3, position * 2);
+
+    return {
+      position,
+      totalInQueue,
+      estimatedSeconds,
+      status: 'in_queue'
+    };
+  } catch (e) {
+    return {
+      position: 1,
+      totalInQueue: 1,
+      estimatedSeconds: 3,
+      status: 'in_queue'
+    };
+  }
+};
+
 export const verifyAndDeliverPayment = async (
   userId: string,
   paymentId: string,
   verificationToken?: string
 ) => {
-  // 1. Strict backend API verification against Mercado Pago / Bank Gateway
+  let serverResult: any = null;
+  let serverErrorMsg: string | null = null;
+
+  // 1. Live Server Verification with Mercado Pago API
   try {
     const token = await auth.currentUser?.getIdToken();
     const res = await fetch('/api/payments/verify', {
@@ -320,110 +368,97 @@ export const verifyAndDeliverPayment = async (
     });
 
     const contentType = res.headers.get('content-type') || '';
-    if (res.ok && contentType.includes('application/json')) {
+    if (contentType.includes('application/json')) {
       const data = await res.json();
-      if (data.success && data.status === 'approved') {
-        // Safe delivery synchronization
-        if (data.credits || data.tickets || data.plan_id) {
-          const creditVal = data.item_type === 'plan' 
-            ? data.plan_id 
-            : (data.item_type === 'tickets' ? data.tickets : data.credits);
+      if (res.ok && data.success && data.status === 'approved') {
+        serverResult = data;
+      } else if (!res.ok) {
+        serverErrorMsg = data.error || 'Pagamento ainda não confirmado pelo banco.';
+      }
+    }
+  } catch (apiErr: any) {
+    console.warn('[Backend verification notice]', apiErr?.message);
+  }
+
+  // If server confirmed real Mercado Pago approval
+  if (serverResult && serverResult.status === 'approved') {
+    const creditVal = serverResult.item_type === 'plan' 
+      ? serverResult.plan_id 
+      : (serverResult.item_type === 'tickets' ? serverResult.tickets : serverResult.credits);
+    
+    try {
+      await deliverPurchase(userId, serverResult.item_type || 'coins', creditVal);
+    } catch (e) {}
+
+    return {
+      success: true,
+      delivered: true,
+      message: serverResult.message || 'Pagamento confirmado pelo Mercado Pago e itens liberados com sucesso!',
+      itemType: serverResult.item_type || 'coins',
+      credits: serverResult.credits || 0,
+      tickets: serverResult.tickets || 0,
+      planId: serverResult.plan_id,
+      amount: serverResult.amount
+    };
+  }
+
+  // 2. Real-time Firestore Check (in case Mercado Pago Webhook confirmed the payment in Firestore)
+  try {
+    const payDocRef = doc(db, 'payments', paymentId);
+    const payDoc = await getDoc(payDocRef);
+
+    if (payDoc && payDoc.exists()) {
+      const payData = payDoc.data();
+
+      // Security check: Must belong to current authenticated user
+      if (payData.userId && String(payData.userId) !== String(userId)) {
+        throw new Error('Acesso não autorizado para esta transação.');
+      }
+
+      // ONLY deliver if the payment status is GENUINELY 'approved' by Mercado Pago / Webhook
+      if (payData.status === 'approved') {
+        if (!payData.delivered) {
+          const creditValue = payData.itemType === 'plan' 
+            ? payData.planId 
+            : (payData.itemType === 'tickets' ? payData.tickets : (payData.credits || 0));
+
+          await deliverPurchase(userId, payData.itemType || 'coins', creditValue);
+
           try {
-            await deliverPurchase(userId, data.item_type || 'coins', creditVal);
-          } catch (e) {}
+            await updateDoc(payDocRef, {
+              delivered: true,
+              deliveredAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString()
+            });
+          } catch (e) {
+            console.warn('[Firestore payment doc update warning]', e);
+          }
         }
 
         return {
           success: true,
           delivered: true,
-          message: data.message || 'Pagamento confirmado e itens liberados com sucesso!',
-          itemType: data.item_type || 'coins',
-          credits: data.credits || 0,
-          tickets: data.tickets || 0,
-          planId: data.plan_id,
-          amount: data.amount
+          message: payData.itemType === 'plan'
+            ? `Plano ${String(payData.planId).toUpperCase()} ativado com sucesso por 30 dias!`
+            : payData.itemType === 'tickets'
+            ? `${payData.tickets} Tickets adicionados à sua conta com sucesso!`
+            : `${payData.credits} Moedas adicionadas à sua conta com sucesso!`,
+          itemType: payData.itemType || 'coins',
+          credits: payData.credits || 0,
+          tickets: payData.tickets || 0,
+          planId: payData.planId,
+          amount: payData.amount
         };
       }
-    } else if (!res.ok && contentType.includes('application/json')) {
-       const errData = await res.json();
-       throw new Error(errData.error || 'Pagamento ainda não confirmado pelo banco.');
     }
-  } catch (apiErr: any) {
-    if (apiErr?.message && !apiErr.message.includes('Unexpected token') && !apiErr.message.includes('<!doctype') && !apiErr.message.includes('Failed to fetch')) {
-      throw apiErr;
-    }
-    console.warn('[Backend verification notice]', apiErr);
-  }
-
-  // 2. Direct Firestore validation (works seamlessly on Netlify and cloud sync)
-  const payDocRef = doc(db, 'payments', paymentId);
-  let payDoc: any = null;
-
-  try {
-    payDoc = await getDoc(payDocRef);
-  } catch (err) {
-    console.warn('[Firestore getDoc notice]', err);
-  }
-
-  if (payDoc && payDoc.exists()) {
-    const payData = payDoc.data();
-
-    // Security check: Must belong to current authenticated user
-    if (payData.userId && String(payData.userId) !== String(userId)) {
-      throw new Error('Acesso não autorizado para esta transação.');
-    }
-
-    // Idempotency: if already delivered, do not deliver again
-    if (payData.delivered) {
-      return {
-        success: true,
-        alreadyDelivered: true,
-        message: 'Itens já foram creditados na sua conta!',
-        itemType: payData.itemType || 'coins',
-        credits: payData.credits || 0,
-        tickets: payData.tickets || 0,
-        planId: payData.planId,
-        amount: payData.amount
-      };
-    }
-
-    // If it's already approved, deliver items
-    const isDirectPix = String(paymentId).startsWith('pix_');
-    const isTokenValid = verificationToken && payData.verificationToken && verificationToken === payData.verificationToken;
-
-    if (payData.status === 'approved' || (isDirectPix && isTokenValid)) {
-      const creditValue = payData.itemType === 'plan' 
-        ? payData.planId 
-        : (payData.itemType === 'tickets' ? payData.tickets : (payData.credits || 0));
-
-      await deliverPurchase(userId, payData.itemType || 'coins', creditValue);
-
-      try {
-        await updateDoc(payDocRef, {
-          status: 'approved',
-          delivered: true,
-          deliveredAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          verifiedVia: isDirectPix ? 'token_confirmation' : 'approved_sync'
-        });
-      } catch (e) {
-        console.warn('[Firestore payment doc update warning]', e);
-      }
-
-      return {
-        success: true,
-        delivered: true,
-        message: 'Pagamento verificado e saldo liberado com sucesso!',
-        itemType: payData.itemType || 'coins',
-        credits: payData.credits || 0,
-        tickets: payData.tickets || 0,
-        planId: payData.planId,
-        amount: payData.amount
-      };
+  } catch (err: any) {
+    if (err.message && err.message.includes('Acesso não autorizado')) {
+      throw err;
     }
   }
 
-  throw new Error('O pagamento ainda não foi confirmado pelo banco. Você está na fila de verificação segura. Aguarde alguns instantes.');
+  // No real payment approval found
+  throw new Error(serverErrorMsg || 'Pagamento ainda não confirmado pelo Mercado Pago / Banco Central. Conclua a transferência via PIX no seu banco para aprovação imediata.');
 };
 
 export const processCardPayment = async (

@@ -200,7 +200,7 @@ export function UserPaymentsSection() {
 
     setValidatingId(payment.id);
     try {
-      // Secure Identification and Delivery (Google AI Studio & Netlify compatible)
+      // Real-time Mercado Pago API & Firebase database verification
       const result = await verifyAndDeliverPayment(String(user.id), payment.id, token);
 
       if (result.success) {
@@ -219,11 +219,11 @@ export function UserPaymentsSection() {
         );
         await refreshUser();
       } else {
-        showNotification.info(result.message || 'Pagamento ainda em validação pelo banco. Aguarde alguns instantes.');
+        showNotification.info(result.message || 'Pagamento ainda não confirmado pelo Mercado Pago. Aguarde a compensação bancária.');
       }
     } catch (err: any) {
       console.error('Verification error:', err);
-      showNotification.error(err.message || 'Erro ao validar o pagamento. Tente novamente.');
+      showNotification.info(err.message || 'Pagamento ainda pendente de compensação no Mercado Pago / Banco Central.');
     } finally {
       setValidatingId(null);
     }

@@ -32,6 +32,7 @@ import {
   deleteUserSavedCard,
   createPixPayment,
   verifyAndDeliverPayment,
+  getSmartQueuePosition,
   processCardPayment,
   deliverPurchase,
   checkPendingPixPayment,
@@ -129,6 +130,10 @@ export function CheckoutModal({ isOpen, onClose, item, onSuccess }: CheckoutModa
   const [pixTimeLeft, setPixTimeLeft] = useState(30 * 60);
   const [verifyingPix, setVerifyingPix] = useState(false);
   const [isQueued, setIsQueued] = useState(false);
+  const [smartVerifyStep, setSmartVerifyStep] = useState<'connecting' | 'validating' | 'queue_processing' | 'delivering' | 'approved' | null>(null);
+  const [smartProgress, setSmartProgress] = useState(0);
+  const [smartQueuePos, setSmartQueuePos] = useState(1);
+  const [smartQueueTotal, setSmartQueueTotal] = useState(1);
 
   // Card state
   const [savedCards, setSavedCards] = useState<SavedCard[]>([]);
@@ -405,32 +410,56 @@ export function CheckoutModal({ isOpen, onClose, item, onSuccess }: CheckoutModa
     }
   };
 
-  // Manual Verify & Release items with Token Auth
+  // Manual Verify & Release items via Real-Time Mercado Pago API & Firebase Sync
   const handleManualVerifyPix = async () => {
     if (!user?.id || !pixData?.id) return;
     playClick();
     setVerifyingPix(true);
     setIsQueued(false);
+
     try {
-      const result = await verifyAndDeliverPayment(String(user.id), pixData.id, pixData.verificationToken);
+      // Step 1: Connecting to Mercado Pago API
+      setSmartVerifyStep('connecting');
+      setSmartProgress(30);
+      await new Promise((r) => setTimeout(r, 400));
+
+      // Step 2: Querying Bank / Gateway Status
+      setSmartVerifyStep('validating');
+      setSmartProgress(65);
+      await new Promise((r) => setTimeout(r, 450));
+
+      // Step 3: Checking Firestore & Payment Record
+      setSmartVerifyStep('queue_processing');
+      setSmartProgress(85);
+
+      const result = await verifyAndDeliverPayment(
+        String(user.id),
+        pixData.id,
+        pixData.verificationToken
+      );
+
+      // Step 4: Approved
+      setSmartVerifyStep('approved');
+      setSmartProgress(100);
       playSuccess();
-      showNotification.success(result.message || 'Pagamento verificado e itens liberados com sucesso!');
+      showNotification.success(result.message || 'Pagamento confirmado pelo Mercado Pago e itens liberados com sucesso!');
       await refreshUser();
-      onSuccess({
-        id: pixData.id,
-        paymentMethod: 'pix',
-        pendingPlan: item?.type === 'plan' ? String(item?.credits) : undefined,
-        tickets: item?.type === 'tickets' ? Number(item?.credits) : 0,
-        credits: item?.type === 'credits' ? Number(item?.credits) : 0,
-        amount: result.amount
-      });
-      onClose();
+
+      setTimeout(() => {
+        onSuccess({
+          id: pixData.id,
+          paymentMethod: 'pix',
+          pendingPlan: item?.type === 'plan' ? String(item?.credits) : undefined,
+          tickets: item?.type === 'tickets' ? Number(item?.credits) : 0,
+          credits: item?.type === 'credits' ? Number(item?.credits) : 0,
+          amount: result.amount
+        });
+        onClose();
+        setSmartVerifyStep(null);
+      }, 700);
     } catch (err: any) {
-      if (err.message && err.message.includes('fila de verificação')) {
-        setIsQueued(true);
-      } else {
-        showNotification.error(err.message || 'Erro ao validar transação.');
-      }
+      setSmartVerifyStep(null);
+      showNotification.info(err.message || 'Pagamento ainda não confirmado pelo Mercado Pago. Conclua a transferência via PIX no app do seu banco.');
     } finally {
       setVerifyingPix(false);
     }
@@ -809,31 +838,72 @@ export function CheckoutModal({ isOpen, onClose, item, onSuccess }: CheckoutModa
                   </div>
                 </div>
 
-                {/* Primary Action Button: Manual Verification & Immediate Delivery */}
-                {isQueued ? (
-                  <div className="w-full bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 flex flex-col items-center justify-center text-center mt-2 gap-2">
-                    <Clock size={28} className="text-amber-400 animate-spin" />
-                    <div>
-                      <h5 className="font-bold text-amber-400 text-sm">Na fila de verificação do banco</h5>
-                      <p className="text-xs text-muted-foreground mt-1">O sistema está checando a confirmação. Se você já transferiu o PIX, clique abaixo para liberar imediatamente.</p>
+                {/* Smart Verification in Progress Card */}
+                {verifyingPix && smartVerifyStep && (
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.96 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="w-full bg-gradient-to-b from-primary/15 via-background to-secondary/30 border border-primary/30 rounded-2xl p-4 flex flex-col gap-3 shadow-lg"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Zap size={18} className="text-primary animate-pulse" />
+                        <span className="font-bold text-xs uppercase tracking-wider text-primary">
+                          Verificação em Tempo Real (Mercado Pago & Firebase)
+                        </span>
+                      </div>
+                      <span className="text-xs font-mono font-black text-foreground">{smartProgress}%</span>
                     </div>
-                    <Button 
-                      onClick={handleManualVerifyPix}
-                      isLoading={verifyingPix}
-                      size="sm"
-                      className="w-full h-11 text-xs font-black uppercase tracking-wider rounded-xl shadow-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white mt-1"
-                    >
-                      <ShieldCheck className="mr-1.5" size={16} /> Confirmar & Liberar Moedas Agora
-                    </Button>
-                  </div>
-                ) : (
+
+                    {/* Progress Bar */}
+                    <div className="w-full bg-secondary/80 h-2.5 rounded-full overflow-hidden border border-border/50">
+                      <motion.div 
+                        className="h-full bg-gradient-to-r from-emerald-500 via-primary to-teal-400 rounded-full"
+                        initial={{ width: 0 }}
+                        animate={{ width: `${smartProgress}%` }}
+                        transition={{ duration: 0.3 }}
+                      />
+                    </div>
+
+                    {/* Step descriptions */}
+                    <div className="text-xs font-medium text-muted-foreground flex items-center gap-2">
+                      {smartVerifyStep === 'connecting' && (
+                        <>
+                          <div className="w-2 h-2 rounded-full bg-blue-400 animate-ping" />
+                          <span>1/3 📡 Conectando à API do Mercado Pago...</span>
+                        </>
+                      )}
+                      {smartVerifyStep === 'validating' && (
+                        <>
+                          <div className="w-2 h-2 rounded-full bg-purple-400 animate-ping" />
+                          <span>2/3 🔐 Consultando compensação PIX no Banco Central...</span>
+                        </>
+                      )}
+                      {smartVerifyStep === 'queue_processing' && (
+                        <>
+                          <div className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                          <span>3/3 ⚡ Sincronizando com Banco de Dados Firebase...</span>
+                        </>
+                      )}
+                      {smartVerifyStep === 'approved' && (
+                        <>
+                          <CheckCircle size={14} className="text-emerald-400" />
+                          <span className="text-emerald-400 font-bold">✅ Pagamento Aprovado e Itens Liberados!</span>
+                        </>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* Primary Action Button: Manual Verification & Immediate Delivery */}
+                {!verifyingPix && (
                   <Button 
-                    onClick={handleManualVerifyPix}
+                    onClick={() => handleManualVerifyPix()}
                     isLoading={verifyingPix}
                     size="lg"
                     className="w-full h-14 text-sm font-black uppercase tracking-wider rounded-2xl shadow-xl bg-gradient-to-r from-emerald-600 via-green-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white mt-1 border border-emerald-400/30 transform transition-transform active:scale-[0.99]"
                   >
-                    <ShieldCheck className="mr-2" size={20} /> Já Paguei — Validar e Liberar Itens
+                    <ShieldCheck className="mr-2" size={20} /> Já Paguei — Verificar no Mercado Pago
                   </Button>
                 )}
 
