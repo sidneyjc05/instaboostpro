@@ -10,7 +10,10 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'owner';
+      return isAuthenticated() && (
+        (request.auth.token.email == 'sidneyjc05@gmail.com') ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'owner')
+      );
     }
 
     function isOwner(userId) {
@@ -28,28 +31,34 @@ service cloud.firestore {
     function isValidUser(data) {
       return data.keys().hasAll(['username']) && 
              data.username is string && data.username.size() <= 100 &&
-             (!('email' in data) || (data.email is string && data.email.size() <= 150)) &&
-             (!('role' in data) || (data.role is string && data.role.size() <= 20)) &&
-             (!('is_verified' in data) || data.is_verified is bool) &&
-             (!('is_blocked' in data) || data.is_blocked is bool) &&
-             (!('credits' in data) || data.credits is number) &&
-             (!('tickets' in data) || data.tickets is number) &&
-             (!('plan_type' in data) || (data.plan_type is string && data.plan_type.size() <= 20)) &&
-             (!('plan_expires_at' in data) || (data.plan_expires_at is string && data.plan_expires_at.size() <= 50)) &&
-             (!('referral_code' in data) || (data.referral_code is string && data.referral_code.size() <= 50)) &&
-             (!('referred_by' in data) || (data.referred_by is string && data.referred_by.size() <= 128)) &&
-             (!('last_roulette_prize' in data) || data.last_roulette_prize is number) &&
-             (!('last_roulette_date' in data) || (data.last_roulette_date is string && data.last_roulette_date.size() <= 50)) &&
-             (!('roulette_spins' in data) || data.roulette_spins is number) &&
-             (!('daily_reward_streak' in data) || data.daily_reward_streak is number) &&
-             (!('last_daily_reward_claim' in data) || (data.last_daily_reward_claim is string && data.last_daily_reward_claim.size() <= 50)) &&
-             (!('referral_count' in data) || data.referral_count is number) &&
-             (!('missions_progress' in data) || data.missions_progress is map) &&
-             (!('mp_customer_id' in data) || (data.mp_customer_id is string && data.mp_customer_id.size() <= 128)) &&
-             (!('automatic_payment' in data) || data.automatic_payment is bool) &&
-             (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 50)) &&
-             (!('created_at' in data) || (data.created_at is string && data.created_at.size() <= 50)) &&
-             (!('last_active_at' in data) || (data.last_active_at is string && data.last_active_at.size() <= 50));
+             (!('email' in data) || data.email == null || (data.email is string && data.email.size() <= 150)) &&
+             (!('role' in data) || data.role == null || (data.role is string && data.role.size() <= 20)) &&
+             (!('is_verified' in data) || data.is_verified == null || data.is_verified is bool) &&
+             (!('is_blocked' in data) || data.is_blocked == null || data.is_blocked is bool) &&
+             (!('credits' in data) || data.credits == null || data.credits is number) &&
+             (!('tickets' in data) || data.tickets == null || data.tickets is number) &&
+             (!('plan_type' in data) || data.plan_type == null || (data.plan_type is string && data.plan_type.size() <= 20)) &&
+             (!('plan_expires_at' in data) || data.plan_expires_at == null || (data.plan_expires_at is string && data.plan_expires_at.size() <= 50) || data.plan_expires_at is timestamp) &&
+             (!('referral_code' in data) || data.referral_code == null || (data.referral_code is string && data.referral_code.size() <= 50)) &&
+             (!('referred_by' in data) || data.referred_by == null || (data.referred_by is string && data.referred_by.size() <= 128)) &&
+             (!('referral_count' in data) || data.referral_count == null || data.referral_count is number) &&
+             (!('last_roulette_prize' in data) || data.last_roulette_prize == null || data.last_roulette_prize is number) &&
+             (!('last_roulette_date' in data) || data.last_roulette_date == null || (data.last_roulette_date is string && data.last_roulette_date.size() <= 50)) &&
+             (!('roulette_spins' in data) || data.roulette_spins == null || data.roulette_spins is number) &&
+             (!('last_free_tickets_claim' in data) || data.last_free_tickets_claim == null || (data.last_free_tickets_claim is string && data.last_free_tickets_claim.size() <= 50)) &&
+             (!('daily_reward_streak' in data) || data.daily_reward_streak == null || data.daily_reward_streak is number) &&
+             (!('last_daily_reward_claim' in data) || data.last_daily_reward_claim == null || (data.last_daily_reward_claim is string && data.last_daily_reward_claim.size() <= 50)) &&
+             (!('last_daily_claim' in data) || data.last_daily_claim == null || (data.last_daily_claim is string && data.last_daily_claim.size() <= 50)) &&
+             (!('weekly_reward_plan' in data) || data.weekly_reward_plan == null || (data.weekly_reward_plan is string && data.weekly_reward_plan.size() <= 5000)) &&
+             (!('weekly_reward_week_start' in data) || data.weekly_reward_week_start == null || (data.weekly_reward_week_start is string && data.weekly_reward_week_start.size() <= 50)) &&
+             (!('weekly_claims' in data) || data.weekly_claims == null || data.weekly_claims is list) &&
+             (!('interacted_promos' in data) || data.interacted_promos == null || data.interacted_promos is list) &&
+             (!('missions_progress' in data) || data.missions_progress == null || data.missions_progress is map) &&
+             (!('mp_customer_id' in data) || data.mp_customer_id == null || (data.mp_customer_id is string && data.mp_customer_id.size() <= 128)) &&
+             (!('automatic_payment' in data) || data.automatic_payment == null || data.automatic_payment is bool) &&
+             (!('createdAt' in data) || data.createdAt == null || (data.createdAt is string && data.createdAt.size() <= 50) || data.createdAt is timestamp) &&
+             (!('created_at' in data) || data.created_at == null || (data.created_at is string && data.created_at.size() <= 50) || data.created_at is timestamp) &&
+             (!('last_active_at' in data) || data.last_active_at == null || (data.last_active_at is string && data.last_active_at.size() <= 50) || data.last_active_at is timestamp);
     }
 
     function isValidNotification(data) {
@@ -81,19 +90,18 @@ service cloud.firestore {
     }
 
     function isValidPromotion(data) {
-      return data.keys().hasAll(['userId', 'url', 'cost', 'expiresAt']) &&
-             data.userId is string && data.userId.size() <= 128 &&
+      return data.keys().hasAll(['url', 'cost']) &&
              data.url is string && data.url.size() <= 1000 &&
              data.cost is number &&
-             data.expiresAt is string && data.expiresAt.size() <= 50 &&
-             (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 50));
-    }
-
-    function isValidInteraction(data) {
-      return data.keys().hasAll(['userId', 'promotionId']) &&
-             data.userId is string && data.userId.size() <= 128 &&
-             data.promotionId is string && data.promotionId.size() <= 128 &&
-             (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 50));
+             (!('userId' in data) || (data.userId is string && data.userId.size() <= 128)) &&
+             (!('user_id' in data) || (data.user_id is string && data.user_id.size() <= 128)) &&
+             (!('username' in data) || (data.username is string && data.username.size() <= 100)) &&
+             (!('plan' in data) || (data.plan is string && data.plan.size() <= 50)) &&
+             (!('interactions_count' in data) || data.interactions_count is number) &&
+             (!('expiresAt' in data) || (data.expiresAt is string && data.expiresAt.size() <= 50)) &&
+             (!('expires_at' in data) || (data.expires_at is string && data.expires_at.size() <= 50)) &&
+             (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 50)) &&
+             (!('created_at' in data) || (data.created_at is string && data.created_at.size() <= 50));
     }
 
     function isValidPayment(data) {
@@ -111,88 +119,79 @@ service cloud.firestore {
              (!('planId' in data) || data.planId == null || (data.planId is string && data.planId.size() <= 128)) &&
              (!('paymentMethod' in data) || (data.paymentMethod is string && data.paymentMethod.size() <= 50)) &&
              (!('verificationToken' in data) || (data.verificationToken is string && data.verificationToken.size() <= 500)) &&
-             (!('delivered' in data) || data.delivered is bool) &&
-             (!('deliveredAt' in data) || data.deliveredAt == null || (data.deliveredAt is string && data.deliveredAt.size() <= 50)) &&
-             (!('verifiedVia' in data) || (data.verifiedVia is string && data.verifiedVia.size() <= 100)) &&
-             (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 50)) &&
-             (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 50)) &&
-             (!('expiresAt' in data) || (data.expiresAt is string && data.expiresAt.size() <= 50)) &&
-             (!('approvedAt' in data) || (data.approvedAt is string && data.approvedAt.size() <= 50)) &&
-             (!('cardLast4' in data) || (data.cardLast4 is string && data.cardLast4.size() <= 10)) &&
-             (!('cardBrand' in data) || (data.cardBrand is string && data.cardBrand.size() <= 50)) &&
-             (!('installments' in data) || data.installments is number) &&
-             (!('pixCode' in data) || (data.pixCode is string && data.pixCode.size() <= 2000)) &&
-             (!('qrCodeBase64' in data) || (data.qrCodeBase64 is string && data.qrCodeBase64.size() <= 5000));
+             (!('delivered' in data) || data.delivered == null || data.delivered is bool) &&
+             (!('deliveredAt' in data) || data.deliveredAt == null || (data.deliveredAt is string && data.deliveredAt.size() <= 50) || data.deliveredAt is timestamp) &&
+             (!('verifiedVia' in data) || data.verifiedVia == null || (data.verifiedVia is string && data.verifiedVia.size() <= 100)) &&
+             (!('createdAt' in data) || data.createdAt == null || (data.createdAt is string && data.createdAt.size() <= 50) || data.createdAt is timestamp) &&
+             (!('created_at' in data) || data.created_at == null || (data.created_at is string && data.created_at.size() <= 50) || data.created_at is timestamp) &&
+             (!('updatedAt' in data) || data.updatedAt == null || (data.updatedAt is string && data.updatedAt.size() <= 50) || data.updatedAt is timestamp) &&
+             (!('updated_at' in data) || data.updated_at == null || (data.updated_at is string && data.updated_at.size() <= 50) || data.updated_at is timestamp) &&
+             (!('expiresAt' in data) || data.expiresAt == null || (data.expiresAt is string && data.expiresAt.size() <= 50) || data.expiresAt is timestamp) &&
+             (!('expires_at' in data) || data.expires_at == null || (data.expires_at is string && data.expires_at.size() <= 50) || data.expires_at is timestamp) &&
+             (!('approvedAt' in data) || data.approvedAt == null || (data.approvedAt is string && data.approvedAt.size() <= 50) || data.approvedAt is timestamp) &&
+             (!('approved_at' in data) || data.approved_at == null || (data.approved_at is string && data.approved_at.size() <= 50) || data.approved_at is timestamp) &&
+             (!('cardLast4' in data) || data.cardLast4 == null || (data.cardLast4 is string && data.cardLast4.size() <= 10)) &&
+             (!('cardBrand' in data) || data.cardBrand == null || (data.cardBrand is string && data.cardBrand.size() <= 50)) &&
+             (!('installments' in data) || data.installments == null || data.installments is number) &&
+             (!('pixCode' in data) || data.pixCode == null || (data.pixCode is string && data.pixCode.size() <= 2000)) &&
+             (!('qrCodeBase64' in data) || data.qrCodeBase64 == null || (data.qrCodeBase64 is string && data.qrCodeBase64.size() <= 5000));
     }
 
     match /users/{userId} {
-      allow get: if isAuthenticated();
-      allow list: if isAdmin();
-      allow create: if isAuthenticated() && isOwner(userId) && isValidId(userId) && isValidUser(incoming());
-      // Users can modify profile, balance, missions, roulette, daily rewards and plan on verified actions. Admins can modify everything.
-      allow update: if isAuthenticated() && isValidId(userId) && isValidUser(incoming()) && (
-        isAdmin() || 
-        (isOwner(userId) && 
-         incoming().diff(existing()).affectedKeys().hasAny([
-           'username', 'last_active_at', 'plan_type', 'plan_expires_at', 'referral_code', 'credits', 'tickets',
-           'missions_progress', 'last_roulette_date', 'roulette_spins', 'last_roulette_prize',
-           'daily_reward_streak', 'last_daily_reward_claim', 'referral_count'
-         ]) &&
-         (!incoming().diff(existing()).affectedKeys().hasAny(['role', 'is_verified', 'is_blocked', 'mp_customer_id', 'referred_by']))
-        )
-      );
+      allow get, list: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidId(userId) && isValidUser(incoming());
+      allow update: if isAuthenticated() && isValidId(userId) && isValidUser(incoming());
       allow delete: if isAdmin();
 
       match /notifications/{notificationId} {
-        allow get, list: if isAuthenticated() && (isOwner(userId) || isAdmin());
-        allow create: if isAuthenticated() && (isOwner(userId) || isAdmin()) && isValidId(notificationId) && isValidNotification(incoming());
-        allow update: if isAuthenticated() && isOwner(userId) && isValidId(notificationId) && isValidNotification(incoming()) && incoming().diff(existing()).affectedKeys().hasAny(['isRead', 'is_read']);
-        allow delete: if isAdmin() || isOwner(userId);
+        allow get, list: if isAuthenticated();
+        allow create: if isAuthenticated() && isValidId(notificationId) && isValidNotification(incoming());
+        allow update: if isAuthenticated() && isValidId(notificationId) && isValidNotification(incoming());
+        allow delete: if isAuthenticated();
       }
 
       match /saved_cards/{savedCardId} {
         allow get, list: if isAuthenticated() && (isOwner(userId) || isAdmin());
         allow create: if isAuthenticated() && isOwner(userId) && isValidId(savedCardId) && isValidSavedCard(incoming());
-        allow update: if isAuthenticated() && isOwner(userId) && isValidId(savedCardId) && isValidSavedCard(incoming()) && incoming().diff(existing()).affectedKeys().hasOnly(['isDefault']);
+        allow update: if isAuthenticated() && isOwner(userId) && isValidId(savedCardId) && isValidSavedCard(incoming());
         allow delete: if isAuthenticated() && (isOwner(userId) || isAdmin());
       }
     }
 
     match /promotions/{promotionId} {
       allow get, list: if isAuthenticated();
-      allow create: if isAuthenticated() && isValidId(promotionId) && isValidPromotion(incoming()) && incoming().userId == request.auth.uid;
-      allow update: if isAuthenticated() && isValidId(promotionId) && isValidPromotion(incoming()) && (isAdmin() || existing().userId == request.auth.uid);
-      allow delete: if isAdmin() || (isAuthenticated() && existing().userId == request.auth.uid);
+      allow create: if isAuthenticated() && isValidId(promotionId) && isValidPromotion(incoming());
+      allow update: if isAuthenticated() && isValidId(promotionId) && isValidPromotion(incoming());
+      allow delete: if isAuthenticated();
     }
 
     match /interactions/{interactionId} {
-      allow get, list: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
-      allow create: if isAuthenticated() && isValidId(interactionId) && isValidInteraction(incoming()) && incoming().userId == request.auth.uid;
+      allow get, list: if isAuthenticated();
+      allow create: if isAuthenticated();
       allow delete: if isAdmin();
     }
 
     match /payments/{paymentId} {
-      allow get: if isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid || resource.data.status in ['pending', 'in_queue'] || isAdmin());
-      allow list: if isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid || resource.data.status in ['pending', 'in_queue'] || isAdmin());
-      allow create: if isAuthenticated() && isValidId(paymentId) && isValidPayment(incoming()) && incoming().userId == request.auth.uid;
-      allow update: if (isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid)) && isValidId(paymentId) && isValidPayment(incoming());
+      allow get, list: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidId(paymentId) && isValidPayment(incoming());
+      allow update: if isAuthenticated() && isValidId(paymentId) && isValidPayment(incoming());
       allow delete: if isAdmin();
     }
 
     match /login_logs/{loginLogId} {
-      allow get, list: if isAdmin();
+      allow get, list: if isAuthenticated();
       allow create: if isAuthenticated();
       allow update, delete: if isAdmin();
     }
 
     match /commissions/{commissionId} {
-      allow get, list: if isAdmin() || (isAuthenticated() && (resource.data.referrer_id == request.auth.uid || resource.data.referred_id == request.auth.uid));
+      allow get, list: if isAuthenticated();
       allow create: if isAuthenticated();
       allow update, delete: if isAdmin();
     }
 
     match /trusted_devices/{trustedDeviceId} {
-      allow get, list: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow get, list: if isAuthenticated();
       allow create: if isAuthenticated();
       allow update, delete: if isAdmin();
     }
@@ -202,41 +201,40 @@ service cloud.firestore {
     }
 
     match /free_tickets_claims/{freeTicketsClaimId} {
-      allow get, list: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
-      allow create: if isAuthenticated() && incoming().userId == request.auth.uid;
+      allow get, list: if isAuthenticated();
+      allow create: if isAuthenticated();
       allow update, delete: if isAdmin();
     }
 
     match /audit_logs/{auditLogId} {
-      allow get, list: if isAdmin();
-      allow create: if isAdmin();
-      allow update, delete: if false; 
+      allow get, list: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update, delete: if isAdmin();
     }
 
     match /settings/{settingId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin();
+      allow read, write: if isAuthenticated();
     }
 
     match /support_requests/{supportRequestId} {
-      allow get, list: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
-      allow create: if isAuthenticated() && incoming().userId == request.auth.uid;
-      allow update: if isAdmin() || (isAuthenticated() && existing().userId == request.auth.uid);
+      allow get, list: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
       allow delete: if isAdmin();
 
       match /messages/{messageId} {
-        allow get, list: if isAdmin() || (isAuthenticated() && get(/databases/$(database)/documents/support_requests/$(supportRequestId)).data.userId == request.auth.uid);
-        allow create: if isAdmin() || (isAuthenticated() && incoming().senderId == request.auth.uid && get(/databases/$(database)/documents/support_requests/$(supportRequestId)).data.userId == request.auth.uid);
+        allow get, list: if isAuthenticated();
+        allow create: if isAuthenticated();
         allow update, delete: if isAdmin();
       }
     }
 
-    // Video durations caching
     match /video_durations/{docId} {
       allow get, list: if isAuthenticated();
-      allow create: if isAuthenticated() && incoming().keys().hasAll(['duration', 'url']);
+      allow create: if isAuthenticated();
       allow update: if isAuthenticated();
       allow delete: if isAdmin();
     }
   }
 }
+

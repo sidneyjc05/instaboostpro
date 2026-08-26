@@ -387,11 +387,8 @@ export const verifyAndDeliverPayment = async (
       };
     }
 
-    const isDirectPix = String(paymentId).startsWith('pix_');
-    const isTokenValid = !verificationToken || verificationToken === payData.verificationToken || verificationToken.startsWith('AUTH-PIX-') || String(payData.userId) === String(userId);
-
-    // If it's already approved OR direct PIX verified with security token for this user
-    if (payData.status === 'approved' || (isDirectPix && isTokenValid)) {
+    // If it's already approved, deliver items
+    if (payData.status === 'approved') {
       const creditValue = payData.itemType === 'plan' 
         ? payData.planId 
         : (payData.itemType === 'tickets' ? payData.tickets : (payData.credits || 0));
@@ -404,7 +401,7 @@ export const verifyAndDeliverPayment = async (
           delivered: true,
           deliveredAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
-          verifiedVia: isDirectPix ? 'token_confirmation' : 'approved_sync'
+          verifiedVia: 'approved_sync'
         });
       } catch (e) {
         console.warn('[Firestore payment doc update warning]', e);

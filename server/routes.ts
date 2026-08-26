@@ -2245,19 +2245,22 @@ apiRouter.post('/payments/verify', authMiddleware, async (req: any, res) => {
         return res.status(403).json({ error: 'Acesso não autorizado para esta transação.' });
       }
 
-      let isMpPayment = !paymentId.toString().startsWith('pix_');
       let mpStatus = payment.status;
 
-      if (isMpPayment && payment.status === 'pending') {
-        try {
-          const mpPayInfo = await mpPayment.get({ id: Number(paymentId) });
-          mpStatus = mpPayInfo.status;
-        } catch (e) {
-          console.error('Failed to get status from MP in verify', e);
-        }
-      } else if (!isMpPayment && payment.status === 'pending') {
-        if (verificationToken && (payment.verification_token === verificationToken || String(verificationToken).startsWith('AUTH-PIX-') || String(payment.user_id) === String(req.userId))) {
-          mpStatus = 'approved';
+      if (payment.status === 'pending') {
+        // Validation for Mercado Pago payments (numeric ID)
+        if (!paymentId.toString().startsWith('pix_') && !paymentId.toString().startsWith('mock_')) {
+          try {
+            const mpPayInfo = await mpPayment.get({ id: Number(paymentId) });
+            mpStatus = mpPayInfo.status;
+          } catch (e) {
+            console.error('Failed to get status from MP in verify', e);
+          }
+        } else {
+          // Fallback for manual verification tokens (ONLY if token exactly matches)
+          if (verificationToken && (payment.verification_token === verificationToken)) {
+            mpStatus = 'approved';
+          }
         }
       }
 
@@ -2324,7 +2327,7 @@ apiRouter.post('/payments/verify', authMiddleware, async (req: any, res) => {
               console.error('Failed to get status from MP for firestore doc:', mpErr);
             }
           } else if (payData.status === 'pending') {
-            if (verificationToken && (payData.verificationToken === verificationToken || String(verificationToken).startsWith('AUTH-PIX-') || String(payData.userId) === String(req.userId))) {
+            if (verificationToken && payData.verificationToken === verificationToken) {
               currentStatus = 'approved';
             }
           }
